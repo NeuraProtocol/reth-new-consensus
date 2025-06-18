@@ -56,3 +56,6 @@ book/sources/Cargo.lock
 
 # Cargo chef recipe file
 recipe.json
+
+#reference files
+narwhal-reference-implementation/

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "FileScopeMCP": {
+      "command": "wsl",
+      "args": ["-d", "Ubuntu-24.04", "/home/peastew/src/reth-new-consensus/.cursor/run.sh"],
+      "transport": "stdio"
+    }
+  }
+}

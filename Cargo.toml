@@ -21,6 +21,8 @@ members = [
     "crates/consensus/common/",
     "crates/consensus/consensus/",
     "crates/consensus/debug-client/",
+    "crates/narwhal/",
+    "crates/bullshark/",
     "crates/e2e-test-utils/",
     "crates/engine/invalid-block-hooks/",
     "crates/engine/local",
@@ -445,6 +447,10 @@ reth-zstd-compressors = { path = "crates/storage/zstd-compressors", default-feat
 reth-ress-protocol = { path = "crates/ress/protocol" }
 reth-ress-provider = { path = "crates/ress/provider" }
 
+# Narwhal + Bullshark consensus
+narwhal = { path = "crates/narwhal" }
+bullshark = { path = "crates/bullshark" }
+
 # revm
 revm = { version = "24.0.1", default-features = false }
 revm-bytecode = { version = "4.0.0", default-features = false }
@@ -569,6 +575,7 @@ metrics-derive = "0.1"
 metrics-exporter-prometheus = { version = "0.16.0", default-features = false }
 metrics-process = "2.1.0"
 metrics-util = { default-features = false, version = "0.19.0" }
+prometheus = "0.13"
 
 # proc-macros
 proc-macro2 = "1.0"
@@ -578,6 +585,7 @@ quote = "1.0"
 tokio = { version = "1.44.2", default-features = false }
 tokio-stream = "0.1.11"
 tokio-util = { version = "0.7.4", features = ["codec"] }
+tokio-test = "0.4"
 
 # async
 async-stream = "0.3"
@@ -672,7 +680,7 @@ hash-db = "=0.15.2"
 hickory-resolver = "0.25.0"
 hmac = "0.12.1"
 human_bytes = "0.4.1"
-indexmap = "2"
+indexmap = { version = "2", features = ["serde"] }
 interprocess = "2.2.0"
 lz4_flex = { version = "0.11", default-features = false }
 memmap2 = "0.9.4"
@@ -700,6 +708,13 @@ vergen = "9.0.4"
 visibility = "0.1.1"
 walkdir = "2.3.3"
 vergen-git2 = "1.0.5"
+
+# Narwhal + Bullshark dependencies
+fastcrypto = "=0.1.2"
+anemo = { git = "https://github.com/mystenlabs/anemo.git", rev = "b145cbcf4a1917197e2b9ee6a1523afdb623dbf2" }
+anemo-tower = { git = "https://github.com/mystenlabs/anemo.git", rev = "b145cbcf4a1917197e2b9ee6a1523afdb623dbf2" }
+blake2 = "0.9"
+
 
 [patch.crates-io]
 # alloy-consensus = { git = "https://github.com/alloy-rs/alloy", branch = "main" }

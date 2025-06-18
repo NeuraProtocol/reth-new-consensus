@@ -64,5 +64,13 @@ pub use engine::EngineArgs;
 mod ress_args;
 pub use ress_args::RessArgs;
 
+/// `NarwhalBullsharkArgs` for configuring Narwhal + Bullshark consensus.
+mod narwhal_bullshark_args;
+pub use narwhal_bullshark_args::NarwhalBullsharkArgs;
+
+/// `CombinedProtocolArgs` for all optional protocols
+mod combined_args;
+pub use combined_args::CombinedProtocolArgs;
+
 mod error;
 pub mod types;

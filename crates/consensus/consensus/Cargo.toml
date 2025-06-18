@@ -14,14 +14,32 @@ workspace = true
 # reth
 reth-execution-types.workspace = true
 reth-primitives-traits.workspace = true
+reth-primitives.workspace = true
+reth-ethereum-primitives.workspace = true
 
 # ethereum
 alloy-primitives.workspace = true
 alloy-consensus.workspace = true
 
+# narwhal + bullshark consensus
+narwhal = { path = "../../narwhal" }
+bullshark = { path = "../../bullshark" }
+
+# async runtime
+tokio = { workspace = true, features = ["full"] }
+
+# crypto
+fastcrypto = "=0.1.2"
+rand_08.workspace = true
+
+# serialization
+serde = { workspace = true, features = ["derive"] }
+
 # misc
 auto_impl.workspace = true
 thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
 
 [features]
 default = ["std"]

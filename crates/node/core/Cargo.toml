@@ -47,6 +47,7 @@ eyre.workspace = true
 clap = { workspace = true, features = ["derive"] }
 humantime.workspace = true
 rand.workspace = true
+rand_08.workspace = true
 derive_more.workspace = true
 toml.workspace = true
 serde.workspace = true
@@ -65,6 +66,11 @@ secp256k1 = { workspace = true, features = ["global-context", "std", "recovery"]
 
 # async
 futures.workspace = true
+
+# narwhal + bullshark consensus
+narwhal = { path = "../../narwhal" }
+bullshark = { path = "../../bullshark" }
+fastcrypto = "=0.1.2"
 
 [dev-dependencies]
 # test vectors generation

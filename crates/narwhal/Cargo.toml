@@ -1,0 +1,65 @@
+[package]
+name = "narwhal"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "Narwhal DAG consensus implementation"
+
+[lints]
+workspace = true
+
+[dependencies]
+# async runtime
+tokio = { workspace = true, features = ["full"] }
+
+# networking  
+anemo = { git = "https://github.com/mystenlabs/anemo.git", rev = "b145cbcf4a1917197e2b9ee6a1523afdb623dbf2" }
+anemo-tower = { git = "https://github.com/mystenlabs/anemo.git", rev = "b145cbcf4a1917197e2b9ee6a1523afdb623dbf2" }
+tower = "0.4.13"
+
+# serialization
+serde = { workspace = true, features = ["derive"] }
+serde_with = "3.0"
+bincode = { workspace = true }
+
+# crypto
+blake2 = "0.9"
+fastcrypto = "=0.1.2"
+derive_builder = "0.11.2"
+rand_08 = { workspace = true }
+
+# reth dependencies (workspace internal)
+reth-primitives = { workspace = true }
+
+# alloy dependencies
+alloy-primitives = { workspace = true }
+alloy-consensus = { workspace = true }
+
+# error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# logging
+tracing = { workspace = true }
+
+# collections
+roaring = { workspace = true }
+indexmap = { workspace = true, features = ["serde"] }
+
+# utilities
+bytes = { workspace = true }
+base64 = "=0.13.0"
+prometheus = { workspace = true }
+
+#testing
+tracing-subscriber = { version = "0.3.15", features = ["time", "env-filter"] }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+
+[features]
+default = ["std"]
+std = []

@@ -22,6 +22,9 @@ use reth_primitives_traits::{
     SealedHeader,
 };
 
+/// Narwhal + Bullshark consensus integration
+pub mod narwhal_bullshark;
+
 /// A consensus implementation that does nothing.
 pub mod noop;
 

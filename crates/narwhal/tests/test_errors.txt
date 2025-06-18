@@ -1,0 +1,688 @@
+warning: extern crate `tracing_subscriber` is unused in crate `narwhal`
+  |
+  = help: remove the dependency or add `use tracing_subscriber as _;` to the crate root
+note: the lint level is defined here
+ --> crates/narwhal/src/lib.rs:6:29
+  |
+6 | #![cfg_attr(not(test), warn(unused_crate_dependencies))]
+  |                             ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `fastcrypto::traits::KeyPair`
+  --> crates/narwhal/src/network.rs:17:5
+   |
+17 | use fastcrypto::traits::KeyPair;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `rand_08`
+  --> crates/narwhal/src/network.rs:18:5
+   |
+18 | use rand_08;
+   |     ^^^^^^^
+
+warning: unused variable: `i`
+   --> crates/narwhal/src/network.rs:395:13
+    |
+395 |         for i in 0..4 {
+    |             ^ help: if this is intentional, prefix it with an underscore: `_i`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+error[E0428]: the name `test_performance_under_load` is defined multiple times
+   --> crates/narwhal/tests/integration_tests.rs:756:7
+    |
+411 | async fn test_performance_under_load() {
+    |       -------------------------------- previous definition of the value `test_performance_under_load` here
+...
+756 | async fn test_performance_under_load() {
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `test_performance_under_load` redefined here
+    |
+    = note: `test_performance_under_load` must be defined only once in the value namespace of this module
+
+error[E0432]: unresolved import `std::collections::IndexMap`
+  --> crates/narwhal/tests/integration_tests.rs:13:34
+   |
+13 | use std::collections::{BTreeSet, IndexMap};
+   |                                  ^^^^^^^^ no `IndexMap` in `collections`
+   |
+   = help: consider importing this struct instead:
+           indexmap::IndexMap
+
+error[E0425]: cannot find value `tx_sender` in this scope
+  --> crates/narwhal/tests/integration_tests.rs:74:9
+   |
+49 |     let (_tx_sender, tx_receiver) = mpsc::unbounded_channel();
+   |          ---------- `_tx_sender` defined here
+...
+74 |         tx_sender.send(tx).expect("Failed to send transaction");
+   |         ^^^^^^^^^
+   |
+help: the leading underscore in `_tx_sender` marks it as unused, consider renaming it to `tx_sender`
+   |
+49 -     let (_tx_sender, tx_receiver) = mpsc::unbounded_channel();
+49 +     let (tx_sender, tx_receiver) = mpsc::unbounded_channel();
+   |
+
+error[E0425]: cannot find value `committee_sender` in this scope
+  --> crates/narwhal/tests/integration_tests.rs:80:10
+   |
+51 |     let (_committee_sender, committee_receiver) = watch::channel(committee.clone());
+   |          ----------------- `_committee_sender` defined here
+...
+80 |     drop(committee_sender); // Clean up
+   |          ^^^^^^^^^^^^^^^^
+   |
+help: the leading underscore in `_committee_sender` marks it as unused, consider renaming it to `committee_sender`
+   |
+51 -     let (_committee_sender, committee_receiver) = watch::channel(committee.clone());
+51 +     let (committee_sender, committee_receiver) = watch::channel(committee.clone());
+   |
+
+warning: unused imports: `Certificate`, `NetworkEvent`, and `PublicKey`
+ --> crates/narwhal/tests/integration_tests.rs:4:39
+  |
+4 |     DagService, types::{Header, Vote, Certificate, Committee, PublicKey, HeaderBuilder},
+  |                                       ^^^^^^^^^^^             ^^^^^^^^^
+5 |     NarwhalNetwork, NetworkEvent, NarwhalConfig, Transaction,
+  |                     ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+error[E0061]: this function takes 7 arguments but 3 arguments were supplied
+   --> crates/narwhal/tests/integration_tests.rs:136:23
+    |
+136 |           let service = DagService::new(
+    |  _______________________^^^^^^^^^^^^^^^-
+137 | |             keypair.public().clone(),
+138 | |             committee.clone(),
+139 | |             config.clone(),
+140 | |         );
+    | |_________- multiple arguments are missing
+    |
+note: associated function defined here
+   --> /srv/tank/src/reth-new-consensus/crates/narwhal/src/dag_service.rs:53:12
+    |
+53  |     pub fn new(
+    |            ^^^
+help: provide the arguments
+    |
+136 -         let service = DagService::new(
+137 -             keypair.public().clone(),
+138 -             committee.clone(),
+139 -             config.clone(),
+140 -         );
+136 +         let service = DagService::new(keypair.public().clone(), committee.clone(), config.clone(), /* SignatureService<BLS12381Signature> */, /* UnboundedReceiver<Transaction> */, /* UnboundedSender<narwhal::Certificate> */, /* tokio::sync::watch::Receiver<Committee> */);
+    |
+
+error[E0599]: no method named `create_header` found for struct `DagService` in the current scope
+   --> crates/narwhal/tests/integration_tests.rs:145:30
+    |
+145 |     let header = services[0].create_header().await.expect("Failed to create header");
+    |                              ^^^^^^^^^^^^^ method not found in `DagService`
+
+error[E0599]: no method named `vote_on_header` found for struct `DagService` in the current scope
+   --> crates/narwhal/tests/integration_tests.rs:151:32
+    |
+151 |         let vote = services[i].vote_on_header(&header).await.expect("Failed to vote on header");
+    |                                ^^^^^^^^^^^^^^ method not found in `DagService`
+
+error[E0061]: this function takes 7 arguments but 3 arguments were supplied
+   --> crates/narwhal/tests/integration_tests.rs:168:27
+    |
+168 |       let mut dag_service = DagService::new(
+    |  ___________________________^^^^^^^^^^^^^^^-
+169 | |         keypairs[0].public().clone(),
+170 | |         committee.clone(),
+171 | |         config,
+172 | |     );
+    | |_____- multiple arguments are missing
+    |
+note: associated function defined here
+   --> /srv/tank/src/reth-new-consensus/crates/narwhal/src/dag_service.rs:53:12
+    |
+53  |     pub fn new(
+    |            ^^^
+help: provide the arguments
+    |
+168 -     let mut dag_service = DagService::new(
+169 -         keypairs[0].public().clone(),
+170 -         committee.clone(),
+171 -         config,
+172 -     );
+168 +     let mut dag_service = DagService::new(keypairs[0].public().clone(), committee.clone(), config, /* SignatureService<BLS12381Signature> */, /* UnboundedReceiver<Transaction> */, /* UnboundedSender<narwhal::Certificate> */, /* tokio::sync::watch::Receiver<Committee> */);
+    |
+
+error[E0599]: no method named `submit_transaction` found for struct `DagService` in the current scope
+   --> crates/narwhal/tests/integration_tests.rs:177:21
+    |
+177 |         dag_service.submit_transaction(tx).await.expect("Failed to submit transaction");
+    |                     ^^^^^^^^^^^^^^^^^^ method not found in `DagService`
+
+error[E0599]: no method named `create_header` found for struct `DagService` in the current scope
+   --> crates/narwhal/tests/integration_tests.rs:180:30
+    |
+180 |     let header = dag_service.create_header().await.expect("Failed to create header");
+    |                              ^^^^^^^^^^^^^ method not found in `DagService`
+
+error[E0061]: this function takes 2 arguments but 3 arguments were supplied
+   --> crates/narwhal/tests/integration_tests.rs:185:20
+    |
+185 |         let vote = Vote::new(
+    |                    ^^^^^^^^^
+...
+188 |             keypairs[i].public().clone(),
+    |             ---------------------------- unexpected argument #3 of type `BLS12381PublicKey`
+    |
+note: associated function defined here
+   --> /srv/tank/src/reth-new-consensus/crates/narwhal/src/types.rs:235:12
+    |
+235 |     pub fn new(header: &Header, author: &PublicKey) -> Self {
+    |            ^^^
+help: remove the extra argument
+    |
+187 -             header.round,
+188 -             keypairs[i].public().clone(),
+187 +             header.round,
+    |
+
+error[E0599]: no method named `try_create_certificate` found for struct `DagService` in the current scope
+   --> crates/narwhal/tests/integration_tests.rs:194:42
+    |
+194 |     let certificate_result = dag_service.try_create_certificate(&header, votes).await;
+    |                                          ^^^^^^^^^^^^^^^^^^^^^^ method not found in `DagService`
+
+error[E0061]: this function takes 7 arguments but 3 arguments were supplied
+   --> crates/narwhal/tests/integration_tests.rs:209:27
+    |
+209 |       let mut dag_service = DagService::new(
+    |  ___________________________^^^^^^^^^^^^^^^-
+210 | |         keypairs[0].public().clone(),
+211 | |         committee.clone(),
+212 | |         config,
+213 | |     );
+    | |_____- multiple arguments are missing
+    |
+note: associated function defined here
+   --> /srv/tank/src/reth-new-consensus/crates/narwhal/src/dag_service.rs:53:12
+    |
+53  |     pub fn new(
+    |            ^^^
+help: provide the arguments
+    |
+209 -     let mut dag_service = DagService::new(
+210 -         keypairs[0].public().clone(),
+211 -         committee.clone(),
+212 -         config,
+213 -     );
+209 +     let mut dag_service = DagService::new(keypairs[0].public().clone(), committee.clone(), config, /* SignatureService<BLS12381Signature> */, /* UnboundedReceiver<Transaction> */, /* UnboundedSender<narwhal::Certificate> */, /* tokio::sync::watch::Receiver<Committee> */);
+    |
+
+error[E0599]: no method named `submit_transaction` found for struct `DagService` in the current scope
+   --> crates/narwhal/tests/integration_tests.rs:222:25
+    |
+222 |             dag_service.submit_transaction(tx).await.expect("Failed to submit transaction");
+    |                         ^^^^^^^^^^^^^^^^^^ method not found in `DagService`
+
+error[E0599]: no method named `create_header` found for struct `DagService` in the current scope
+   --> crates/narwhal/tests/integration_tests.rs:226:34
+    |
+226 |         let header = dag_service.create_header().await.expect("Failed to create header");
+    |                                  ^^^^^^^^^^^^^ method not found in `DagService`
+
+error[E0061]: this function takes 2 arguments but 3 arguments were supplied
+   --> crates/narwhal/tests/integration_tests.rs:232:24
+    |
+232 |             let vote = Vote::new(
+    |                        ^^^^^^^^^
+...
+235 |                 keypairs[i].public().clone(),
+    |                 ---------------------------- unexpected argument #3 of type `BLS12381PublicKey`
+    |
+note: associated function defined here
+   --> /srv/tank/src/reth-new-consensus/crates/narwhal/src/types.rs:235:12
+    |
+235 |     pub fn new(header: &Header, author: &PublicKey) -> Self {
+    |            ^^^
+help: remove the extra argument
+    |
+234 -                 header.round,
+235 -                 keypairs[i].public().clone(),
+234 +                 header.round,
+    |
+
+error[E0599]: no method named `try_create_certificate` found for struct `DagService` in the current scope
+   --> crates/narwhal/tests/integration_tests.rs:240:39
+    |
+240 |         let certificate = dag_service.try_create_certificate(&header, votes).await
+    |                                       ^^^^^^^^^^^^^^^^^^^^^^ method not found in `DagService`
+
+error[E0599]: no method named `add_certificate` found for struct `DagService` in the current scope
+   --> crates/narwhal/tests/integration_tests.rs:244:21
+    |
+244 |         dag_service.add_certificate(certificate).await.expect("Failed to add certificate");
+    |                     ^^^^^^^^^^^^^^^ method not found in `DagService`
+
+error[E0277]: `()` is not a future
+   --> crates/narwhal/tests/integration_tests.rs:247:37
+    |
+247 |         dag_service.advance_round().await;
+    |                                    -^^^^^
+    |                                    ||
+    |                                    |`()` is not a future
+    |                                    help: remove the `.await`
+    |
+    = help: the trait `Future` is not implemented for `()`
+    = note: () must be a future or must implement `IntoFuture` to be awaited
+    = note: required for `()` to implement `IntoFuture`
+
+error[E0599]: no function or associated item named `new` found for struct `narwhal::Header` in the current scope
+   --> crates/narwhal/tests/integration_tests.rs:270:26
+    |
+270 |     let header = Header::new(
+    |                          ^^^ function or associated item not found in `Header`
+    |
+help: there is a method `ne` with a similar name, but with different arguments
+   --> /home/peastew/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/cmp.rs:262:5
+    |
+262 |     fn ne(&self, other: &Rhs) -> bool {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0061]: this function takes 7 arguments but 3 arguments were supplied
+   --> crates/narwhal/tests/integration_tests.rs:291:27
+    |
+291 |       let mut dag_service = DagService::new(
+    |  ___________________________^^^^^^^^^^^^^^^-
+292 | |         keypairs[0].public().clone(),
+293 | |         committee,
+294 | |         config,
+295 | |     );
+    | |_____- multiple arguments are missing
+    |
+note: associated function defined here
+   --> /srv/tank/src/reth-new-consensus/crates/narwhal/src/dag_service.rs:53:12
+    |
+53  |     pub fn new(
+    |            ^^^
+help: provide the arguments
+    |
+291 -     let mut dag_service = DagService::new(
+292 -         keypairs[0].public().clone(),
+293 -         committee,
+294 -         config,
+295 -     );
+291 +     let mut dag_service = DagService::new(keypairs[0].public().clone(), committee, config, /* SignatureService<BLS12381Signature> */, /* UnboundedReceiver<Transaction> */, /* UnboundedSender<narwhal::Certificate> */, /* tokio::sync::watch::Receiver<Committee> */);
+    |
+
+error[E0599]: no method named `submit_transaction` found for struct `DagService` in the current scope
+   --> crates/narwhal/tests/integration_tests.rs:301:25
+    |
+301 |             dag_service.submit_transaction(tx).await.expect("Failed to submit transaction");
+    |                         ^^^^^^^^^^^^^^^^^^ method not found in `DagService`
+
+error[E0599]: no method named `create_header` found for struct `DagService` in the current scope
+   --> crates/narwhal/tests/integration_tests.rs:304:34
+    |
+304 |         let header = dag_service.create_header().await.expect("Failed to create header");
+    |                                  ^^^^^^^^^^^^^ method not found in `DagService`
+
+error[E0061]: this function takes 2 arguments but 3 arguments were supplied
+   --> crates/narwhal/tests/integration_tests.rs:307:26
+    |
+307 |         let votes = vec![Vote::new(
+    |                          ^^^^^^^^^
+...
+310 |             keypairs[1].public().clone(),
+    |             ---------------------------- unexpected argument #3 of type `BLS12381PublicKey`
+    |
+note: associated function defined here
+   --> /srv/tank/src/reth-new-consensus/crates/narwhal/src/types.rs:235:12
+    |
+235 |     pub fn new(header: &Header, author: &PublicKey) -> Self {
+    |            ^^^
+help: remove the extra argument
+    |
+309 -             header.round,
+310 -             keypairs[1].public().clone(),
+309 +             header.round,
+    |
+
+error[E0599]: no method named `try_create_certificate` found for struct `DagService` in the current scope
+   --> crates/narwhal/tests/integration_tests.rs:313:39
+    |
+313 |         let certificate = dag_service.try_create_certificate(&header, votes).await
+    |                                       ^^^^^^^^^^^^^^^^^^^^^^ method not found in `DagService`
+
+error[E0599]: no method named `add_certificate` found for struct `DagService` in the current scope
+   --> crates/narwhal/tests/integration_tests.rs:316:21
+    |
+316 |         dag_service.add_certificate(certificate).await.expect("Failed to add certificate");
+    |                     ^^^^^^^^^^^^^^^ method not found in `DagService`
+
+error[E0277]: `()` is not a future
+   --> crates/narwhal/tests/integration_tests.rs:317:37
+    |
+317 |         dag_service.advance_round().await;
+    |                                    -^^^^^
+    |                                    ||
+    |                                    |`()` is not a future
+    |                                    help: remove the `.await`
+    |
+    = help: the trait `Future` is not implemented for `()`
+    = note: () must be a future or must implement `IntoFuture` to be awaited
+    = note: required for `()` to implement `IntoFuture`
+
+error[E0599]: no method named `garbage_collect` found for struct `DagService` in the current scope
+   --> crates/narwhal/tests/integration_tests.rs:321:17
+    |
+321 |     dag_service.garbage_collect().await;
+    |                 ^^^^^^^^^^^^^^^ method not found in `DagService`
+
+error[E0599]: no method named `stats` found for struct `DagService` in the current scope
+   --> crates/narwhal/tests/integration_tests.rs:324:29
+    |
+324 |     let stats = dag_service.stats();
+    |                             ^^^^^ method not found in `DagService`
+
+error[E0061]: this function takes 7 arguments but 3 arguments were supplied
+   --> crates/narwhal/tests/integration_tests.rs:335:27
+    |
+335 |       let mut dag_service = DagService::new(
+    |  ___________________________^^^^^^^^^^^^^^^-
+336 | |         keypairs[0].public().clone(),
+337 | |         committee,
+338 | |         config,
+339 | |     );
+    | |_____- multiple arguments are missing
+    |
+note: associated function defined here
+   --> /srv/tank/src/reth-new-consensus/crates/narwhal/src/dag_service.rs:53:12
+    |
+53  |     pub fn new(
+    |            ^^^
+help: provide the arguments
+    |
+335 -     let mut dag_service = DagService::new(
+336 -         keypairs[0].public().clone(),
+337 -         committee,
+338 -         config,
+339 -     );
+335 +     let mut dag_service = DagService::new(keypairs[0].public().clone(), committee, config, /* SignatureService<BLS12381Signature> */, /* UnboundedReceiver<Transaction> */, /* UnboundedSender<narwhal::Certificate> */, /* tokio::sync::watch::Receiver<Committee> */);
+    |
+
+error[E0599]: no method named `submit_transaction` found for struct `DagService` in the current scope
+   --> crates/narwhal/tests/integration_tests.rs:346:25
+    |
+346 |             dag_service.submit_transaction(tx).await.expect("Failed to submit transaction");
+    |                         ^^^^^^^^^^^^^^^^^^ method not found in `DagService`
+
+error[E0599]: no method named `create_header` found for struct `DagService` in the current scope
+   --> crates/narwhal/tests/integration_tests.rs:349:34
+    |
+349 |         let header = dag_service.create_header().await.expect("Failed to create header");
+    |                                  ^^^^^^^^^^^^^ method not found in `DagService`
+
+error[E0061]: this function takes 2 arguments but 3 arguments were supplied
+   --> crates/narwhal/tests/integration_tests.rs:350:26
+    |
+350 |         let votes = vec![Vote::new(header.digest(), header.round, keypairs[1].public().clone())];
+    |                          ^^^^^^^^^                                ---------------------------- unexpected argument #3 of type `BLS12381PublicKey`
+    |
+note: associated function defined here
+   --> /srv/tank/src/reth-new-consensus/crates/narwhal/src/types.rs:235:12
+    |
+235 |     pub fn new(header: &Header, author: &PublicKey) -> Self {
+    |            ^^^
+help: remove the extra argument
+    |
+350 -         let votes = vec![Vote::new(header.digest(), header.round, keypairs[1].public().clone())];
+350 +         let votes = vec![Vote::new(header.digest(), header.round)];
+    |
+
+error[E0599]: no method named `try_create_certificate` found for struct `DagService` in the current scope
+   --> crates/narwhal/tests/integration_tests.rs:351:39
+    |
+351 |         let certificate = dag_service.try_create_certificate(&header, votes).await
+    |                                       ^^^^^^^^^^^^^^^^^^^^^^ method not found in `DagService`
+
+error[E0599]: no method named `add_certificate` found for struct `DagService` in the current scope
+   --> crates/narwhal/tests/integration_tests.rs:355:21
+    |
+355 |         dag_service.add_certificate(certificate).await.expect("Failed to add certificate");
+    |                     ^^^^^^^^^^^^^^^ method not found in `DagService`
+
+error[E0277]: `()` is not a future
+   --> crates/narwhal/tests/integration_tests.rs:356:37
+    |
+356 |         dag_service.advance_round().await;
+    |                                    -^^^^^
+    |                                    ||
+    |                                    |`()` is not a future
+    |                                    help: remove the `.await`
+    |
+    = help: the trait `Future` is not implemented for `()`
+    = note: () must be a future or must implement `IntoFuture` to be awaited
+    = note: required for `()` to implement `IntoFuture`
+
+error[E0599]: no method named `get_certificate` found for struct `DagService` in the current scope
+   --> crates/narwhal/tests/integration_tests.rs:361:39
+    |
+361 |         let certificate = dag_service.get_certificate(&digest).await;
+    |                                       ^^^^^^^^^^^^^^^ method not found in `DagService`
+
+error[E0061]: this function takes 7 arguments but 3 arguments were supplied
+   --> crates/narwhal/tests/integration_tests.rs:373:27
+    |
+373 |       let mut dag_service = DagService::new(
+    |  ___________________________^^^^^^^^^^^^^^^-
+374 | |         keypairs[0].public().clone(),
+375 | |         committee.clone(),
+376 | |         config,
+377 | |     );
+    | |_____- multiple arguments are missing
+    |
+note: associated function defined here
+   --> /srv/tank/src/reth-new-consensus/crates/narwhal/src/dag_service.rs:53:12
+    |
+53  |     pub fn new(
+    |            ^^^
+help: provide the arguments
+    |
+373 -     let mut dag_service = DagService::new(
+374 -         keypairs[0].public().clone(),
+375 -         committee.clone(),
+376 -         config,
+377 -     );
+373 +     let mut dag_service = DagService::new(keypairs[0].public().clone(), committee.clone(), config, /* SignatureService<BLS12381Signature> */, /* UnboundedReceiver<Transaction> */, /* UnboundedSender<narwhal::Certificate> */, /* tokio::sync::watch::Receiver<Committee> */);
+    |
+
+error[E0599]: no method named `submit_transaction` found for struct `DagService` in the current scope
+   --> crates/narwhal/tests/integration_tests.rs:382:21
+    |
+382 |         dag_service.submit_transaction(tx).await.expect("Failed to submit transaction");
+    |                     ^^^^^^^^^^^^^^^^^^ method not found in `DagService`
+
+error[E0599]: no method named `create_header` found for struct `DagService` in the current scope
+   --> crates/narwhal/tests/integration_tests.rs:385:30
+    |
+385 |     let header = dag_service.create_header().await.expect("Failed to create header");
+    |                              ^^^^^^^^^^^^^ method not found in `DagService`
+
+error[E0061]: this function takes 2 arguments but 3 arguments were supplied
+   --> crates/narwhal/tests/integration_tests.rs:388:35
+    |
+388 |     let insufficient_votes = vec![Vote::new(
+    |                                   ^^^^^^^^^
+...
+391 |         keypairs[1].public().clone(),
+    |         ---------------------------- unexpected argument #3 of type `BLS12381PublicKey`
+    |
+note: associated function defined here
+   --> /srv/tank/src/reth-new-consensus/crates/narwhal/src/types.rs:235:12
+    |
+235 |     pub fn new(header: &Header, author: &PublicKey) -> Self {
+    |            ^^^
+help: remove the extra argument
+    |
+390 -         header.round,
+391 -         keypairs[1].public().clone(),
+390 +         header.round,
+    |
+
+error[E0599]: no method named `try_create_certificate` found for struct `DagService` in the current scope
+   --> crates/narwhal/tests/integration_tests.rs:394:42
+    |
+394 |     let certificate_result = dag_service.try_create_certificate(&header, insufficient_votes).await;
+    |                                          ^^^^^^^^^^^^^^^^^^^^^^ method not found in `DagService`
+
+error[E0061]: this function takes 2 arguments but 3 arguments were supplied
+   --> crates/narwhal/tests/integration_tests.rs:399:9
+    |
+399 |         Vote::new(header.digest(), header.round, keypairs[1].public().clone()),
+    |         ^^^^^^^^^                                ---------------------------- unexpected argument #3 of type `BLS12381PublicKey`
+    |
+note: associated function defined here
+   --> /srv/tank/src/reth-new-consensus/crates/narwhal/src/types.rs:235:12
+    |
+235 |     pub fn new(header: &Header, author: &PublicKey) -> Self {
+    |            ^^^
+help: remove the extra argument
+    |
+399 -         Vote::new(header.digest(), header.round, keypairs[1].public().clone()),
+399 +         Vote::new(header.digest(), header.round),
+    |
+
+error[E0061]: this function takes 2 arguments but 3 arguments were supplied
+   --> crates/narwhal/tests/integration_tests.rs:400:9
+    |
+400 |         Vote::new(header.digest(), header.round, keypairs[2].public().clone()),
+    |         ^^^^^^^^^                                ---------------------------- unexpected argument #3 of type `BLS12381PublicKey`
+    |
+note: associated function defined here
+   --> /srv/tank/src/reth-new-consensus/crates/narwhal/src/types.rs:235:12
+    |
+235 |     pub fn new(header: &Header, author: &PublicKey) -> Self {
+    |            ^^^
+help: remove the extra argument
+    |
+400 -         Vote::new(header.digest(), header.round, keypairs[2].public().clone()),
+400 +         Vote::new(header.digest(), header.round),
+    |
+
+error[E0599]: no method named `try_create_certificate` found for struct `DagService` in the current scope
+   --> crates/narwhal/tests/integration_tests.rs:403:42
+    |
+403 |     let certificate_result = dag_service.try_create_certificate(&header, sufficient_votes).await;
+    |                                          ^^^^^^^^^^^^^^^^^^^^^^ method not found in `DagService`
+
+error[E0061]: this function takes 7 arguments but 3 arguments were supplied
+   --> crates/narwhal/tests/integration_tests.rs:415:27
+    |
+415 |       let mut dag_service = DagService::new(
+    |  ___________________________^^^^^^^^^^^^^^^-
+416 | |         keypairs[0].public().clone(),
+417 | |         committee,
+418 | |         config,
+419 | |     );
+    | |_____- multiple arguments are missing
+    |
+note: associated function defined here
+   --> /srv/tank/src/reth-new-consensus/crates/narwhal/src/dag_service.rs:53:12
+    |
+53  |     pub fn new(
+    |            ^^^
+help: provide the arguments
+    |
+415 -     let mut dag_service = DagService::new(
+416 -         keypairs[0].public().clone(),
+417 -         committee,
+418 -         config,
+419 -     );
+415 +     let mut dag_service = DagService::new(keypairs[0].public().clone(), committee, config, /* SignatureService<BLS12381Signature> */, /* UnboundedReceiver<Transaction> */, /* UnboundedSender<narwhal::Certificate> */, /* tokio::sync::watch::Receiver<Committee> */);
+    |
+
+error[E0599]: no method named `submit_transaction` found for struct `DagService` in the current scope
+   --> crates/narwhal/tests/integration_tests.rs:428:21
+    |
+428 |         dag_service.submit_transaction(tx).await.expect("Failed to submit transaction");
+    |                     ^^^^^^^^^^^^^^^^^^ method not found in `DagService`
+
+error[E0599]: no method named `create_header` found for struct `DagService` in the current scope
+   --> crates/narwhal/tests/integration_tests.rs:432:30
+    |
+432 |     let header = dag_service.create_header().await.expect("Failed to create header");
+    |                              ^^^^^^^^^^^^^ method not found in `DagService`
+
+error[E0277]: the trait bound `&BLS12381KeyPair: Signer<BLS12381Signature>` is not satisfied
+   --> crates/narwhal/tests/integration_tests.rs:504:16
+    |
+504 |         .build(&node_keypair)
+    |          ----- ^^^^^^^^^^^^^ the trait `Signer<BLS12381Signature>` is not implemented for `&BLS12381KeyPair`
+    |          |
+    |          required by a bound introduced by this call
+    |
+note: required by a bound in `HeaderBuilder::build`
+   --> /srv/tank/src/reth-new-consensus/crates/narwhal/src/types.rs:156:12
+    |
+154 |     pub fn build<F>(self, _signer: &F) -> Result<Header, fastcrypto::traits::Error>
+    |            ----- required by a bound in this associated function
+155 |     where
+156 |         F: Signer<Signature>,
+    |            ^^^^^^^^^^^^^^^^^ required by this bound in `HeaderBuilder::build`
+help: consider removing the leading `&`-reference
+    |
+504 -         .build(&node_keypair)
+504 +         .build(node_keypair)
+    |
+
+error[E0277]: the trait bound `&BLS12381KeyPair: Signer<BLS12381Signature>` is not satisfied
+   --> crates/narwhal/tests/integration_tests.rs:651:16
+    |
+651 |         .build(&node_keypair)
+    |          ----- ^^^^^^^^^^^^^ the trait `Signer<BLS12381Signature>` is not implemented for `&BLS12381KeyPair`
+    |          |
+    |          required by a bound introduced by this call
+    |
+note: required by a bound in `HeaderBuilder::build`
+   --> /srv/tank/src/reth-new-consensus/crates/narwhal/src/types.rs:156:12
+    |
+154 |     pub fn build<F>(self, _signer: &F) -> Result<Header, fastcrypto::traits::Error>
+    |            ----- required by a bound in this associated function
+155 |     where
+156 |         F: Signer<Signature>,
+    |            ^^^^^^^^^^^^^^^^^ required by this bound in `HeaderBuilder::build`
+help: consider removing the leading `&`-reference
+    |
+651 -         .build(&node_keypair)
+651 +         .build(node_keypair)
+    |
+
+warning: unused variable: `tx_sender`
+   --> crates/narwhal/tests/integration_tests.rs:550:10
+    |
+550 |     let (tx_sender, tx_receiver) = mpsc::unbounded_channel();
+    |          ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_tx_sender`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `committee_sender`
+   --> crates/narwhal/tests/integration_tests.rs:552:10
+    |
+552 |     let (committee_sender, committee_receiver) = watch::channel(committee.clone());
+    |          ^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_committee_sender`
+
+warning: unused variable: `tx_sender`
+   --> crates/narwhal/tests/integration_tests.rs:599:10
+    |
+599 |     let (tx_sender, tx_receiver) = mpsc::unbounded_channel();
+    |          ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_tx_sender`
+
+warning: unused variable: `tx_sender`
+   --> crates/narwhal/tests/integration_tests.rs:674:14
+    |
+674 |         let (tx_sender, tx_receiver) = mpsc::unbounded_channel();
+    |              ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_tx_sender`
+
+Some errors have detailed explanations: E0061, E0277, E0425, E0428, E0432, E0599.
+For more information about an error, try `rustc --explain E0061`.
+error: could not compile `narwhal` (test "integration_tests") due to 50 previous errors; 5 warnings emitted

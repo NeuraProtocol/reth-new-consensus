@@ -1,0 +1,37 @@
+//! Configuration for Bullshark BFT consensus
+
+use narwhal::{Round, types::PublicKey};
+use serde::{Deserialize, Serialize};
+use std::time::Duration;
+use fastcrypto::traits::KeyPair;
+use rand_08;
+
+/// Configuration for Bullshark BFT consensus
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BftConfig {
+    /// This node's public key
+    pub node_key: PublicKey,
+    /// Garbage collection depth in rounds
+    pub gc_depth: Round,
+    /// Finalization timeout
+    pub finalization_timeout: Duration,
+    /// Maximum number of certificates to process per round
+    pub max_certificates_per_round: usize,
+    /// Leader rotation frequency (rounds)
+    pub leader_rotation_frequency: Round,
+}
+
+impl Default for BftConfig {
+    fn default() -> Self {
+        // Generate a dummy key for testing
+        let keypair = fastcrypto::bls12381::BLS12381KeyPair::generate(&mut rand_08::thread_rng());
+        
+        Self {
+            node_key: keypair.public().clone(),
+            gc_depth: 50,
+            finalization_timeout: Duration::from_millis(5000),
+            max_certificates_per_round: 1000,
+            leader_rotation_frequency: 2, // Change leader every 2 rounds
+        }
+    }
+} 

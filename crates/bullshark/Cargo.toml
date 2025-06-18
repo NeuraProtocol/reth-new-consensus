@@ -1,0 +1,49 @@
+[package]
+name = "bullshark"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "Bullshark BFT consensus implementation"
+
+[lints]
+workspace = true
+
+[dependencies]
+# async runtime
+tokio = { workspace = true, features = ["full"] }
+
+# serialization
+serde = { workspace = true, features = ["derive"] }
+
+# crypto
+blake2 = "=0.9"
+fastcrypto = "=0.1.2"
+rand_08 = { workspace = true }
+
+# reth dependencies are not needed in this crate
+
+# alloy dependencies
+alloy-primitives = { workspace = true }
+
+# local dependency
+narwhal = { path = "../narwhal" }
+
+# error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# logging
+tracing = { workspace = true }
+
+# No additional utilities needed
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+indexmap = { workspace = true }
+
+[features]
+default = ["std"]
+std = []
