@@ -14,12 +14,12 @@ use reth_consensus::{
         ServiceConfig,
         integration::NarwhalRethBridge,
         types::NarwhalBullsharkConfig,
-        mempool_bridge::{MempoolOperations, PoolStats, MempoolBridge},
+        mempool_bridge::{MempoolOperations, PoolStats},
         validator_keys::{ValidatorKeyPair, ValidatorRegistry, ValidatorMetadata, ValidatorKeyConfig, KeyManagementStrategy, ValidatorIdentity},
     },
     consensus_storage::MdbxConsensusStorage,
-    RethMdbxDatabaseOps,
     rpc::{ConsensusRpcImpl, ConsensusAdminRpcImpl},
+
 };
 use reth_transaction_pool::{TransactionPool, TransactionPoolExt, EthPooledTransaction, NewTransactionEvent, BlockInfo, TransactionListenerKind};
 use reth_primitives::TransactionSigned as RethTransaction;
@@ -34,6 +34,9 @@ use tracing::*;
 use fastcrypto::traits::{KeyPair, EncodeDecodeBase64};
 use anyhow::Result;
 use tokio::sync::RwLock;
+use reth_db_api::{transaction::{DbTx, DbTxMut}, cursor::DbCursorRO};
+use reth_provider::{DatabaseProviderFactory, DBProvider};
+
 
 /// Concrete implementation of MempoolOperations for Reth's transaction pool
 struct RethMempoolOperations<Pool> {
@@ -159,27 +162,21 @@ where
 
     let service_config = ServiceConfig::new(node_config, committee);
 
-    // ✅ REAL: Create consensus storage with actual MDBX database operations
+    // ✅ REAL: Create consensus storage and inject database operations
     let mut storage = MdbxConsensusStorage::new();
     
-    // ✅ REAL MDBX integration ready - temporarily using in-memory storage
-    // The MDBX integration is implemented and will be enabled when database access is available
-    // For now, the consensus storage will fall back to in-memory operations
+    // Create concrete database operations implementation using the provider
+    let db_ops = Box::new(RethDatabaseOps::new(Arc::new(provider.clone())));
+    storage.set_db_ops(db_ops);
     
-    info!(target: "reth::narwhal_bullshark", "🔧 MDBX integration architecture complete");
-    info!(target: "reth::narwhal_bullshark", "   • Extension tables defined: ConsensusFinalizedBatch, ConsensusCertificates, etc.");
-    info!(target: "reth::narwhal_bullshark", "   • Database operations implemented: RethMdbxDatabaseOps");
-    info!(target: "reth::narwhal_bullshark", "   • Storage adapter created: BullsharkMdbxAdapter");
-    info!(target: "reth::narwhal_bullshark", "   • Dependency injection pattern: No circular dependencies");
-    info!(target: "reth::narwhal_bullshark", "");
-    info!(target: "reth::narwhal_bullshark", "🏗️  Next steps for full MDBX integration:");
-    info!(target: "reth::narwhal_bullshark", "   1. Access Reth's database instance at startup");
-    info!(target: "reth::narwhal_bullshark", "   2. Call: storage.set_db_ops(Box::new(RethMdbxDatabaseOps::new(database)))");
-    info!(target: "reth::narwhal_bullshark", "   3. All consensus data will then persist to MDBX extension tables");
+    info!(target: "reth::narwhal_bullshark", "✅ REAL: Injected database operations into consensus storage");
+    info!(target: "reth::narwhal_bullshark", "✅ REAL: Connected consensus storage to Reth database");
     
-    // The storage is ready - MDBX operations will be injected when database is available
-    
-    info!(target: "reth::narwhal_bullshark", "✅ REAL: Injected MDBX database operations into consensus storage");
+    info!(target: "reth::narwhal_bullshark", "🔧 MDBX integration complete:");
+    info!(target: "reth::narwhal_bullshark", "   • Extension tables: ConsensusFinalizedBatch, ConsensusCertificates, ConsensusBatches, ConsensusDagVertices, ConsensusLatestFinalized");
+    info!(target: "reth::narwhal_bullshark", "   • Database operations: RethDatabaseOps using provider interface");
+    info!(target: "reth::narwhal_bullshark", "   • Real MDBX storage: All consensus data will be persisted to Reth's database");
+    info!(target: "reth::narwhal_bullshark", "   • Transaction processing: Ready to store consensus certificates, batches, and finalized data");
     
     let storage = Some(Arc::new(storage));
     
@@ -1696,4 +1693,150 @@ struct ExternalValidatorInfo {
     key_version: Option<u32>,
     /// External service key identifier
     external_key_id: String,
-} 
+}
+
+/// Concrete implementation of DatabaseOps that uses Reth's database provider
+/// This bridges the consensus storage with Reth's MDBX database through the provider interface
+#[derive(Debug)]
+struct RethDatabaseOps<P> {
+    provider: Arc<P>,
+}
+
+impl<P> RethDatabaseOps<P> 
+where
+    P: reth_provider::DatabaseProviderFactory + Send + Sync + std::fmt::Debug,
+{
+    fn new(provider: Arc<P>) -> Self {
+        Self { provider }
+    }
+}
+
+impl<P> reth_consensus::consensus_storage::DatabaseOps for RethDatabaseOps<P>
+where
+    P: reth_provider::DatabaseProviderFactory + Send + Sync + std::fmt::Debug,
+{
+    fn get_finalized_batch(&self, batch_id: u64) -> anyhow::Result<Option<alloy_primitives::B256>> {
+        let provider = self.provider.database_provider_ro()?;
+        use reth_consensus::{ConsensusFinalizedBatch};
+        Ok(provider.tx_ref().get::<ConsensusFinalizedBatch>(batch_id)?)
+    }
+
+    fn put_finalized_batch(&self, batch_id: u64, block_hash: alloy_primitives::B256) -> anyhow::Result<()> {
+        let provider = self.provider.database_provider_rw()?;
+        use reth_consensus::{ConsensusFinalizedBatch};
+        provider.tx_ref().put::<ConsensusFinalizedBatch>(batch_id, block_hash)?;
+        provider.commit()?;
+        Ok(())
+    }
+
+    fn get_certificate(&self, cert_id: u64) -> anyhow::Result<Option<Vec<u8>>> {
+        let provider = self.provider.database_provider_ro()?;
+        use reth_consensus::{ConsensusCertificates};
+        Ok(provider.tx_ref().get::<ConsensusCertificates>(cert_id)?)
+    }
+
+    fn put_certificate(&self, cert_id: u64, data: Vec<u8>) -> anyhow::Result<()> {
+        let provider = self.provider.database_provider_rw()?;
+        use reth_consensus::{ConsensusCertificates};
+        provider.tx_ref().put::<ConsensusCertificates>(cert_id, data)?;
+        provider.commit()?;
+        Ok(())
+    }
+
+    fn get_batch(&self, batch_id: u64) -> anyhow::Result<Option<Vec<u8>>> {
+        let provider = self.provider.database_provider_ro()?;
+        use reth_consensus::{ConsensusBatches};
+        Ok(provider.tx_ref().get::<ConsensusBatches>(batch_id)?)
+    }
+
+    fn put_batch(&self, batch_id: u64, data: Vec<u8>) -> anyhow::Result<()> {
+        let provider = self.provider.database_provider_rw()?;
+        use reth_consensus::{ConsensusBatches};
+        provider.tx_ref().put::<ConsensusBatches>(batch_id, data)?;
+        provider.commit()?;
+        Ok(())
+    }
+
+    fn get_dag_vertex(&self, hash: alloy_primitives::B256) -> anyhow::Result<Option<Vec<u8>>> {
+        let provider = self.provider.database_provider_ro()?;
+        use reth_consensus::{ConsensusDagVertices};
+        Ok(provider.tx_ref().get::<ConsensusDagVertices>(hash)?)
+    }
+
+    fn put_dag_vertex(&self, hash: alloy_primitives::B256, data: Vec<u8>) -> anyhow::Result<()> {
+        let provider = self.provider.database_provider_rw()?;
+        use reth_consensus::{ConsensusDagVertices};
+        provider.tx_ref().put::<ConsensusDagVertices>(hash, data)?;
+        provider.commit()?;
+        Ok(())
+    }
+
+    fn get_latest_finalized(&self) -> anyhow::Result<Option<u64>> {
+        let provider = self.provider.database_provider_ro()?;
+        use reth_consensus::{ConsensusLatestFinalized};
+        // Use key 0 for the single latest finalized entry
+        Ok(provider.tx_ref().get::<ConsensusLatestFinalized>(0u8)?)
+    }
+
+    fn put_latest_finalized(&self, cert_id: u64) -> anyhow::Result<()> {
+        let provider = self.provider.database_provider_rw()?;
+        use reth_consensus::{ConsensusLatestFinalized};
+        // Use key 0 for the single latest finalized entry
+        provider.tx_ref().put::<ConsensusLatestFinalized>(0u8, cert_id)?;
+        provider.commit()?;
+        Ok(())
+    }
+
+    fn list_finalized_batches(&self, limit: Option<usize>) -> anyhow::Result<Vec<(u64, alloy_primitives::B256)>> {
+        let provider = self.provider.database_provider_ro()?;
+        use reth_consensus::{ConsensusFinalizedBatch};
+        use reth_db_api::cursor::DbCursorRO;
+        
+        // Use cursor to get key-value pairs
+        let mut results = Vec::new();
+        if let Ok(mut cursor) = provider.tx_ref().cursor_read::<ConsensusFinalizedBatch>() {
+            while let Ok(Some((batch_id, block_hash))) = cursor.next() {
+                results.push((batch_id, block_hash));
+                
+                if let Some(limit) = limit {
+                    if results.len() >= limit {
+                        break;
+                    }
+                }
+            }
+        }
+        
+        Ok(results)
+    }
+
+    fn get_table_stats(&self) -> anyhow::Result<(u64, u64, u64)> {
+        let provider = self.provider.database_provider_ro()?;
+        use reth_consensus::{ConsensusCertificates, ConsensusBatches, ConsensusDagVertices};
+        use reth_db_api::cursor::DbCursorRO;
+        
+        // Count certificates and batches using cursor_read_collect (they use u64 keys)
+        let total_certificates = provider.cursor_read_collect::<ConsensusCertificates>(..)
+            .map(|certs| certs.len() as u64)
+            .unwrap_or(0);
+        
+        let total_batches = provider.cursor_read_collect::<ConsensusBatches>(..)
+            .map(|batches| batches.len() as u64)
+            .unwrap_or(0);
+        
+        // Count DAG vertices manually (they use B256 keys, not compatible with cursor_read_collect)
+        let total_dag_vertices = match provider.tx_ref().cursor_read::<ConsensusDagVertices>() {
+            Ok(mut cursor) => {
+                let mut count = 0u64;
+                while let Ok(Some(_)) = cursor.next() {
+                    count += 1;
+                }
+                count
+            }
+            Err(_) => 0,
+        };
+
+        Ok((total_certificates, total_batches, total_dag_vertices))
+    }
+}
+
+ 
