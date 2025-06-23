@@ -17,6 +17,10 @@ reth-primitives-traits.workspace = true
 reth-primitives.workspace = true
 reth-ethereum-primitives.workspace = true
 
+# reth database for consensus extension tables 
+reth-db = { workspace = true, features = ["mdbx"] }
+reth-db-api = { workspace = true }
+
 # ethereum
 alloy-primitives.workspace = true
 alloy-consensus.workspace = true
@@ -28,18 +32,31 @@ bullshark = { path = "../../bullshark" }
 # async runtime
 tokio = { workspace = true, features = ["full"] }
 
+# RPC framework
+jsonrpsee = { workspace = true, features = ["server", "macros"] }
+
 # crypto
 fastcrypto = "=0.1.2"
 rand_08.workspace = true
+secp256k1.workspace = true
+sha2.workspace = true
+sha3.workspace = true
 
 # serialization
 serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+bincode = { workspace = true }
 
 # misc
 auto_impl.workspace = true
+async-trait.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
+tempfile = { workspace = true }
+rand_08 = { workspace = true }
 
 [features]
 default = ["std"]

@@ -196,9 +196,9 @@ impl FinalityEngine {
             // In a real implementation, this would fetch batches from workers
             // For now, create dummy transactions
             for (batch_digest, _worker_id) in &certificate.header.payload {
-                let dummy_tx = format!("tx_from_batch_{}_round_{}", 
+                            let dummy_tx = format!("tx_from_batch_{}_round_{}", 
                                      batch_digest, certificate.round()).into_bytes();
-                all_transactions.push(NarwhalTransaction(dummy_tx));
+            all_transactions.push(NarwhalTransaction(dummy_tx));
             }
         }
 

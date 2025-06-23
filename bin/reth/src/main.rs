@@ -9,10 +9,12 @@ use reth_ethereum_cli::chainspec::EthereumChainSpecParser;
 use reth_node_builder::NodeHandle;
 use reth_node_ethereum::EthereumNode;
 use tracing::info;
+use std::sync::Arc;
 
 mod narwhal_bullshark;
 use narwhal_bullshark::{
     install_narwhal_bullshark_consensus, 
+    setup_mempool_integration,
     should_use_narwhal_consensus,
     consensus_mode_description,
 };
@@ -48,7 +50,8 @@ fn main() {
             if should_use_narwhal_consensus(&combined_args.narwhal_bullshark) {
                 info!(target: "reth::cli", "Enabling Narwhal + Bullshark consensus instead of standard Ethereum consensus");
                 
-                install_narwhal_bullshark_consensus(
+                // Step 1: Install basic consensus without mempool integration
+                let consensus_bridge = install_narwhal_bullshark_consensus(
                     combined_args.narwhal_bullshark,
                     node.provider.clone(),
                     node.evm_config.clone(),
@@ -57,7 +60,14 @@ fn main() {
                     node.add_ons_handle.engine_events.new_listener(),
                 )?;
 
-                info!(target: "reth::cli", "Narwhal + Bullshark consensus is now handling block production");
+                // Step 2: Set up real mempool integration
+                setup_mempool_integration(
+                    consensus_bridge,
+                    Arc::new(node.pool.clone()),
+                    node.task_executor.clone(),
+                )?;
+
+                info!(target: "reth::cli", "Narwhal + Bullshark consensus with mempool integration is now handling block production");
             }
 
             node_exit_future.await

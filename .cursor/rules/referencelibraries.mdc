@@ -1,0 +1,7 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Reference library for Narwhal + Bullshark is here /home/peastew/src/reth-new-consensus/narwhal-reference-implementation use it when looking for how to implement something, but obviously need to be changed as needed to match the actual requirements
+Reference library for Anemo is here /home/peastew/src/reth-new-consensus/anemo-reference 

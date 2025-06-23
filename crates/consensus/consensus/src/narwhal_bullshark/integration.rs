@@ -1,6 +1,9 @@
 //! Integration bridge between Narwhal/Bullshark consensus and Reth execution pipeline
 
-use crate::narwhal_bullshark::{FinalizedBatch, NarwhalBullsharkService, ServiceConfig};
+use crate::{
+    narwhal_bullshark::{FinalizedBatch, NarwhalBullsharkService, ServiceConfig, MempoolBridge},
+    consensus_storage::MdbxConsensusStorage,
+};
 use narwhal::{types::{Committee, PublicKey}, NarwhalNetwork};
 use reth_primitives::{
     TransactionSigned as RethTransaction, Header as RethHeader, SealedBlock,
@@ -20,7 +23,7 @@ pub struct NarwhalRethBridge {
     /// Networking for Narwhal
     #[allow(dead_code)]
     network: Option<NarwhalNetwork>,
-    /// Channel for receiving transactions from Reth mempool
+    /// Channel for receiving transactions from Reth mempool (fallback mode)
     transaction_sender: mpsc::UnboundedSender<RethTransaction>,
     /// Channel for receiving finalized batches
     finalized_batch_receiver: mpsc::UnboundedReceiver<FinalizedBatch>,
@@ -36,6 +39,10 @@ pub struct NarwhalRethBridge {
     /// Block execution callback
     #[allow(dead_code)]
     block_executor: Option<Arc<dyn BlockExecutor + Send + Sync>>,
+    /// MDBX storage for consensus persistence
+    storage: Option<Arc<MdbxConsensusStorage>>,
+    /// Optional mempool bridge for real pool integration (set externally)
+    mempool_bridge: Option<MempoolBridge>,
 }
 
 impl std::fmt::Debug for NarwhalRethBridge {
@@ -46,6 +53,8 @@ impl std::fmt::Debug for NarwhalRethBridge {
             .field("has_service", &self.service.is_some())
             .field("has_network", &self.network.is_some())
             .field("has_block_executor", &self.block_executor.is_some())
+            .field("has_storage", &self.storage.is_some())
+            .field("has_mempool_bridge", &self.mempool_bridge.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -64,17 +73,20 @@ pub trait BlockExecutor {
 
 impl NarwhalRethBridge {
     /// Create a new Narwhal-Reth bridge
-    pub fn new(config: ServiceConfig) -> Result<Self> {
+    pub fn new(config: ServiceConfig, storage: Option<Arc<MdbxConsensusStorage>>) -> Result<Self> {
         let (transaction_sender, transaction_receiver) = mpsc::unbounded_channel();
         let (finalized_batch_sender, finalized_batch_receiver) = mpsc::unbounded_channel();
         let (committee_sender, committee_receiver) = watch::channel(config.committee.clone());
 
         // Create networking
         let bind_address = "127.0.0.1:9000".parse().unwrap(); // TODO: Make configurable
+        info!("Starting Narwhal network on {}", bind_address);
+        let network_private_key = [0u8; 32]; // TODO: Load from config or generate securely
         let (network, _network_events) = NarwhalNetwork::new(
             config.node_config.node_public_key.clone(),
             config.committee.clone(),
             bind_address,
+            network_private_key,
         )?;
 
         let service = NarwhalBullsharkService::new(
@@ -83,6 +95,7 @@ impl NarwhalRethBridge {
             transaction_receiver,
             finalized_batch_sender,
             committee_receiver,
+            storage.clone(), // Properly inject the MDBX storage
         );
 
         Ok(Self {
@@ -95,6 +108,8 @@ impl NarwhalRethBridge {
             current_parent_hash: B256::ZERO, // Genesis parent
             execution_outcomes: Vec::new(),
             block_executor: None,
+            storage,
+            mempool_bridge: None, // TODO: Implement with_pool constructor
         })
     }
 
@@ -189,6 +204,37 @@ impl NarwhalRethBridge {
     /// Get the current parent hash
     pub fn current_parent_hash(&self) -> B256 {
         self.current_parent_hash
+    }
+
+    /// Set the mempool operations provider (dependency injection)
+    pub fn set_mempool_operations(&mut self, mempool_ops: Box<dyn super::mempool_bridge::MempoolOperations>) -> Result<()> {
+        // Create mempool bridge if it doesn't exist
+        if self.mempool_bridge.is_none() {
+            let (consensus_tx_sender, consensus_tx_receiver) = mpsc::unbounded_channel();
+            let (_finalized_batch_sender, finalized_batch_receiver) = mpsc::unbounded_channel();
+            
+            // Store the sender for transaction submission
+            self.transaction_sender = consensus_tx_sender;
+            
+            // Create the bridge
+            let mut bridge = super::mempool_bridge::MempoolBridge::new(
+                self.transaction_sender.clone(),
+                finalized_batch_receiver,
+            );
+            
+            // Set the mempool operations
+            bridge.set_mempool_operations(mempool_ops);
+            
+            self.mempool_bridge = Some(bridge);
+        } else {
+            // Bridge already exists, just set the operations
+            if let Some(ref mut bridge) = self.mempool_bridge {
+                bridge.set_mempool_operations(mempool_ops);
+            }
+        }
+        
+        info!("Mempool operations configured for consensus bridge");
+        Ok(())
     }
 }
 

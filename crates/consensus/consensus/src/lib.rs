@@ -22,8 +22,33 @@ use reth_primitives_traits::{
     SealedHeader,
 };
 
-/// Narwhal + Bullshark consensus integration
+/// Narwhal + Bullshark consensus integration for Reth
 pub mod narwhal_bullshark;
+
+/// MDBX-based consensus storage implementation
+pub mod consensus_storage;
+
+/// Consensus extension tables for MDBX
+pub mod consensus_tables;
+
+/// Storage adapter for Bullshark consensus
+pub mod bullshark_storage_adapter;
+
+/// RPC API for consensus operations
+pub mod rpc;
+
+/// Real MDBX database operations implementation
+pub mod mdbx_database_ops;
+
+// Re-export key types for easier access
+pub use consensus_tables::*;
+pub use bullshark_storage_adapter::BullsharkMdbxAdapter;
+pub use mdbx_database_ops::{
+    RethMdbxDatabaseOps, 
+    ConsensusDatabase, 
+    ConsensusDbTx, 
+    ConsensusDbTxMut
+};
 
 /// A consensus implementation that does nothing.
 pub mod noop;
@@ -431,3 +456,10 @@ impl From<InvalidTransactionError> for ConsensusError {
 #[derive(thiserror::Error, Debug)]
 #[error("Consensus error: {0}, Invalid header: {1:?}")]
 pub struct HeaderConsensusError<H>(ConsensusError, SealedHeader<H>);
+
+// Re-export key storage types for dependency injection
+pub use consensus_storage::{
+    MdbxConsensusStorage, 
+    ConsensusDbStats,
+    DatabaseOps,
+};

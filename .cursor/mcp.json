@@ -1,9 +1,19 @@
 {
   "mcpServers": {
     "FileScopeMCP": {
-      "command": "wsl",
-      "args": ["-d", "Ubuntu-24.04", "/home/peastew/src/reth-new-consensus/.cursor/run.sh"],
+      "command": "bash",
+      "args": ["/home/peastew/src/reth-new-consensus/.cursor/run.sh"],
       "transport": "stdio"
+    },
+    "memory": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@itseasy21/mcp-knowledge-graph"
+      ],
+      "env": {
+        "MEMORY_FILE_PATH": "/home/peastew/src/reth-new-consensus/.cursor/memory.jsonl"
+      }
     }
   }
 }

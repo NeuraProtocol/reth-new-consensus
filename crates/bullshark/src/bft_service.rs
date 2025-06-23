@@ -4,6 +4,7 @@ use crate::{
     BftConfig, BullsharkError, BullsharkResult, FinalizedBatchInternal, 
     consensus::{BullsharkConsensus, ConsensusProtocol, ConsensusMetrics},
     dag::BullsharkDag,
+    storage::ConsensusStorage,
 };
 use narwhal::{
     types::{Certificate, Committee},
@@ -68,6 +69,34 @@ impl BftService {
         
         // Create consensus algorithm
         let consensus = BullsharkConsensus::new(committee.clone(), config.clone());
+
+        Self {
+            config,
+            consensus,
+            dag,
+            committee,
+            certificate_receiver,
+            finalized_batch_sender,
+            current_block_number: 1,
+            consensus_index: 0,
+            metrics: ConsensusMetrics::default(),
+        }
+    }
+    
+    /// Create a new BFT service with persistent storage
+    pub fn with_storage(
+        config: BftConfig,
+        committee: Committee,
+        certificate_receiver: mpsc::UnboundedReceiver<Certificate>,
+        finalized_batch_sender: mpsc::UnboundedSender<FinalizedBatchInternal>,
+        storage: std::sync::Arc<dyn ConsensusStorage>,
+    ) -> Self {
+        // Initialize DAG with genesis certificates
+        let genesis_certificates = Certificate::genesis(&committee);
+        let dag = BullsharkDag::new(genesis_certificates);
+        
+        // Create consensus algorithm with storage
+        let consensus = BullsharkConsensus::with_storage(committee.clone(), config.clone(), storage);
 
         Self {
             config,

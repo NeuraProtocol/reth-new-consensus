@@ -50,6 +50,7 @@ reth-ress-provider.workspace = true
 
 # alloy
 alloy-rpc-types = { workspace = true, features = ["engine"] }
+alloy-primitives.workspace = true
 
 # tracing
 tracing.workspace = true
@@ -57,6 +58,7 @@ tracing.workspace = true
 # async
 tokio = { workspace = true, features = ["sync", "macros", "time", "rt-multi-thread"] }
 futures.workspace = true
+async-trait.workspace = true
 
 # narwhal + bullshark consensus
 narwhal = { path = "../../crates/narwhal" }
@@ -68,6 +70,16 @@ rand_08.workspace = true
 aquamarine.workspace = true
 clap = { workspace = true, features = ["derive", "env"] }
 eyre.workspace = true
+anyhow.workspace = true
+
+# validator key management
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+secp256k1.workspace = true
+
+# vault integration
+reqwest = { workspace = true, features = ["json"] }
+base64.workspace = true
 
 [dev-dependencies]
 backon.workspace = true

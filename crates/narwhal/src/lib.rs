@@ -5,11 +5,7 @@
 
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-// Suppress warnings for crates which may be used in tests
-#[allow(unused_extern_crates)]
-extern crate tracing_subscriber;
-#[allow(unused_extern_crates)]
-extern crate rand_08;
+// Note: moved test-only crate declarations to test modules to avoid issues
 
 pub mod dag_service;
 pub mod gossip;
@@ -21,6 +17,7 @@ pub mod metrics;
 pub mod error;
 pub mod config;
 pub mod network;
+pub mod rpc;
 
 // Re-export key types
 pub use dag_service::DagService;
@@ -34,9 +31,8 @@ pub use error::{DagError, DagResult};
 pub use network::{NarwhalNetwork, NetworkEvent};
 
 use serde::{Deserialize, Serialize};
-use reth_primitives::{Transaction as RethTransaction};
 use alloy_primitives::B256;
-use alloy_consensus::transaction::RlpEcdsaEncodableTx;
+use alloy_consensus::{Transaction as AlloyTransaction, TxEnvelope};
 use fastcrypto::Hash;
 use blake2::digest::Update;
 
@@ -45,19 +41,16 @@ use blake2::digest::Update;
 pub struct Transaction(pub Vec<u8>);
 
 impl Transaction {
-    /// Convert from a Reth transaction
-    pub fn from_reth_transaction(tx: RethTransaction) -> Self {
-        // Serialize the transaction to bytes using RLP
-        let mut buf = Vec::new();
-        tx.rlp_encode(&mut buf);
-        Transaction(buf)
+    /// Create from raw transaction bytes
+    pub fn from_bytes(bytes: Vec<u8>) -> Self {
+        Transaction(bytes)
     }
     
-    /// Convert to a Reth transaction
-    pub fn to_reth_transaction(&self) -> Result<RethTransaction, DagError> {
-        // For now, just create a placeholder transaction
-        // TODO: Implement proper RLP decoding once we understand the correct API
-        Err(DagError::InvalidTransaction("RLP decoding not yet implemented".to_string()))
+    /// Convert to alloy transaction envelope (placeholder implementation)
+    pub fn to_alloy_transaction(&self) -> Result<TxEnvelope, DagError> {
+        // For now, return an error - this would require proper RLP decoding
+        // TODO: Implement proper RLP decoding for alloy transaction types
+        Err(DagError::InvalidTransaction("Transaction decoding not yet implemented".to_string()))
     }
     
     /// Get the raw bytes

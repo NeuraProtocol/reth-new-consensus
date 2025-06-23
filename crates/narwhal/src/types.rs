@@ -114,6 +114,25 @@ impl From<CertificateDigest> for Digest {
     }
 }
 
+impl CertificateDigest {
+    /// Get the raw bytes of this digest
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+    
+    /// Convert to a 32-byte array
+    pub fn to_bytes(self) -> [u8; 32] {
+        self.0
+    }
+}
+
+// Implementation for conversion to B256 (alloy_primitives FixedBytes<32>)
+impl From<CertificateDigest> for alloy_primitives::FixedBytes<32> {
+    fn from(digest: CertificateDigest) -> Self {
+        alloy_primitives::FixedBytes::from(digest.0)
+    }
+}
+
 impl fmt::Debug for CertificateDigest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "{}", base64::encode(self.0))
@@ -150,8 +169,8 @@ pub struct Header {
 }
 
 impl HeaderBuilder {
-    /// Build a header with the given signer (signing currently stubbed out)
-    pub fn build<F>(self, _signer: &F) -> Result<Header, fastcrypto::traits::Error>
+    /// Build a header with the given signer using real cryptography
+    pub fn build<F>(self, signer: &F) -> Result<Header, fastcrypto::traits::Error>
     where
         F: Signer<Signature>,
     {
@@ -165,9 +184,13 @@ impl HeaderBuilder {
             signature: Signature::default(),
         };
 
+        let id = h.digest();
+        let id_digest: Digest = id.into();
+        let signature = signer.try_sign(id_digest.as_ref())?;
+
         Ok(Header {
-            id: h.digest(),
-            signature: Signature::default(), // TODO: Fix signing with correct fastcrypto API
+            id,
+            signature,
             ..h
         })
     }
@@ -243,14 +266,24 @@ impl Vote {
         }
     }
 
-    /// Create a new vote with signer (signing currently stubbed out)
-    pub fn new_with_signer<S>(header: &Header, author: &PublicKey, _signer: &S) -> Self
+    /// Create a new vote with signer using real cryptography
+    pub fn new_with_signer<S>(header: &Header, author: &PublicKey, signer: &S) -> Self
     where
         S: Signer<Signature>,
     {
-        // For now, just create a basic vote without signature due to trait conflicts
-        // TODO: Implement proper signing once trait conflicts are resolved
-        Self::new(header, author)
+        let vote = Self {
+            id: header.id,
+            round: header.round,
+            epoch: header.epoch,
+            origin: header.author.clone(),
+            author: author.clone(),
+            signature: Signature::default(),
+        };
+
+        let vote_digest: Digest = vote.digest().into();
+        let signature = signer.try_sign(vote_digest.as_ref()).unwrap_or_default();
+
+        Self { signature, ..vote }
     }
     
     /// Verify this vote against the committee

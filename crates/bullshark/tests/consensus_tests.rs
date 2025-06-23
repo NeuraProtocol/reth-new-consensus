@@ -2,7 +2,8 @@
 
 use bullshark::{
     BftConfig, BullsharkConsensus, BftService,
-    consensus::{ConsensusProtocol, InMemoryStorage, ConsensusStorage},
+    consensus::{ConsensusProtocol, InMemoryStorage},
+    ConsensusStorage,
     dag::{BullsharkDag},
     finality::FinalityEngine,
 };

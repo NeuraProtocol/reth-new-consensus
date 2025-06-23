@@ -11,17 +11,19 @@ pub mod finality;
 pub mod dag;
 pub mod utils;
 pub mod config;
+pub mod storage;
 
 // Re-export key types
 pub use bft_service::BftService;
 pub use consensus::BullsharkConsensus;
 pub use finality::FinalityEngine;
 pub use config::BftConfig;
+pub use storage::{ConsensusStorage, InMemoryConsensusStorage, Certificate as BullsharkCertificate, ConsensusBatch};
 
 use serde::{Deserialize, Serialize};
 use alloy_primitives::{B256};
 use narwhal::{
-    types::{Certificate},
+    types::{Certificate as NarwhalCertificate},
     Transaction as NarwhalTransaction,
     Round,
 };
@@ -40,14 +42,14 @@ pub struct FinalizedBatchInternal {
     /// Round this batch was finalized in
     pub round: Round,
     /// Certificates that led to this finalization
-    pub certificates: Vec<Certificate>,
+    pub certificates: Vec<NarwhalCertificate>,
 }
 
 /// Output from the consensus protocol
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConsensusOutput {
     /// The finalized certificate
-    pub certificate: Certificate,
+    pub certificate: NarwhalCertificate,
     /// Global consensus index
     pub consensus_index: u64,
 }

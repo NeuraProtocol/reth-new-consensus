@@ -1,0 +1,902 @@
+//! RPC API for Narwhal + Bullshark consensus operations
+//!
+//! This module provides RPC endpoints to observe and control the consensus system.
+//! These endpoints are separate from Reth's standard Ethereum RPC API.
+
+use alloy_primitives::{Address, B256, TxHash};
+use jsonrpsee::core::RpcResult;
+use jsonrpsee::proc_macros::rpc;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+/// Main consensus RPC API trait
+/// 
+/// Provides endpoints for observing and controlling the Narwhal + Bullshark consensus system.
+/// These methods give visibility into the consensus state, validator performance, and
+/// transaction flow through the consensus pipeline.
+#[rpc(server, namespace = "consensus")]
+pub trait ConsensusApi {
+    /// Get current consensus status and health information
+    #[method(name = "getStatus")]
+    async fn get_status(&self) -> RpcResult<ConsensusStatus>;
+
+    /// Get current committee information including all active validators
+    #[method(name = "getCommittee")]
+    async fn get_committee(&self) -> RpcResult<CommitteeInfo>;
+
+    /// Get detailed information about a specific validator
+    #[method(name = "getValidator")]
+    async fn get_validator(&self, address: Address) -> RpcResult<Option<ValidatorInfo>>;
+
+    /// List all validators with optional filtering
+    #[method(name = "listValidators")]
+    async fn list_validators(
+        &self, 
+        active_only: Option<bool>, 
+        limit: Option<usize>
+    ) -> RpcResult<Vec<ValidatorInfo>>;
+
+    /// Get validator performance metrics
+    #[method(name = "getValidatorMetrics")]
+    async fn get_validator_metrics(&self, address: Address) -> RpcResult<Option<ValidatorMetrics>>;
+
+    /// Get information about a specific certificate in the DAG
+    #[method(name = "getCertificate")]
+    async fn get_certificate(&self, certificate_id: B256) -> RpcResult<Option<CertificateInfo>>;
+
+    /// Get finalized batch information
+    #[method(name = "getFinalizedBatch")]
+    async fn get_finalized_batch(&self, batch_id: u64) -> RpcResult<Option<FinalizedBatchInfo>>;
+
+    /// Get recent finalized batches
+    #[method(name = "getRecentBatches")]
+    async fn get_recent_batches(&self, count: Option<usize>) -> RpcResult<Vec<FinalizedBatchInfo>>;
+
+    /// Get transaction status in the consensus pipeline
+    #[method(name = "getTransactionStatus")]
+    async fn get_transaction_status(&self, tx_hash: TxHash) -> RpcResult<Option<ConsensusTransactionStatus>>;
+
+    /// Get consensus pipeline metrics
+    #[method(name = "getMetrics")]
+    async fn get_metrics(&self) -> RpcResult<ConsensusMetrics>;
+
+    /// Get consensus configuration
+    #[method(name = "getConfig")]
+    async fn get_config(&self) -> RpcResult<ConsensusConfig>;
+}
+
+/// Administrative consensus RPC API
+/// 
+/// Provides administrative control over the consensus system.
+/// These endpoints should be restricted to authorized operators only.
+#[rpc(server, namespace = "consensus_admin")]
+pub trait ConsensusAdminApi {
+    /// Trigger a validator set update (if supported)
+    #[method(name = "updateValidatorSet")]
+    async fn update_validator_set(&self) -> RpcResult<bool>;
+
+    /// Get detailed DAG structure information
+    #[method(name = "getDagInfo")]
+    async fn get_dag_info(&self) -> RpcResult<DagInfo>;
+
+    /// Get consensus storage statistics
+    #[method(name = "getStorageStats")]
+    async fn get_storage_stats(&self) -> RpcResult<StorageStats>;
+
+    /// Compact consensus database
+    #[method(name = "compactDatabase")]
+    async fn compact_database(&self) -> RpcResult<bool>;
+
+    /// Get raw consensus internal state (for debugging)
+    #[method(name = "getInternalState")]
+    async fn get_internal_state(&self) -> RpcResult<InternalConsensusState>;
+}
+
+// ===== RPC RESPONSE TYPES =====
+
+/// Overall consensus system status
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsensusStatus {
+    /// Whether consensus is running and healthy
+    pub healthy: bool,
+    /// Current epoch number
+    pub epoch: u64,
+    /// Current round in this epoch
+    pub round: u64,
+    /// Number of active validators
+    pub active_validators: usize,
+    /// Current consensus state
+    pub state: ConsensusState,
+    /// Last finalized batch ID
+    pub last_finalized_batch: Option<u64>,
+    /// Time since last finalization (seconds)
+    pub time_since_last_finalization: Option<u64>,
+    /// Whether the consensus is currently producing new batches
+    pub is_producing: bool,
+}
+
+/// Current state of the consensus algorithm
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ConsensusState {
+    /// Consensus is initializing
+    Initializing,
+    /// Running normally
+    Running,
+    /// Waiting for more validators
+    WaitingForValidators,
+    /// In view change/leader election
+    ViewChange,
+    /// Stalled or experiencing issues
+    Stalled { reason: String },
+}
+
+/// Information about the current committee
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommitteeInfo {
+    /// Current epoch for this committee
+    pub epoch: u64,
+    /// Total number of validators
+    pub total_validators: usize,
+    /// Total stake in the committee
+    pub total_stake: u64,
+    /// Validator details
+    pub validators: Vec<ValidatorSummary>,
+    /// Stake distribution statistics
+    pub stake_distribution: StakeDistribution,
+}
+
+/// Summary information about a validator
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidatorSummary {
+    /// EVM address of the validator
+    pub evm_address: Address,
+    /// Consensus public key (base64 encoded)
+    pub consensus_key: String,
+    /// Validator stake amount
+    pub stake: u64,
+    /// Whether the validator is currently active
+    pub active: bool,
+    /// Validator name/identifier
+    pub name: Option<String>,
+}
+
+/// Detailed information about a specific validator
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidatorInfo {
+    /// Basic validator summary
+    #[serde(flatten)]
+    pub summary: ValidatorSummary,
+    /// Validator metadata
+    pub metadata: ValidatorMetadata,
+    /// Current validator status
+    pub status: ValidatorStatus,
+    /// Recent performance metrics
+    pub recent_metrics: Option<ValidatorMetrics>,
+}
+
+/// Additional metadata about a validator
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidatorMetadata {
+    /// Validator description
+    pub description: Option<String>,
+    /// Contact information
+    pub contact: Option<String>,
+    /// When this validator was first registered
+    pub registered_at: Option<u64>,
+    /// Key version (for rotation tracking)
+    pub key_version: Option<u32>,
+}
+
+/// Current status of a validator
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ValidatorStatus {
+    /// Validator is active and participating
+    Active,
+    /// Validator is temporarily offline
+    Offline,
+    /// Validator has been slashed
+    Slashed { reason: String },
+    /// Validator is being ejected from the committee
+    Ejecting,
+    /// Unknown status
+    Unknown,
+}
+
+/// Performance metrics for a validator
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidatorMetrics {
+    /// Number of certificates produced by this validator
+    pub certificates_produced: u64,
+    /// Number of certificates this validator has voted on
+    pub certificates_voted: u64,
+    /// Percentage of consensus rounds participated in
+    pub participation_rate: f64,
+    /// Average time to produce certificates (milliseconds)
+    pub avg_certificate_time: Option<u64>,
+    /// Number of missed rounds
+    pub missed_rounds: u64,
+    /// Reputation score (0.0 to 1.0)
+    pub reputation_score: f64,
+    /// Time window these metrics cover (seconds)
+    pub time_window: u64,
+}
+
+/// Information about stake distribution in the committee
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StakeDistribution {
+    /// Minimum stake among validators
+    pub min_stake: u64,
+    /// Maximum stake among validators
+    pub max_stake: u64,
+    /// Average stake per validator
+    pub avg_stake: u64,
+    /// Median stake
+    pub median_stake: u64,
+    /// Stake concentration (Gini coefficient)
+    pub concentration: f64,
+}
+
+/// Information about a certificate in the DAG
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CertificateInfo {
+    /// Certificate identifier
+    pub id: B256,
+    /// Round this certificate belongs to
+    pub round: u64,
+    /// Validator that produced this certificate
+    pub author: Address,
+    /// Parent certificates this builds upon
+    pub parents: Vec<B256>,
+    /// Transactions included in this certificate
+    pub transactions: Vec<TxHash>,
+    /// Certificate signature information
+    pub signature_info: SignatureInfo,
+    /// Whether this certificate has been finalized
+    pub finalized: bool,
+    /// Timestamp when certificate was created
+    pub timestamp: u64,
+}
+
+/// Information about certificate signatures
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignatureInfo {
+    /// Number of signatures collected
+    pub signature_count: usize,
+    /// Total stake represented by signatures
+    pub signed_stake: u64,
+    /// Whether this has enough signatures to be valid
+    pub has_quorum: bool,
+    /// Validators that signed this certificate
+    pub signers: Vec<Address>,
+}
+
+/// Information about a finalized batch
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FinalizedBatchInfo {
+    /// Batch identifier
+    pub batch_id: u64,
+    /// Epoch this batch belongs to
+    pub epoch: u64,
+    /// Round range covered by this batch
+    pub round_range: (u64, u64),
+    /// Certificates included in this batch
+    pub certificates: Vec<B256>,
+    /// Total number of transactions in this batch
+    pub transaction_count: usize,
+    /// Transactions included (may be truncated for large batches)
+    pub transactions: Vec<TxHash>,
+    /// Time when this batch was finalized
+    pub finalized_at: u64,
+    /// Size of batch data in bytes
+    pub size_bytes: usize,
+}
+
+/// Status of a transaction in the consensus pipeline
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsensusTransactionStatus {
+    /// Transaction hash
+    pub tx_hash: TxHash,
+    /// Current status in the pipeline
+    pub status: TransactionConsensusStatus,
+    /// Certificate that includes this transaction (if any)
+    pub certificate_id: Option<B256>,
+    /// Batch that finalized this transaction (if any)
+    pub finalized_batch_id: Option<u64>,
+    /// Round when this transaction was included
+    pub included_round: Option<u64>,
+    /// Time when transaction entered consensus
+    pub entered_consensus_at: Option<u64>,
+    /// Time when transaction was finalized
+    pub finalized_at: Option<u64>,
+}
+
+/// Status of a transaction in consensus
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum TransactionConsensusStatus {
+    /// Transaction is pending in the mempool
+    Pending,
+    /// Transaction has been included in a certificate
+    InCertificate,
+    /// Transaction has been finalized in a batch
+    Finalized,
+    /// Transaction was rejected or dropped
+    Rejected { reason: String },
+}
+
+/// Overall consensus system metrics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsensusMetrics {
+    /// Throughput metrics
+    pub throughput: ThroughputMetrics,
+    /// Latency metrics  
+    pub latency: LatencyMetrics,
+    /// Resource usage metrics
+    pub resources: ResourceMetrics,
+    /// Network metrics
+    pub network: NetworkMetrics,
+}
+
+/// Transaction throughput metrics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThroughputMetrics {
+    /// Transactions per second (recent average)
+    pub tps_recent: f64,
+    /// Transactions per second (all-time average)
+    pub tps_total: f64,
+    /// Certificates per second
+    pub certificates_per_second: f64,
+    /// Batches per second  
+    pub batches_per_second: f64,
+    /// Peak TPS observed
+    pub peak_tps: f64,
+}
+
+/// Transaction latency metrics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LatencyMetrics {
+    /// Average time from submission to finalization (ms)
+    pub avg_finalization_time: u64,
+    /// Median finalization time (ms)
+    pub median_finalization_time: u64,
+    /// 95th percentile finalization time (ms)
+    pub p95_finalization_time: u64,
+    /// Average time to include in certificate (ms)
+    pub avg_certificate_time: u64,
+    /// Average consensus round time (ms)
+    pub avg_round_time: u64,
+}
+
+/// Resource usage metrics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceMetrics {
+    /// Memory usage by consensus components (bytes)
+    pub memory_usage: u64,
+    /// Database size (bytes)
+    pub database_size: u64,
+    /// CPU usage percentage
+    pub cpu_usage: f64,
+    /// Network bandwidth usage (bytes/sec)
+    pub network_bandwidth: u64,
+}
+
+/// Network-related metrics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkMetrics {
+    /// Number of connected peers
+    pub connected_peers: usize,
+    /// Messages sent per second
+    pub messages_sent_per_sec: f64,
+    /// Messages received per second
+    pub messages_received_per_sec: f64,
+    /// Network health score (0.0 to 1.0)
+    pub network_health: f64,
+}
+
+/// Consensus configuration information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsensusConfig {
+    /// Consensus algorithm parameters
+    pub algorithm: AlgorithmConfig,
+    /// Network configuration
+    pub network: NetworkConfig,
+    /// Performance tuning parameters
+    pub performance: PerformanceConfig,
+}
+
+/// Algorithm-specific configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AlgorithmConfig {
+    /// Minimum number of validators required
+    pub min_validators: usize,
+    /// Maximum number of validators allowed
+    pub max_validators: Option<usize>,
+    /// Quorum threshold (as percentage)
+    pub quorum_threshold: f64,
+    /// Maximum transactions per certificate
+    pub max_transactions_per_certificate: usize,
+    /// Round timeout (milliseconds)
+    pub round_timeout_ms: u64,
+}
+
+/// Network configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkConfig {
+    /// Network listening address
+    pub listen_address: String,
+    /// Maximum message size
+    pub max_message_size: usize,
+    /// Connection timeout (milliseconds)
+    pub connection_timeout_ms: u64,
+    /// Keep-alive interval (milliseconds)
+    pub keepalive_interval_ms: u64,
+}
+
+/// Performance tuning configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PerformanceConfig {
+    /// Certificate cache size
+    pub certificate_cache_size: usize,
+    /// Transaction batch size
+    pub transaction_batch_size: usize,
+    /// Parallel processing threads
+    pub worker_threads: usize,
+    /// Memory pool size
+    pub memory_pool_size: usize,
+}
+
+// ===== ADMIN API TYPES =====
+
+/// Detailed DAG structure information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DagInfo {
+    /// Total number of certificates in DAG
+    pub total_certificates: u64,
+    /// Current DAG height (highest round)
+    pub current_height: u64,
+    /// Number of pending certificates
+    pub pending_certificates: usize,
+    /// DAG health score
+    pub health_score: f64,
+    /// Recent DAG statistics
+    pub recent_stats: DagStats,
+}
+
+/// Statistics about recent DAG activity
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DagStats {
+    /// Certificates created in last hour
+    pub certificates_last_hour: u64,
+    /// Average certificates per round
+    pub avg_certificates_per_round: f64,
+    /// Fork rate (percentage of competing certificates)
+    pub fork_rate: f64,
+    /// Average parent count per certificate
+    pub avg_parents_per_certificate: f64,
+}
+
+/// Consensus storage statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageStats {
+    /// Total database file size (bytes)
+    pub file_size: u64,
+    /// Used space (bytes)
+    pub used_size: u64,
+    /// Free space (bytes)
+    pub free_size: u64,
+    /// Number of database pages
+    pub page_count: u64,
+    /// Average page utilization
+    pub page_utilization: f64,
+    /// Number of stored certificates
+    pub certificate_count: u64,
+    /// Number of stored batches
+    pub batch_count: u64,
+    /// Database health score
+    pub health_score: f64,
+}
+
+/// Internal consensus state (for debugging)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InternalConsensusState {
+    /// Current consensus mode
+    pub mode: String,
+    /// Internal state variables
+    pub state_vars: HashMap<String, serde_json::Value>,
+    /// Recent log entries
+    pub recent_logs: Vec<LogEntry>,
+    /// Performance counters
+    pub counters: HashMap<String, u64>,
+}
+
+/// Log entry for debugging
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogEntry {
+    /// Log timestamp
+    pub timestamp: u64,
+    /// Log level
+    pub level: String,
+    /// Log message
+    pub message: String,
+    /// Component that generated the log
+    pub component: String,
+}
+
+// ===== RPC IMPLEMENTATION =====
+
+use crate::narwhal_bullshark::{integration::NarwhalRethBridge, validator_keys::ValidatorRegistry};
+use crate::consensus_storage::MdbxConsensusStorage;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use fastcrypto::traits::EncodeDecodeBase64;
+
+/// Implementation of the consensus RPC API
+/// 
+/// This struct provides the actual implementation of consensus RPC methods
+/// by interfacing with the Narwhal + Bullshark consensus system.
+pub struct ConsensusRpcImpl {
+    /// Reference to the consensus bridge
+    consensus_bridge: Arc<RwLock<NarwhalRethBridge>>,
+    /// Reference to the validator registry
+    validator_registry: Arc<RwLock<ValidatorRegistry>>,
+    /// Reference to consensus storage
+    storage: Arc<RwLock<MdbxConsensusStorage>>,
+}
+
+impl ConsensusRpcImpl {
+    /// Create a new consensus RPC implementation
+    pub fn new(
+        consensus_bridge: Arc<RwLock<NarwhalRethBridge>>,
+        validator_registry: Arc<RwLock<ValidatorRegistry>>,
+        storage: Arc<RwLock<MdbxConsensusStorage>>,
+    ) -> Self {
+        Self {
+            consensus_bridge,
+            validator_registry,
+            storage,
+        }
+    }
+}
+
+#[jsonrpsee::core::async_trait]
+impl ConsensusApiServer for ConsensusRpcImpl {
+    async fn get_status(&self) -> RpcResult<ConsensusStatus> {
+        // Get status from consensus bridge
+        let bridge = self.consensus_bridge.read().await;
+        let registry = self.validator_registry.read().await;
+        
+        // TODO: Get actual status from consensus components
+        // For now, return a placeholder implementation
+        Ok(ConsensusStatus {
+            healthy: true, // TODO: Determine from consensus state
+            epoch: 0, // TODO: Get current epoch
+            round: 0, // TODO: Get current round
+            active_validators: registry.validator_count(),
+            state: ConsensusState::Running, // TODO: Get actual state
+            last_finalized_batch: Some(0), // TODO: Get from storage
+            time_since_last_finalization: Some(0), // TODO: Calculate
+            is_producing: true, // TODO: Determine from consensus
+        })
+    }
+
+    async fn get_committee(&self) -> RpcResult<CommitteeInfo> {
+        let registry = self.validator_registry.read().await;
+        
+        let validators: Vec<ValidatorSummary> = registry
+            .all_validators()
+            .iter()
+            .map(|identity| ValidatorSummary {
+                evm_address: identity.evm_address,
+                consensus_key: identity.consensus_public_key.encode_base64(),
+                stake: 100, // TODO: Get actual stake from somewhere
+                active: true, // TODO: Determine if active
+                name: identity.metadata.name.clone(),
+            })
+            .collect();
+
+        let total_stake: u64 = validators.iter().map(|v| v.stake).sum();
+        let stakes: Vec<u64> = validators.iter().map(|v| v.stake).collect();
+        
+        let stake_distribution = if !stakes.is_empty() {
+            let mut sorted_stakes = stakes.clone();
+            sorted_stakes.sort();
+            
+            StakeDistribution {
+                min_stake: *sorted_stakes.first().unwrap_or(&0),
+                max_stake: *sorted_stakes.last().unwrap_or(&0),
+                avg_stake: total_stake / stakes.len() as u64,
+                median_stake: sorted_stakes[stakes.len() / 2],
+                concentration: calculate_gini_coefficient(&stakes),
+            }
+        } else {
+            StakeDistribution {
+                min_stake: 0,
+                max_stake: 0,
+                avg_stake: 0,
+                median_stake: 0,
+                concentration: 0.0,
+            }
+        };
+
+        Ok(CommitteeInfo {
+            epoch: 0, // TODO: Get current epoch
+            total_validators: validators.len(),
+            total_stake,
+            validators,
+            stake_distribution,
+        })
+    }
+
+    async fn get_validator(&self, address: Address) -> RpcResult<Option<ValidatorInfo>> {
+        let registry = self.validator_registry.read().await;
+        
+        if let Some(identity) = registry.get_by_evm_address(&address) {
+            let validator_info = ValidatorInfo {
+                summary: ValidatorSummary {
+                    evm_address: identity.evm_address,
+                    consensus_key: identity.consensus_public_key.encode_base64(),
+                    stake: 100, // TODO: Get actual stake
+                    active: true, // TODO: Determine if active
+                    name: identity.metadata.name.clone(),
+                },
+                metadata: ValidatorMetadata {
+                    description: identity.metadata.description.clone(),
+                    contact: identity.metadata.contact.clone(),
+                    registered_at: None, // TODO: Track registration time
+                    key_version: None, // TODO: Track key versions
+                },
+                status: ValidatorStatus::Active, // TODO: Get actual status
+                recent_metrics: None, // TODO: Implement metrics collection
+            };
+            
+            Ok(Some(validator_info))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn list_validators(
+        &self,
+        active_only: Option<bool>,
+        limit: Option<usize>,
+    ) -> RpcResult<Vec<ValidatorInfo>> {
+        let registry = self.validator_registry.read().await;
+        
+        let mut validators: Vec<ValidatorInfo> = registry
+            .all_validators()
+            .iter()
+            .filter_map(|identity| {
+                let is_active = true; // TODO: Determine if validator is active
+                
+                if active_only.unwrap_or(false) && !is_active {
+                    return None;
+                }
+                
+                Some(ValidatorInfo {
+                    summary: ValidatorSummary {
+                        evm_address: identity.evm_address,
+                        consensus_key: identity.consensus_public_key.encode_base64(),
+                        stake: 100, // TODO: Get actual stake
+                        active: is_active,
+                        name: identity.metadata.name.clone(),
+                    },
+                    metadata: ValidatorMetadata {
+                        description: identity.metadata.description.clone(),
+                        contact: identity.metadata.contact.clone(),
+                        registered_at: None,
+                        key_version: None,
+                    },
+                    status: ValidatorStatus::Active,
+                    recent_metrics: None,
+                })
+            })
+            .collect();
+
+        // Apply limit if specified
+        if let Some(limit) = limit {
+            validators.truncate(limit);
+        }
+
+        Ok(validators)
+    }
+
+    async fn get_validator_metrics(&self, address: Address) -> RpcResult<Option<ValidatorMetrics>> {
+        // TODO: Implement actual metrics collection from consensus
+        // For now, return placeholder metrics
+        let registry = self.validator_registry.read().await;
+        
+        if registry.get_by_evm_address(&address).is_some() {
+            Ok(Some(ValidatorMetrics {
+                certificates_produced: 0,
+                certificates_voted: 0,
+                participation_rate: 1.0,
+                avg_certificate_time: Some(100),
+                missed_rounds: 0,
+                reputation_score: 1.0,
+                time_window: 3600, // 1 hour
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn get_certificate(&self, certificate_id: B256) -> RpcResult<Option<CertificateInfo>> {
+        // TODO: Implement certificate lookup from storage
+        Ok(None)
+    }
+
+    async fn get_finalized_batch(&self, batch_id: u64) -> RpcResult<Option<FinalizedBatchInfo>> {
+        // TODO: Implement batch lookup from storage
+        Ok(None)
+    }
+
+    async fn get_recent_batches(&self, count: Option<usize>) -> RpcResult<Vec<FinalizedBatchInfo>> {
+        // TODO: Implement recent batches lookup from storage
+        Ok(vec![])
+    }
+
+    async fn get_transaction_status(
+        &self,
+        tx_hash: TxHash,
+    ) -> RpcResult<Option<ConsensusTransactionStatus>> {
+        // TODO: Implement transaction status lookup
+        Ok(None)
+    }
+
+    async fn get_metrics(&self) -> RpcResult<ConsensusMetrics> {
+        // TODO: Implement actual metrics collection
+        Ok(ConsensusMetrics {
+            throughput: ThroughputMetrics {
+                tps_recent: 0.0,
+                tps_total: 0.0,
+                certificates_per_second: 0.0,
+                batches_per_second: 0.0,
+                peak_tps: 0.0,
+            },
+            latency: LatencyMetrics {
+                avg_finalization_time: 1000,
+                median_finalization_time: 900,
+                p95_finalization_time: 2000,
+                avg_certificate_time: 500,
+                avg_round_time: 2000,
+            },
+            resources: ResourceMetrics {
+                memory_usage: 0,
+                database_size: 0,
+                cpu_usage: 0.0,
+                network_bandwidth: 0,
+            },
+            network: NetworkMetrics {
+                connected_peers: 0,
+                messages_sent_per_sec: 0.0,
+                messages_received_per_sec: 0.0,
+                network_health: 1.0,
+            },
+        })
+    }
+
+    async fn get_config(&self) -> RpcResult<ConsensusConfig> {
+        // TODO: Get actual configuration from consensus system
+        Ok(ConsensusConfig {
+            algorithm: AlgorithmConfig {
+                min_validators: 1,
+                max_validators: Some(1000),
+                quorum_threshold: 0.67,
+                max_transactions_per_certificate: 1000,
+                round_timeout_ms: 5000,
+            },
+            network: NetworkConfig {
+                listen_address: "0.0.0.0:8080".to_string(),
+                max_message_size: 1024 * 1024,
+                connection_timeout_ms: 30000,
+                keepalive_interval_ms: 60000,
+            },
+            performance: PerformanceConfig {
+                certificate_cache_size: 1000,
+                transaction_batch_size: 100,
+                worker_threads: 4,
+                memory_pool_size: 1024 * 1024 * 100,
+            },
+        })
+    }
+}
+
+/// Administrative RPC implementation
+pub struct ConsensusAdminRpcImpl {
+    /// Reference to the consensus RPC implementation
+    consensus_rpc: Arc<ConsensusRpcImpl>,
+}
+
+impl ConsensusAdminRpcImpl {
+    /// Create a new admin RPC implementation
+    pub fn new(consensus_rpc: Arc<ConsensusRpcImpl>) -> Self {
+        Self { consensus_rpc }
+    }
+}
+
+#[jsonrpsee::core::async_trait]
+impl ConsensusAdminApiServer for ConsensusAdminRpcImpl {
+    async fn update_validator_set(&self) -> RpcResult<bool> {
+        // TODO: Implement validator set update
+        Ok(false)
+    }
+
+    async fn get_dag_info(&self) -> RpcResult<DagInfo> {
+        // TODO: Implement DAG info collection
+        Ok(DagInfo {
+            total_certificates: 0,
+            current_height: 0,
+            pending_certificates: 0,
+            health_score: 1.0,
+            recent_stats: DagStats {
+                certificates_last_hour: 0,
+                avg_certificates_per_round: 0.0,
+                fork_rate: 0.0,
+                avg_parents_per_certificate: 0.0,
+            },
+        })
+    }
+
+    async fn get_storage_stats(&self) -> RpcResult<StorageStats> {
+        let storage = self.consensus_rpc.storage.read().await;
+        
+        // TODO: Get actual storage statistics
+        Ok(StorageStats {
+            file_size: 0,
+            used_size: 0,
+            free_size: 0,
+            page_count: 0,
+            page_utilization: 0.0,
+            certificate_count: 0,
+            batch_count: 0,
+            health_score: 1.0,
+        })
+    }
+
+    async fn compact_database(&self) -> RpcResult<bool> {
+        let mut storage = self.consensus_rpc.storage.write().await;
+        
+        match storage.compact() {
+            Ok(()) => Ok(true),
+            Err(_) => Ok(false),
+        }
+    }
+
+    async fn get_internal_state(&self) -> RpcResult<InternalConsensusState> {
+        // TODO: Implement internal state collection
+        Ok(InternalConsensusState {
+            mode: "running".to_string(),
+            state_vars: HashMap::new(),
+            recent_logs: vec![],
+            counters: HashMap::new(),
+        })
+    }
+}
+
+// ===== HELPER FUNCTIONS =====
+
+/// Calculate Gini coefficient for stake distribution
+fn calculate_gini_coefficient(stakes: &[u64]) -> f64 {
+    if stakes.len() <= 1 {
+        return 0.0;
+    }
+
+    let mut sorted_stakes = stakes.to_vec();
+    sorted_stakes.sort();
+    
+    let n = sorted_stakes.len() as f64;
+    let total: u64 = sorted_stakes.iter().sum();
+    
+    if total == 0 {
+        return 0.0;
+    }
+
+    let mut cumulative = 0u64;
+    let mut gini_sum = 0.0;
+
+    for (i, &stake) in sorted_stakes.iter().enumerate() {
+        cumulative += stake;
+        gini_sum += (2.0 * (i as f64 + 1.0) - n - 1.0) * stake as f64;
+    }
+
+    gini_sum / (n * total as f64)
+} 

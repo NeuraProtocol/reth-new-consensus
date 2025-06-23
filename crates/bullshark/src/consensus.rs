@@ -5,6 +5,7 @@ use crate::{
     dag::{BullsharkDag, Dag},
     utils::{order_leaders, order_dag},
     BftConfig,
+    storage::{ConsensusStorage, Certificate as StorageCertificate},
 };
 use narwhal::{
     Round,
@@ -35,7 +36,7 @@ pub struct BullsharkConsensus {
     committee: Committee,
     /// Configuration parameters
     config: BftConfig,
-    /// Storage for persistent state (TODO: implement proper storage)
+    /// Storage for persistent state
     storage: Option<Arc<dyn ConsensusStorage>>,
 }
 
@@ -55,7 +56,20 @@ impl BullsharkConsensus {
         Self {
             committee,
             config,
-            storage: None, // TODO: Add proper storage
+            storage: None,
+        }
+    }
+    
+    /// Create a new Bullshark consensus instance with storage
+    pub fn with_storage(
+        committee: Committee, 
+        config: BftConfig,
+        storage: Arc<dyn ConsensusStorage>
+    ) -> Self {
+        Self {
+            committee,
+            config,
+            storage: Some(storage),
         }
     }
 
@@ -161,9 +175,25 @@ impl ConsensusProtocol for BullsharkConsensus {
 
                 consensus_index += 1;
 
-                // TODO: Persist state to storage
+                // Persist certificate and state to storage
                 if let Some(storage) = &self.storage {
-                    storage.write_consensus_state(consensus_index, &cert_digest)?;
+                    // Convert narwhal certificate to storage certificate
+                    let storage_cert = StorageCertificate {
+                        batch_id: consensus_index,
+                        transactions: vec![], // TODO: extract transactions from certificate
+                        block_hash: cert_digest.into(), // Convert digest to B256
+                        timestamp: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs(),
+                        signature: vec![], // TODO: extract signature from certificate
+                    };
+                    
+                    // Store the certificate
+                    storage.store_certificate(consensus_index, storage_cert)?;
+                    
+                    // Update latest finalized
+                    storage.set_latest_finalized(consensus_index)?;
                 }
             }
         }
@@ -182,37 +212,17 @@ impl ConsensusProtocol for BullsharkConsensus {
     fn update_committee(&mut self, new_committee: Committee) -> BullsharkResult<()> {
         info!("Updating committee from epoch {} to epoch {}", 
               self.committee.epoch, new_committee.epoch);
+        
+        // TODO: Add committee storage if needed for consensus state recovery
+        
         self.committee = new_committee;
-        
-        // TODO: Clear storage on epoch change
-        if let Some(storage) = &self.storage {
-            storage.clear()?;
-        }
-        
         Ok(())
     }
 }
 
-/// Trait for consensus storage operations
-pub trait ConsensusStorage: Send + Sync {
-    /// Write consensus state to persistent storage
-    fn write_consensus_state(
-        &self,
-        consensus_index: SequenceNumber,
-        certificate_digest: &CertificateDigest,
-    ) -> BullsharkResult<()>;
 
-    /// Read the last consensus index
-    fn read_last_consensus_index(&self) -> BullsharkResult<SequenceNumber>;
 
-    /// Read the last committed state
-    fn read_last_committed(&self) -> BullsharkResult<HashMap<PublicKey, Round>>;
-
-    /// Clear all storage (used on epoch change)
-    fn clear(&self) -> BullsharkResult<()>;
-}
-
-/// In-memory storage implementation for testing
+/// Legacy in-memory storage for backwards compatibility
 #[derive(Debug)]
 pub struct InMemoryStorage {
     last_consensus_index: std::sync::Mutex<SequenceNumber>,
@@ -229,8 +239,9 @@ impl InMemoryStorage {
     }
 }
 
-impl ConsensusStorage for InMemoryStorage {
-    fn write_consensus_state(
+// Legacy storage trait implementation for backwards compatibility
+impl InMemoryStorage {
+    pub fn write_consensus_state(
         &self,
         consensus_index: SequenceNumber,
         _certificate_digest: &CertificateDigest,
@@ -240,17 +251,17 @@ impl ConsensusStorage for InMemoryStorage {
         Ok(())
     }
 
-    fn read_last_consensus_index(&self) -> BullsharkResult<SequenceNumber> {
+    pub fn read_last_consensus_index(&self) -> BullsharkResult<SequenceNumber> {
         let index = self.last_consensus_index.lock().unwrap();
         Ok(*index)
     }
 
-    fn read_last_committed(&self) -> BullsharkResult<HashMap<PublicKey, Round>> {
+    pub fn read_last_committed(&self) -> BullsharkResult<HashMap<PublicKey, Round>> {
         let committed = self.last_committed.lock().unwrap();
         Ok(committed.clone())
     }
 
-    fn clear(&self) -> BullsharkResult<()> {
+    pub fn clear(&self) -> BullsharkResult<()> {
         let mut index = self.last_consensus_index.lock().unwrap();
         let mut committed = self.last_committed.lock().unwrap();
         *index = 0;

@@ -2,13 +2,15 @@
 
 use crate::{
     types::{Certificate, Committee, Header, Vote, PublicKey, Signature}, 
-    NarwhalConfig, DagError, DagResult, Transaction, Round
+    NarwhalConfig, DagError, DagResult, Transaction, Round, Batch
 };
 use tokio::sync::{mpsc, broadcast, watch};
 use tokio::task::JoinHandle;
 use tracing::{info, warn, debug};
-use fastcrypto::SignatureService;
+use fastcrypto::{SignatureService, Hash};
 use std::sync::Arc;
+use std::collections::BTreeSet;
+use indexmap::IndexMap;
 
 /// Main service that runs the Narwhal DAG protocol
 pub struct DagService {
@@ -36,6 +38,10 @@ pub struct DagService {
     current_round: Round,
     /// Watch channel for reconfiguration
     reconfigure_receiver: watch::Receiver<Committee>,
+    /// Current batch being assembled
+    current_batch: Vec<Transaction>,
+    /// Batch creation timer
+    batch_timer: Option<tokio::time::Instant>,
 }
 
 impl std::fmt::Debug for DagService {
@@ -75,6 +81,8 @@ impl DagService {
             certificate_output_sender,
             current_round: 1,
             reconfigure_receiver,
+            current_batch: Vec::new(),
+            batch_timer: None,
         }
     }
 
@@ -139,14 +147,71 @@ impl DagService {
     }
 
     /// Handle a new transaction by adding it to our batch
-    async fn handle_transaction(&mut self, _transaction: Transaction) -> DagResult<()> {
-        // In a real implementation, we would:
-        // 1. Add transaction to current batch
-        // 2. When batch is full or timeout occurs, create a header
-        // 3. Broadcast the header to other nodes
+    async fn handle_transaction(&mut self, transaction: Transaction) -> DagResult<()> {
+        debug!("Adding transaction to batch (current size: {})", self.current_batch.len());
         
-        // For now, just log that we received it
-        debug!("Transaction added to batch");
+        // Add transaction to current batch
+        self.current_batch.push(transaction);
+        
+        // Set timer if this is the first transaction
+        if self.current_batch.len() == 1 {
+            self.batch_timer = Some(tokio::time::Instant::now());
+        }
+        
+        // Check if we should create a header
+        let should_create_header = self.current_batch.len() >= self.config.max_batch_size
+            || self.batch_timer.map_or(false, |timer| {
+                timer.elapsed() >= self.config.max_batch_delay
+            });
+            
+        if should_create_header && !self.current_batch.is_empty() {
+            self.create_and_broadcast_header().await?;
+        }
+        
+        Ok(())
+    }
+    
+    /// Create a header from current batch and broadcast it
+    async fn create_and_broadcast_header(&mut self) -> DagResult<()> {
+        let batch = Batch(std::mem::take(&mut self.current_batch));
+        self.batch_timer = None;
+        
+        debug!("Creating header for batch with {} transactions", batch.0.len());
+        
+        // Create batch digest
+        let batch_digest = batch.digest();
+        
+        // Create payload (simplified - using worker 0 for all batches)
+        let mut payload = IndexMap::new();
+        payload.insert(batch_digest, 0);
+        
+        // Create the unsigned header first
+        let mut header = Header {
+            author: self.name.clone(),
+            round: self.current_round,
+            epoch: self.committee.epoch,
+            payload,
+            parents: BTreeSet::new(),
+            id: Default::default(),
+            signature: Default::default(),
+        };
+        
+        // Calculate the header ID
+        header.id = header.digest();
+        
+        // Sign the header using signature service
+        let mut signature_service = self.signature_service.lock().await;
+        header.signature = signature_service.request_signature(header.id.into()).await;
+        drop(signature_service);
+        
+        info!("Created header for round {} with {} transactions", 
+              self.current_round, batch.0.len());
+              
+        // Broadcast the header
+        if self.header_broadcaster.send(header).is_err() {
+            warn!("No receivers for header broadcast");
+        }
+        
         Ok(())
     }
 

@@ -927,7 +927,6 @@ dependencies = [
 [[package]]
 name = "anemo"
 version = "0.0.0"
-source = "git+https://github.com/mystenlabs/anemo.git?rev=b145cbcf4a1917197e2b9ee6a1523afdb623dbf2#b145cbcf4a1917197e2b9ee6a1523afdb623dbf2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -949,21 +948,34 @@ dependencies = [
  "tokio-util",
  "tower 0.4.13",
  "tracing",
+ "tracing-subscriber 0.3.19",
  "webpki",
  "x509-parser",
 ]
 
 [[package]]
+name = "anemo-build"
+version = "0.0.0"
+dependencies = [
+ "prettyplease 0.1.25",
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "anemo-tower"
 version = "0.0.0"
-source = "git+https://github.com/mystenlabs/anemo.git?rev=b145cbcf4a1917197e2b9ee6a1523afdb623dbf2#b145cbcf4a1917197e2b9ee6a1523afdb623dbf2"
 dependencies = [
  "anemo",
  "bytes",
  "futures",
+ "once_cell",
  "pin-project-lite",
+ "tokio",
  "tower 0.4.13",
  "tracing",
+ "tracing-subscriber 0.3.19",
 ]
 
 [[package]]
@@ -1997,12 +2009,14 @@ version = "1.4.8"
 dependencies = [
  "alloy-primitives",
  "anyhow",
+ "bincode 1.3.3",
  "blake2",
  "fastcrypto",
  "indexmap 2.9.0",
  "narwhal",
  "rand 0.8.5",
  "serde",
+ "tempfile",
  "thiserror 2.0.12",
  "tokio",
  "tokio-test",
@@ -3006,11 +3020,11 @@ dependencies = [
 
 [[package]]
 name = "derive_builder"
-version = "0.11.2"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d07adf7be193b71cc36b193d0f5fe60b918a3a9db4dad0449f57bcfd519704a3"
+checksum = "8d67778784b508018359cbc8696edb3db78160bab2c2a28ba7f56ef6932997f8"
 dependencies = [
- "derive_builder_macro 0.11.2",
+ "derive_builder_macro 0.12.0",
 ]
 
 [[package]]
@@ -3024,9 +3038,9 @@ dependencies = [
 
 [[package]]
 name = "derive_builder_core"
-version = "0.11.2"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f91d4cfa921f1c05904dc3c57b4a32c38aed3340cce209f3a6fd1478babafc4"
+checksum = "c11bdc11a0c47bc7d37d582b5285da6849c96681023680b906673c5707af7b0f"
 dependencies = [
  "darling 0.14.4",
  "proc-macro2",
@@ -3048,11 +3062,11 @@ dependencies = [
 
 [[package]]
 name = "derive_builder_macro"
-version = "0.11.2"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f0314b72bed045f3a68671b3c86328386762c93f82d98c65c3cb5e5f573dd68"
+checksum = "ebcda35c7a396850a55ffeac740804b40ffec779b98fffbb1738f4033f0ee79e"
 dependencies = [
- "derive_builder_core 0.11.2",
+ "derive_builder_core 0.12.0",
  "syn 1.0.109",
 ]
 
@@ -6063,32 +6077,37 @@ dependencies = [
 
 [[package]]
 name = "narwhal"
-version = "1.4.8"
+version = "0.1.0"
 dependencies = [
  "alloy-consensus",
  "alloy-primitives",
  "anemo",
+ "anemo-build",
  "anemo-tower",
  "anyhow",
  "base64 0.13.0",
  "bincode 1.3.3",
  "blake2",
  "bytes",
- "derive_builder 0.11.2",
+ "derive_builder 0.12.0",
  "fastcrypto",
+ "futures",
  "indexmap 2.9.0",
  "prometheus",
  "rand 0.8.5",
+ "reth-execution-types",
  "reth-primitives",
+ "revm",
  "roaring",
  "serde",
  "serde_with 3.12.0",
- "thiserror 2.0.12",
+ "tempfile",
+ "thiserror 1.0.69",
  "tokio",
- "tokio-test",
  "tower 0.4.13",
  "tracing",
- "tracing-subscriber 0.3.19",
+ "url",
+ "uuid",
 ]
 
 [[package]]
@@ -6898,6 +6917,16 @@ dependencies = [
 
 [[package]]
 name = "prettyplease"
+version = "0.1.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c8646e95016a7a6c4adea95bafa8a16baab64b583356217f2c85db4a39d9a86"
+dependencies = [
+ "proc-macro2",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "prettyplease"
 version = "0.2.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9dee91521343f4c5c6a63edd65e54f31f5c92fe8978c40a4282f8372194c6a7d"
@@ -7592,9 +7621,13 @@ checksum = "95325155c684b1c89f7765e30bc1c42e4a6da51ca513615660cb8a62ef9a88e3"
 name = "reth"
 version = "1.4.8"
 dependencies = [
+ "alloy-primitives",
  "alloy-rpc-types",
+ "anyhow",
  "aquamarine",
+ "async-trait",
  "backon",
+ "base64 0.22.1",
  "bullshark",
  "clap",
  "eyre",
@@ -7602,6 +7635,7 @@ dependencies = [
  "futures",
  "narwhal",
  "rand 0.8.5",
+ "reqwest",
  "reth-chainspec",
  "reth-cli-runner",
  "reth-cli-util",
@@ -7635,6 +7669,9 @@ dependencies = [
  "reth-tasks",
  "reth-tokio-util",
  "reth-transaction-pool",
+ "secp256k1 0.30.0",
+ "serde",
+ "serde_json",
  "similar-asserts",
  "tempfile",
  "tokio",
@@ -7931,16 +7968,26 @@ dependencies = [
  "alloy-consensus",
  "alloy-primitives",
  "anyhow",
+ "async-trait",
  "auto_impl",
+ "bincode 1.3.3",
  "bullshark",
  "fastcrypto",
+ "jsonrpsee",
  "narwhal",
  "rand 0.8.5",
+ "reth-db",
+ "reth-db-api",
  "reth-ethereum-primitives",
  "reth-execution-types",
  "reth-primitives",
  "reth-primitives-traits",
+ "secp256k1 0.30.0",
  "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sha3 0.10.8",
+ "tempfile",
  "thiserror 2.0.12",
  "tokio",
  "tracing",
@@ -12521,7 +12568,7 @@ dependencies = [
  "darling 0.20.11",
  "heck",
  "itertools 0.14.0",
- "prettyplease",
+ "prettyplease 0.2.33",
  "proc-macro2",
  "quote",
  "syn 2.0.101",
@@ -13108,7 +13155,6 @@ dependencies = [
  "sharded-slab",
  "smallvec",
  "thread_local",
- "time",
  "tracing",
  "tracing-core",
  "tracing-log",

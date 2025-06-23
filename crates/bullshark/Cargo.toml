@@ -17,13 +17,14 @@ tokio = { workspace = true, features = ["full"] }
 
 # serialization
 serde = { workspace = true, features = ["derive"] }
+bincode = { workspace = true }
 
 # crypto
 blake2 = "=0.9"
 fastcrypto = "=0.1.2"
 rand_08 = { workspace = true }
 
-# reth dependencies are not needed in this crate
+# Note: Storage implementation provided by reth-consensus at runtime to avoid circular deps
 
 # alloy dependencies
 alloy-primitives = { workspace = true }
@@ -43,6 +44,7 @@ tracing = { workspace = true }
 [dev-dependencies]
 tokio-test = { workspace = true }
 indexmap = { workspace = true }
+tempfile = { workspace = true }
 
 [features]
 default = ["std"]
