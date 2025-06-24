@@ -1,6 +1,6 @@
 //! CLI arguments for Narwhal + Bullshark consensus
 
-use clap::Args;
+use clap::{Args, ArgAction};
 use std::net::SocketAddr;
 use fastcrypto::traits::KeyPair;
 
@@ -24,8 +24,8 @@ const FINALITY_THRESHOLD_DEFAULT: usize = 3;
 #[command(next_help_heading = "Narwhal + Bullshark Consensus")]
 pub struct NarwhalBullsharkArgs {
     /// Enable Narwhal + Bullshark consensus instead of standard Ethereum consensus
-    #[arg(long = "narwhal.enable", default_value_t = false)]
-    pub enabled: bool,
+    #[arg(long = "narwhal.enable", action = ArgAction::SetTrue)]
+    pub narwhal_enabled: bool,
 
     /// Network address for Narwhal networking
     #[arg(long = "narwhal.network-addr", default_value = NARWHAL_NETWORK_DEFAULT)]
@@ -71,15 +71,15 @@ pub struct NarwhalBullsharkArgs {
     #[arg(long = "bullshark.leader-rotation-frequency", default_value_t = 2)]
     pub leader_rotation_frequency: u64,
 
-    /// Enable metrics collection
-    #[arg(long = "narwhal.enable-metrics", default_value_t = true)]
-    pub enable_metrics: bool,
+    /// Disable metrics collection
+    #[arg(long = "narwhal.disable-metrics", action = ArgAction::SetTrue)]
+    pub disable_metrics: bool,
 }
 
 impl Default for NarwhalBullsharkArgs {
     fn default() -> Self {
         Self {
-            enabled: false,
+            narwhal_enabled: false,
             network_address: NARWHAL_NETWORK_DEFAULT.parse().unwrap(),
             committee_size: COMMITTEE_SIZE_DEFAULT,
             max_batch_size: MAX_BATCH_SIZE_DEFAULT,
@@ -91,7 +91,7 @@ impl Default for NarwhalBullsharkArgs {
             finalization_timeout_secs: 5,
             max_certificates_per_round: 1000,
             leader_rotation_frequency: 2,
-            enable_metrics: true,
+            disable_metrics: false,
         }
     }
 }
@@ -129,7 +129,7 @@ impl NarwhalBullsharkArgs {
             enable_networking: true, // Enable networking for production use
             max_pending_transactions: 10000,
             execution_timeout: std::time::Duration::from_secs(30),
-            enable_metrics: self.enable_metrics,
+            enable_metrics: !self.disable_metrics,
         }
     }
 } 

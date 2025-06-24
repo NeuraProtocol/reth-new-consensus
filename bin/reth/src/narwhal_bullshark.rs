@@ -433,12 +433,12 @@ pub async fn create_production_committee(
 
 /// Check if Narwhal + Bullshark consensus should override standard Ethereum consensus
 pub fn should_use_narwhal_consensus(args: &NarwhalBullsharkArgs) -> bool {
-    args.enabled
+    args.narwhal_enabled
 }
 
 /// Get consensus mode description for logging
 pub fn consensus_mode_description(args: &NarwhalBullsharkArgs) -> &'static str {
-    if args.enabled {
+    if args.narwhal_enabled {
         "Narwhal + Bullshark BFT Consensus"
     } else {
         "Standard Ethereum Consensus"
