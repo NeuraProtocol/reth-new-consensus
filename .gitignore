@@ -60,3 +60,6 @@ recipe.json
 #reference files
 narwhal-reference-implementation/
 anemo-reference/
+
+#testdata
+test-data/
