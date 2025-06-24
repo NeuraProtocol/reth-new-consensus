@@ -74,20 +74,49 @@ pub trait BlockExecutor {
 impl NarwhalRethBridge {
     /// Create a new Narwhal-Reth bridge
     pub fn new(config: ServiceConfig, storage: Option<Arc<MdbxConsensusStorage>>) -> Result<Self> {
+        Self::new_with_network_config(config, storage, None)
+    }
+
+    /// Create a new Narwhal-Reth bridge with custom network configuration
+    pub fn new_with_network_config(
+        config: ServiceConfig, 
+        storage: Option<Arc<MdbxConsensusStorage>>,
+        network_config: Option<RethIntegrationConfig>
+    ) -> Result<Self> {
         let (transaction_sender, transaction_receiver) = mpsc::unbounded_channel();
         let (finalized_batch_sender, finalized_batch_receiver) = mpsc::unbounded_channel();
         let (committee_sender, committee_receiver) = watch::channel(config.committee.clone());
 
-        // Create networking
-        let bind_address = "127.0.0.1:9000".parse().unwrap(); // TODO: Make configurable
-        info!("Starting Narwhal network on {}", bind_address);
-        let network_private_key = [0u8; 32]; // TODO: Load from config or generate securely
-        let (network, _network_events) = NarwhalNetwork::new(
-            config.node_config.node_public_key.clone(),
-            config.committee.clone(),
-            bind_address,
-            network_private_key,
-        )?;
+        // Create networking with configurable address
+        let network = if let Some(net_config) = network_config {
+            if net_config.enable_networking {
+                let bind_address = net_config.network_address;
+                info!("Starting Narwhal network on {}", bind_address);
+                let network_private_key = [0u8; 32]; // TODO: Load from config or generate securely
+                let (network, _network_events) = NarwhalNetwork::new(
+                    config.node_config.node_public_key.clone(),
+                    config.committee.clone(),
+                    bind_address,
+                    network_private_key,
+                )?;
+                Some(network)
+            } else {
+                info!("Networking disabled for testing");
+                None
+            }
+        } else {
+            // Default: use random port for testing
+            let bind_address = "127.0.0.1:0".parse().unwrap(); // Port 0 = random port
+            info!("Starting Narwhal network on {} (random port)", bind_address);
+            let network_private_key = [0u8; 32]; // TODO: Load from config or generate securely
+            let (network, _network_events) = NarwhalNetwork::new(
+                config.node_config.node_public_key.clone(),
+                config.committee.clone(),
+                bind_address,
+                network_private_key,
+            )?;
+            Some(network)
+        };
 
         let service = NarwhalBullsharkService::new(
             config.node_config,
@@ -100,7 +129,7 @@ impl NarwhalRethBridge {
 
         Ok(Self {
             service: Some(service),
-            network: Some(network),
+            network,
             transaction_sender,
             finalized_batch_receiver,
             committee_sender,
@@ -111,6 +140,18 @@ impl NarwhalRethBridge {
             storage,
             mempool_bridge: None, // TODO: Implement with_pool constructor
         })
+    }
+
+    /// Create a new bridge for testing without networking
+    pub fn new_for_testing(config: ServiceConfig, storage: Option<Arc<MdbxConsensusStorage>>) -> Result<Self> {
+        let test_config = RethIntegrationConfig {
+            network_address: "127.0.0.1:0".parse().unwrap(),
+            enable_networking: false, // Disable networking for tests
+            max_pending_transactions: 10000,
+            execution_timeout: std::time::Duration::from_secs(30),
+            enable_metrics: false,
+        };
+        Self::new_with_network_config(config, storage, Some(test_config))
     }
 
     /// Start the consensus service
@@ -258,15 +299,18 @@ pub struct RethIntegrationConfig {
     pub execution_timeout: std::time::Duration,
     /// Enable metrics collection
     pub enable_metrics: bool,
+    /// Enable networking
+    pub enable_networking: bool,
 }
 
 impl Default for RethIntegrationConfig {
     fn default() -> Self {
         Self {
-            network_address: "127.0.0.1:9000".parse().unwrap(),
+            network_address: "127.0.0.1:0".parse().unwrap(), // Use random port by default
             max_pending_transactions: 10000,
             execution_timeout: std::time::Duration::from_secs(30),
             enable_metrics: true,
+            enable_networking: true,
         }
     }
 }

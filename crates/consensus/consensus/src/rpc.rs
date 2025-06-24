@@ -334,6 +334,8 @@ pub struct ConsensusMetrics {
     pub resources: ResourceMetrics,
     /// Network metrics
     pub network: NetworkMetrics,
+    
+
 }
 
 /// Transaction throughput metrics

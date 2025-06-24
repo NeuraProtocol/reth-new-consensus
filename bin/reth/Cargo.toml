@@ -52,6 +52,7 @@ reth-ress-provider.workspace = true
 # alloy
 alloy-rpc-types = { workspace = true, features = ["engine"] }
 alloy-primitives.workspace = true
+alloy-consensus.workspace = true
 
 # tracing
 tracing.workspace = true

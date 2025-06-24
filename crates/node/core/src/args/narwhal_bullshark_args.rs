@@ -126,6 +126,7 @@ impl NarwhalBullsharkArgs {
     pub fn to_integration_config(&self) -> reth_consensus::narwhal_bullshark::integration::RethIntegrationConfig {
         reth_consensus::narwhal_bullshark::integration::RethIntegrationConfig {
             network_address: self.network_address,
+            enable_networking: true, // Enable networking for production use
             max_pending_transactions: 10000,
             execution_timeout: std::time::Duration::from_secs(30),
             enable_metrics: self.enable_metrics,
