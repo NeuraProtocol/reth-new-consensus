@@ -449,6 +449,30 @@ impl Certificate {
     pub fn origin(&self) -> PublicKey {
         self.header.author.clone()
     }
+    
+    /// Verify this certificate against the committee
+    pub fn verify(&self, committee: &Committee) -> DagResult<()> {
+        // Verify the embedded header first
+        let header_digest: Digest = self.header.id.into();
+        self.header.author.verify(header_digest.as_ref(), &self.header.signature)
+            .map_err(DagError::InvalidSignature)?;
+        
+        // Verify certificate has valid quorum
+        let committee_keys: Vec<&PublicKey> = committee.authorities.keys().collect();
+        let mut total_stake = 0u64;
+        
+        for (index, &authority) in committee_keys.iter().enumerate() {
+            if self.signed_authorities.contains(index as u32) {
+                total_stake += committee.stake(authority);
+            }
+        }
+        
+        if total_stake < committee.quorum_threshold() {
+            return Err(DagError::CertificateRequiresQuorum);
+        }
+
+        Ok(())
+    }
 }
 
 impl Hash for Certificate {

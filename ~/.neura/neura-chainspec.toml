@@ -1,0 +1,62 @@
+[chain]
+chain_id = 266
+network_id = 266
+chain = "neura"
+
+[genesis]
+nonce = "0x42"
+timestamp = "0x0"
+extra_data = "0x4e6575726120436f6e73656e737573204e6574776f726b"
+gas_limit = "0x1c9c380"
+difficulty = "0x0"
+mix_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+coinbase = "0x0000000000000000000000000000000000000000"
+number = "0x0"
+gas_used = "0x0"
+parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+base_fee_per_gas = "0x7"
+
+[genesis.alloc]
+# Validator addresses with initial balances (10,000 ANKR each)
+"0x71557335d1ec4f294502405e42453ad332d90be6" = { balance = "0x21e19e0c9bab2400000" }
+"0xda886fa4f92141874f51349aba350c1ee59f4622" = { balance = "0x21e19e0c9bab2400000" }
+"0x15d995f10d7f793d2ea9d28a2d8c63843e56163c" = { balance = "0x21e19e0c9bab2400000" }
+"0xf870ed548b29ecda0d1a1e38b4c75aadf12fc511" = { balance = "0x21e19e0c9bab2400000" }
+
+# Precompiled contracts
+"0x0000000000000000000000000000000000000001" = { balance = "0x1" }
+"0x0000000000000000000000000000000000000002" = { balance = "0x1" }
+"0x0000000000000000000000000000000000000003" = { balance = "0x1" }
+"0x0000000000000000000000000000000000000004" = { balance = "0x1" }
+"0x0000000000000000000000000000000000000005" = { balance = "0x1" }
+"0x0000000000000000000000000000000000000006" = { balance = "0x1" }
+"0x0000000000000000000000000000000000000007" = { balance = "0x1" }
+"0x0000000000000000000000000000000000000008" = { balance = "0x1" }
+"0x0000000000000000000000000000000000000009" = { balance = "0x1" }
+
+[hardforks]
+homestead = 0
+dao_fork = 0
+tangerine = 0
+spurious_dragon = 0
+byzantium = 0
+constantinople = 0
+petersburg = 0
+istanbul = 0
+muir_glacier = 0
+berlin = 0
+london = 0
+arrow_glacier = 0
+gray_glacier = 0
+merge_netsplit = 0
+shanghai_time = 0
+cancun_time = 0
+prague_time = 1746612311
+
+[consensus]
+type = "narwhal_bullshark"
+terminal_total_difficulty = 0
+terminal_total_difficulty_passed = true
+
+[params]
+eip150_hash = "0x0000000000000000000000000000000000000000000000000000000000000000" 

@@ -222,6 +222,45 @@ pub static DEV: LazyLock<Arc<ChainSpec>> = LazyLock::new(|| {
     .into()
 });
 
+/// Neura mainnet specification
+///
+/// Custom consensus network using Narwhal + Bullshark consensus with Chain ID 266.
+/// Includes 4 pre-funded validator accounts with 10,000 ANKR each.
+pub static NEURA_MAINNET: LazyLock<Arc<ChainSpec>> = LazyLock::new(|| {
+    let genesis = serde_json::from_str(include_str!("../res/genesis/neura-mainnet.json"))
+        .expect("Can't deserialize Neura mainnet genesis json");
+    let hardforks = ChainHardforks::new(vec![
+        (EthereumHardfork::Frontier.boxed(), ForkCondition::Block(0)),
+        (EthereumHardfork::Homestead.boxed(), ForkCondition::Block(0)),
+        (EthereumHardfork::Tangerine.boxed(), ForkCondition::Block(0)),
+        (EthereumHardfork::SpuriousDragon.boxed(), ForkCondition::Block(0)),
+        (EthereumHardfork::Byzantium.boxed(), ForkCondition::Block(0)),
+        (EthereumHardfork::Constantinople.boxed(), ForkCondition::Block(0)),
+        (EthereumHardfork::Petersburg.boxed(), ForkCondition::Block(0)),
+        (EthereumHardfork::Istanbul.boxed(), ForkCondition::Block(0)),
+        (EthereumHardfork::Berlin.boxed(), ForkCondition::Block(0)),
+        (EthereumHardfork::London.boxed(), ForkCondition::Block(0)),
+        (EthereumHardfork::Shanghai.boxed(), ForkCondition::Timestamp(0)),
+        (EthereumHardfork::Cancun.boxed(), ForkCondition::Timestamp(0)),
+        (EthereumHardfork::Prague.boxed(), ForkCondition::Timestamp(0)),
+    ]);
+    ChainSpec {
+        chain: Chain::from_id(266),
+        genesis_header: SealedHeader::new(
+            make_genesis_header(&genesis, &hardforks),
+            b256!("0x5a23e0162a9ddb669ed30d90d9f4200aa1d71f90ccad5bc8ac2cf206440e0c4b"),
+        ),
+        genesis,
+        paris_block_and_final_difficulty: Some((0, U256::from(0))),
+        hardforks,
+        base_fee_params: BaseFeeParamsKind::Constant(BaseFeeParams::ethereum()),
+        deposit_contract: None,
+        prune_delete_limit: 10000,
+        blob_params: BlobScheduleBlobParams::default(),
+    }
+    .into()
+});
+
 /// A wrapper around [`BaseFeeParams`] that allows for specifying constant or dynamic EIP-1559
 /// parameters based on the active [Hardfork].
 #[derive(Clone, Debug, PartialEq, Eq)]

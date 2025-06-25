@@ -13,8 +13,9 @@ use alloy_primitives::{B256, U256, Address, Bloom};
 use reth_execution_types::{ExecutionOutcome, BlockExecutionOutput};
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
-use tracing::info;
+use tracing::{info, warn};
 use anyhow::Result;
+use fastcrypto::traits::ToFromBytes;
 
 /// Bridge between Narwhal/Bullshark consensus and Reth blockchain execution
 pub struct NarwhalRethBridge {
@@ -43,6 +44,12 @@ pub struct NarwhalRethBridge {
     storage: Option<Arc<MdbxConsensusStorage>>,
     /// Optional mempool bridge for real pool integration (set externally)
     mempool_bridge: Option<MempoolBridge>,
+    /// Peer addresses for network connections
+    peer_addresses: Vec<std::net::SocketAddr>,
+    /// Committee configuration for peer mapping
+    committee: Committee,
+    /// Our node's public key
+    node_public_key: PublicKey,
 }
 
 impl std::fmt::Debug for NarwhalRethBridge {
@@ -87,18 +94,55 @@ impl NarwhalRethBridge {
         let (finalized_batch_sender, finalized_batch_receiver) = mpsc::unbounded_channel();
         let (committee_sender, committee_receiver) = watch::channel(config.committee.clone());
 
+        // Clone values before moving them
+        let committee_clone = config.committee.clone();
+        let node_public_key_clone = config.node_config.node_public_key.clone();
+        let peer_addresses_clone = network_config.as_ref().map_or(Vec::new(), |nc| nc.peer_addresses.clone());
+
         // Create networking with configurable address
-        let network = if let Some(net_config) = network_config {
+        let network = if let Some(ref net_config) = network_config {
             if net_config.enable_networking {
                 let bind_address = net_config.network_address;
                 info!("Starting Narwhal network on {}", bind_address);
-                let network_private_key = [0u8; 32]; // TODO: Load from config or generate securely
+                
+                // Generate unique network private key from validator consensus key
+                let network_private_key = {
+                    use std::collections::hash_map::DefaultHasher;
+                    use std::hash::{Hash, Hasher};
+                    
+                    let consensus_key_bytes = config.node_config.node_public_key.as_bytes();
+                    let mut hasher = DefaultHasher::new();
+                    b"narwhal_network_key:".hash(&mut hasher);
+                    consensus_key_bytes.hash(&mut hasher);
+                    bind_address.to_string().hash(&mut hasher);
+                    
+                    let hash_value = hasher.finish();
+                    let mut key = [0u8; 32];
+                    
+                    // Fill the key with hash-derived bytes
+                    for (i, chunk) in hash_value.to_le_bytes().iter().cycle().take(32).enumerate() {
+                        key[i] = *chunk;
+                    }
+                    
+                    key
+                };
+                
                 let (network, _network_events) = NarwhalNetwork::new(
                     config.node_config.node_public_key.clone(),
                     config.committee.clone(),
                     bind_address,
                     network_private_key,
                 )?;
+                
+                // Connect to peer addresses if provided
+                if !net_config.peer_addresses.is_empty() {
+                    info!("Will connect to {} peer addresses after startup", net_config.peer_addresses.len());
+                    
+                    let committee_keys: Vec<_> = config.committee.authorities.keys().cloned().collect();
+                    info!("Committee has {} members, {} peer addresses provided", 
+                          committee_keys.len(), net_config.peer_addresses.len());
+                }
+                
                 Some(network)
             } else {
                 info!("Networking disabled for testing");
@@ -106,9 +150,31 @@ impl NarwhalRethBridge {
             }
         } else {
             // Default: use random port for testing
-            let bind_address = "127.0.0.1:0".parse().unwrap(); // Port 0 = random port
+            let bind_address: std::net::SocketAddr = "127.0.0.1:0".parse().unwrap(); // Port 0 = random port
             info!("Starting Narwhal network on {} (random port)", bind_address);
-            let network_private_key = [0u8; 32]; // TODO: Load from config or generate securely
+            
+            // Generate unique network private key from validator consensus key
+            let network_private_key = {
+                use std::collections::hash_map::DefaultHasher;
+                use std::hash::{Hash, Hasher};
+                
+                let consensus_key_bytes = config.node_config.node_public_key.as_bytes();
+                let mut hasher = DefaultHasher::new();
+                b"narwhal_network_key:".hash(&mut hasher);
+                consensus_key_bytes.hash(&mut hasher);
+                bind_address.to_string().hash(&mut hasher);
+                
+                let hash_value = hasher.finish();
+                let mut key = [0u8; 32];
+                
+                // Fill the key with hash-derived bytes
+                for (i, chunk) in hash_value.to_le_bytes().iter().cycle().take(32).enumerate() {
+                    key[i] = *chunk;
+                }
+                
+                key
+            };
+            
             let (network, _network_events) = NarwhalNetwork::new(
                 config.node_config.node_public_key.clone(),
                 config.committee.clone(),
@@ -139,6 +205,9 @@ impl NarwhalRethBridge {
             block_executor: None,
             storage,
             mempool_bridge: None, // TODO: Implement with_pool constructor
+            peer_addresses: peer_addresses_clone,
+            committee: committee_clone,
+            node_public_key: node_public_key_clone,
         })
     }
 
@@ -150,15 +219,49 @@ impl NarwhalRethBridge {
             max_pending_transactions: 10000,
             execution_timeout: std::time::Duration::from_secs(30),
             enable_metrics: false,
+            peer_addresses: Vec::new(),
         };
         Self::new_with_network_config(config, storage, Some(test_config))
     }
 
     /// Start the consensus service
-    pub fn start(&mut self) -> Result<()> {
+    pub async fn start(&mut self) -> Result<()> {
         if let Some(service) = self.service.take() {
             let _handles = service.spawn()?;
             info!("Narwhal + Bullshark consensus service started");
+            
+            // Connect to peers if we have addresses and networking is enabled
+            if let Some(ref mut network) = self.network {
+                if !self.peer_addresses.is_empty() {
+                    info!("Connecting to {} peer addresses...", self.peer_addresses.len());
+                    
+                    // Create address mapping from committee members to network addresses
+                    let mut peer_address_map = std::collections::HashMap::new();
+                    
+                    // Assuming peer addresses are provided in same order as committee members
+                    // (excluding ourselves)
+                    let committee_keys: Vec<_> = self.committee.authorities.keys()
+                        .filter(|&key| key != &self.node_public_key)
+                        .cloned()
+                        .collect();
+                    
+                    for (i, &addr) in self.peer_addresses.iter().enumerate() {
+                        if i < committee_keys.len() {
+                            peer_address_map.insert(committee_keys[i].clone(), addr);
+                            info!("Will connect to committee member {} at {}", committee_keys[i], addr);
+                        }
+                    }
+                    
+                    // Attempt connections
+                    if let Err(e) = network.connect_to_committee(peer_address_map).await {
+                        warn!("Failed to connect to some committee members: {}", e);
+                        // Continue anyway - partial connectivity is better than none
+                    } else {
+                        info!("Successfully initiated connections to committee members");
+                    }
+                }
+            }
+            
             Ok(())
         } else {
             Err(anyhow::anyhow!("Service already started"))
@@ -301,6 +404,8 @@ pub struct RethIntegrationConfig {
     pub enable_metrics: bool,
     /// Enable networking
     pub enable_networking: bool,
+    /// Peer addresses for other validators
+    pub peer_addresses: Vec<std::net::SocketAddr>,
 }
 
 impl Default for RethIntegrationConfig {
@@ -311,6 +416,7 @@ impl Default for RethIntegrationConfig {
             execution_timeout: std::time::Duration::from_secs(30),
             enable_metrics: true,
             enable_networking: true,
+            peer_addresses: Vec::new(),
         }
     }
 }

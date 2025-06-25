@@ -1,0 +1,13 @@
+{
+  "name": "Neura-Validator-001",
+  "description": "Neura Network Validator Node 1",
+  "contact": "validator1@neura.network",
+  "evm_private_key": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+  "stake": 1000,
+  "active": true,
+  "commission_rate": 5.0,
+  "min_self_delegation": 100,
+  "website": "https://validator1.neura.network",
+  "security_contact": "security@validator1.neura.network",
+  "details": "Primary validator for Neura network testing"
+} 

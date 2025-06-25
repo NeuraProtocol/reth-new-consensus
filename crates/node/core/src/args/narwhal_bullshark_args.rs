@@ -74,6 +74,14 @@ pub struct NarwhalBullsharkArgs {
     /// Disable metrics collection
     #[arg(long = "narwhal.disable-metrics", action = ArgAction::SetTrue)]
     pub disable_metrics: bool,
+
+    /// Peer addresses for other validators (comma-separated)
+    #[arg(long = "narwhal.peers", value_delimiter = ',')]
+    pub peer_addresses: Vec<SocketAddr>,
+
+    /// Bootstrap mode - start without waiting for peers
+    #[arg(long = "narwhal.bootstrap", action = ArgAction::SetTrue)]
+    pub bootstrap_mode: bool,
 }
 
 impl Default for NarwhalBullsharkArgs {
@@ -92,6 +100,8 @@ impl Default for NarwhalBullsharkArgs {
             max_certificates_per_round: 1000,
             leader_rotation_frequency: 2,
             disable_metrics: false,
+            peer_addresses: Vec::new(),
+            bootstrap_mode: false,
         }
     }
 }
@@ -130,6 +140,17 @@ impl NarwhalBullsharkArgs {
             max_pending_transactions: 10000,
             execution_timeout: std::time::Duration::from_secs(30),
             enable_metrics: !self.disable_metrics,
+            peer_addresses: self.peer_addresses.clone(),
         }
+    }
+
+    /// Get peer addresses for committee setup
+    pub fn get_peer_addresses(&self) -> &[SocketAddr] {
+        &self.peer_addresses
+    }
+
+    /// Check if this node should wait for peers before starting
+    pub fn should_wait_for_peers(&self) -> bool {
+        !self.bootstrap_mode && !self.peer_addresses.is_empty()
     }
 } 

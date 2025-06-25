@@ -142,7 +142,7 @@ pub fn install_narwhal_bullshark_consensus<P, E, N>(
     _network: N,
     task_executor: TaskExecutor,
     engine_events: EventStream<BeaconConsensusEngineEvent<EthPrimitives>>,
-) -> eyre::Result<NarwhalRethBridge>
+) -> eyre::Result<(NarwhalRethBridge, Arc<RwLock<ValidatorRegistry>>, Arc<RwLock<MdbxConsensusStorage>>)>
 where
     P: ProviderNodeTypes<Primitives = EthPrimitives>,
     E: ConfigureEvm<Primitives = EthPrimitives> + Clone + 'static,
@@ -178,9 +178,25 @@ where
     info!(target: "reth::narwhal_bullshark", "   • Real MDBX storage: All consensus data will be persisted to Reth's database");
     info!(target: "reth::narwhal_bullshark", "   • Transaction processing: Ready to store consensus certificates, batches, and finalized data");
     
+    // Keep raw storage for return value
+    let storage_for_return = Arc::new(tokio::sync::RwLock::new(MdbxConsensusStorage::new()));
+    
     let storage = Some(Arc::new(storage));
     
-    let bridge = NarwhalRethBridge::new(service_config, storage)
+    // Store raw storage for return value before wrapping
+    // let storage_for_return = Arc::new(RwLock::new(storage.as_ref().unwrap().as_ref().clone()));
+    
+    // Create network configuration from CLI arguments
+    let network_config = reth_consensus::narwhal_bullshark::integration::RethIntegrationConfig {
+        network_address: args.network_address,
+        enable_networking: true, // Enable networking for multi-node setup
+        max_pending_transactions: 10000,
+        execution_timeout: std::time::Duration::from_secs(30),
+        enable_metrics: true,
+        peer_addresses: args.peer_addresses.clone(),
+    };
+    
+    let bridge = NarwhalRethBridge::new_with_network_config(service_config, storage.clone(), Some(network_config))
         .map_err(|e| eyre::eyre!("Failed to create Narwhal-Reth bridge: {}", e))?;
 
     // Note: Mempool integration is set up separately via setup_mempool_integration()
@@ -199,7 +215,11 @@ where
         }
     });
 
-    Ok(bridge)
+    Ok((
+        bridge, 
+        Arc::new(RwLock::new(_validator_registry)), 
+        storage_for_return
+    ))
 }
 
 /// Sets up real mempool integration with the consensus bridge
@@ -222,7 +242,7 @@ where
     
     // Now start the consensus bridge with mempool integration
     task_executor.spawn(async move {
-        if let Err(e) = bridge.start() {
+        if let Err(e) = bridge.start().await {
             error!(target: "reth::narwhal_bullshark", "Consensus bridge error: {}", e);
         }
     });

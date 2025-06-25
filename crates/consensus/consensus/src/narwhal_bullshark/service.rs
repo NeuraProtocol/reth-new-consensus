@@ -7,7 +7,7 @@ use crate::{
 };
 use anyhow::Result;
 use narwhal::{
-    DagService, Transaction as NarwhalTransaction,
+    DagService, DagMessage, Transaction as NarwhalTransaction,
     types::{Committee, Certificate},
 };
 use bullshark::{BftService, FinalizedBatchInternal};
@@ -74,6 +74,11 @@ impl NarwhalBullsharkService {
         // Convert Reth transactions to Narwhal transactions
         let (narwhal_tx_sender, narwhal_tx_receiver) = mpsc::unbounded_channel::<NarwhalTransaction>();
         
+        // Set up network message channel for DAG consensus (headers, votes, certificates from other nodes)
+        let (network_message_sender, network_message_receiver) = mpsc::unbounded_channel::<DagMessage>();
+        // TODO: Connect network_message_sender to actual P2P network layer for distributed consensus
+        // For now, only transactions from local mempool are processed
+        
         // Create signature service for our node
         let signature_service = Self::create_signature_service()?;
         
@@ -114,6 +119,7 @@ impl NarwhalBullsharkService {
             self.config.narwhal.clone(),
             signature_service,
             narwhal_tx_receiver,
+            network_message_receiver,
             dag_to_bft_sender,
             self.committee_receiver.clone(),
         );

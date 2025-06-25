@@ -1,0 +1,38 @@
+nohup: ignoring input
+🚀 Starting Neura Multivalidator Test (Chain ID: 266, Coin: ANKR)
+==================================================================
+Cleaning up previous blockchain data...
+Cleaning node 1...
+Cleaning node 2...
+Cleaning node 3...
+Cleaning node 4...
+
+Starting validator nodes...
+Starting Node 1 (Validator-001) on ports: P2P=30303, HTTP=8545, Auth=8551, Narwhal=9001
+Node 1 started with PID: 1512083
+Starting Node 2 (Validator-002) on ports: P2P=30304, HTTP=8546, Auth=8552, Narwhal=9002
+Node 2 started with PID: 1512211
+Starting Node 3 (Validator-003) on ports: P2P=30305, HTTP=8547, Auth=8553, Narwhal=9003
+Node 3 started with PID: 1512327
+Starting Node 4 (Validator-004) on ports: P2P=30306, HTTP=8548, Auth=8554, Narwhal=9004
+Node 4 started with PID: 1512463
+
+✅ All 4 Neura validator nodes started!
+======================================
+📊 Network: Neura (Chain ID: 266, Coin: ANKR)
+🔗 Consensus: Narwhal + Bullshark BFT
+💾 Storage: Independent MDBX per node
+
+Node 1 PID: 1512083 - HTTP: http://localhost:8545 - Logs: /home/peastew/.neura/node1/node.log
+Node 2 PID: 1512211 - HTTP: http://localhost:8546 - Logs: /home/peastew/.neura/node2/node.log
+Node 3 PID: 1512327 - HTTP: http://localhost:8547 - Logs: /home/peastew/.neura/node3/node.log
+Node 4 PID: 1512463 - HTTP: http://localhost:8548 - Logs: /home/peastew/.neura/node4/node.log
+
+🔧 Test Commands:
+  Monitor logs: tail -f /home/peastew/.neura/node1/node.log
+  Stop all nodes: pkill -f 'reth.*node.*narwhal'
+  Monitor status: ./monitor_multivalidator.sh
+
+🌐 RPC Test Commands:
+  Test Node 1: curl -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"web3_clientVersion","params":[],"id":1}' http://localhost:8545
+  Test Node 2: curl -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' http://localhost:8546

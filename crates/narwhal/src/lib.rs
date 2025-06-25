@@ -20,7 +20,7 @@ pub mod network;
 pub mod rpc;
 
 // Re-export key types
-pub use dag_service::DagService;
+pub use dag_service::{DagService, DagMessage};
 pub use gossip::GossipProtocol;
 pub use storage::DagStorage;
 pub use types::*;

@@ -1,0 +1,13 @@
+{
+  "name": "Neura-Validator-004",
+  "description": "Neura Network Validator Node 4",
+  "contact": "validator4@neura.network",
+  "evm_private_key": "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "stake": 1500,
+  "active": true,
+  "commission_rate": 3.5,
+  "min_self_delegation": 150,
+  "website": "https://validator4.neura.network",
+  "security_contact": "security@validator4.neura.network",
+  "details": "Quaternary validator for Neura network testing"
+} 
