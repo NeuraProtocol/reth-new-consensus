@@ -1,0 +1,11 @@
+{
+  "metadata": {
+    "name": "Test Validator 2",
+    "description": "Third validator for testing consensus",
+    "contact": "validator2@test.local"
+  },
+  "evm_private_key": "0x3333333333333333333333333333333333333333333333333333333333333333",
+  "consensus_private_key": null,
+  "stake": 1000,
+  "active": true
+} 

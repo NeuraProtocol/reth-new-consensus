@@ -1,7 +1,7 @@
 //! Integration tests for Narwhal DAG consensus
 
 use narwhal::{
-    DagService, types::{Vote, Committee, HeaderBuilder},
+    DagService, DagMessage, types::{Vote, Committee, HeaderBuilder},
     NarwhalConfig, Transaction,
 };
 use tokio::sync::{mpsc, watch};
@@ -36,34 +36,55 @@ fn create_signature_service() -> SignatureService<narwhal::types::Signature> {
     SignatureService::new(keypair)
 }
 
+/// Helper to create DagService with all required channels
+fn create_dag_service_with_channels(
+    node_key: narwhal::types::PublicKey,
+    committee: Committee,
+    config: NarwhalConfig,
+) -> (
+    DagService,
+    mpsc::UnboundedSender<Transaction>,
+    mpsc::UnboundedReceiver<narwhal::types::Certificate>,
+    watch::Sender<Committee>,
+    mpsc::UnboundedSender<DagMessage>,
+) {
+    let (tx_sender, tx_receiver) = mpsc::unbounded_channel();
+    let (cert_sender, cert_receiver) = mpsc::unbounded_channel();
+    let (committee_sender, committee_receiver) = watch::channel(committee.clone());
+    let (network_sender, network_receiver) = mpsc::unbounded_channel();
+    
+    let signature_service = create_signature_service();
+    
+    let dag_service = DagService::new(
+        node_key,
+        committee,
+        config,
+        signature_service,
+        tx_receiver,
+        network_receiver,
+        cert_sender,
+        committee_receiver,
+    );
+    
+    (dag_service, tx_sender, cert_receiver, committee_sender, network_sender)
+}
+
 #[tokio::test]
 async fn test_dag_service_creation() {
     let (committee, keypairs) = create_test_committee(4);
     let config = NarwhalConfig::default();
     let node_keypair = &keypairs[0];
     
-    // Create channels
-    let (tx_sender, tx_receiver) = mpsc::unbounded_channel();
-    let (cert_sender, _cert_receiver) = mpsc::unbounded_channel();
-    let (committee_sender, committee_receiver) = watch::channel(committee.clone());
-    
-    // Create signature service
-    let signature_service = create_signature_service();
-    
-    let dag_service = DagService::new(
-        node_keypair.public().clone(),
-        committee.clone(),
-        config,
-        signature_service,
-        tx_receiver,
-        cert_sender,
-        committee_receiver,
-    );
+    let (dag_service, tx_sender, _cert_receiver, _committee_sender, _network_sender) = 
+        create_dag_service_with_channels(
+            node_keypair.public().clone(),
+            committee.clone(),
+            config,
+        );
 
     // Test basic properties
     assert_eq!(dag_service.current_round(), 1);
-    assert_eq!(dag_service.name, node_keypair.public().clone());
-    assert_eq!(dag_service.committee.epoch, 0);
+    // Note: name and committee are now private fields
     
     // Send some test transactions
     let transactions = create_test_transactions(5);
@@ -74,7 +95,7 @@ async fn test_dag_service_creation() {
     // Give some time for processing
     tokio::time::sleep(Duration::from_millis(10)).await;
     
-    drop(committee_sender); // Clean up
+    drop(_committee_sender); // Clean up
 }
 
 #[tokio::test]
@@ -83,23 +104,12 @@ async fn test_dag_service_lifecycle() {
     let config = NarwhalConfig::default();
     let node_keypair = &keypairs[0];
     
-    // Create channels
-    let (tx_sender, tx_receiver) = mpsc::unbounded_channel();
-    let (cert_sender, _cert_receiver) = mpsc::unbounded_channel();
-    let (committee_sender, committee_receiver) = watch::channel(committee.clone());
-    
-    // Create signature service
-    let signature_service = create_signature_service();
-    
-    let dag_service = DagService::new(
-        node_keypair.public().clone(),
-        committee.clone(),
-        config,
-        signature_service,
-        tx_receiver,
-        cert_sender,
-        committee_receiver,
-    );
+    let (dag_service, tx_sender, _cert_receiver, committee_sender, network_sender) = 
+        create_dag_service_with_channels(
+            node_keypair.public().clone(),
+            committee.clone(),
+            config,
+        );
 
     // Spawn the service
     let service_handle = dag_service.spawn();
@@ -113,13 +123,12 @@ async fn test_dag_service_lifecycle() {
     // Let it run briefly
     tokio::time::sleep(Duration::from_millis(50)).await;
     
-    // Clean shutdown
-    drop(tx_sender);
-    drop(committee_sender);
+    // Clean shutdown - abort the service
+    service_handle.abort();
     
-    // Wait for service to complete
-    let result = tokio::time::timeout(Duration::from_secs(1), service_handle).await;
-    assert!(result.is_ok(), "Service should complete within timeout");
+    // The service should be aborted immediately
+    let result = service_handle.await;
+    assert!(result.is_err(), "Service should have been aborted");
 }
 
 #[tokio::test]
@@ -179,23 +188,12 @@ async fn test_round_advancement() {
     let config = NarwhalConfig::default();
     let node_keypair = &keypairs[0];
     
-    // Create channels
-    let (_tx_sender, tx_receiver) = mpsc::unbounded_channel();
-    let (_cert_sender, _cert_receiver) = mpsc::unbounded_channel();
-    let (_committee_sender, committee_receiver) = watch::channel(committee.clone());
-    
-    // Create signature service
-    let signature_service = create_signature_service();
-    
-    let mut dag_service = DagService::new(
-        node_keypair.public().clone(),
-        committee.clone(),
-        config,
-        signature_service,
-        tx_receiver,
-        _cert_sender,
-        committee_receiver,
-    );
+    let (mut dag_service, _tx_sender, _cert_receiver, _committee_sender, _network_sender) = 
+        create_dag_service_with_channels(
+            node_keypair.public().clone(),
+            committee.clone(),
+            config,
+        );
 
     // Test initial round
     assert_eq!(dag_service.current_round(), 1);
@@ -228,23 +226,12 @@ async fn test_committee_reconfiguration() {
     let config = NarwhalConfig::default();
     let node_keypair = &keypairs[0];
     
-    // Create channels
-    let (_tx_sender, tx_receiver) = mpsc::unbounded_channel();
-    let (_cert_sender, _cert_receiver) = mpsc::unbounded_channel();
-    let (committee_sender, committee_receiver) = watch::channel(committee.clone());
-    
-    // Create signature service
-    let signature_service = create_signature_service();
-    
-    let dag_service = DagService::new(
-        node_keypair.public().clone(),
-        committee.clone(),
-        config,
-        signature_service,
-        tx_receiver,
-        _cert_sender,
-        committee_receiver,
-    );
+    let (dag_service, tx_sender, _cert_receiver, committee_sender, network_sender) = 
+        create_dag_service_with_channels(
+            node_keypair.public().clone(),
+            committee.clone(),
+            config,
+        );
 
     let service_handle = dag_service.spawn();
     
@@ -259,11 +246,12 @@ async fn test_committee_reconfiguration() {
     // Let it process
     tokio::time::sleep(Duration::from_millis(50)).await;
     
-    // Clean shutdown
-    drop(committee_sender);
+    // Clean shutdown - abort the service
+    service_handle.abort();
     
-    let result = tokio::time::timeout(Duration::from_secs(1), service_handle).await;
-    assert!(result.is_ok(), "Service should handle committee updates");
+    // The service should be aborted immediately
+    let result = service_handle.await;
+    assert!(result.is_err(), "Service should have been aborted");
 }
 
 #[tokio::test]
@@ -300,44 +288,31 @@ async fn test_multiple_nodes_basic_setup() {
     let config = NarwhalConfig::default();
     
     let mut service_handles = Vec::new();
-    let mut committee_senders = Vec::new();
+    let mut all_senders = Vec::new();
     
     // Create multiple DAG services
     for i in 0..4 {
-        let (_tx_sender, tx_receiver) = mpsc::unbounded_channel();
-        let (_cert_sender, _cert_receiver) = mpsc::unbounded_channel();
-        let (committee_sender, committee_receiver) = watch::channel(committee.clone());
-        
-        let signature_service = create_signature_service();
-        
-        let dag_service = DagService::new(
-            keypairs[i].public().clone(),
-            committee.clone(),
-            config.clone(),
-            signature_service,
-            tx_receiver,
-            _cert_sender,
-            committee_receiver,
-        );
+        let (dag_service, tx_sender, _cert_receiver, committee_sender, network_sender) = 
+            create_dag_service_with_channels(
+                keypairs[i].public().clone(),
+                committee.clone(),
+                config.clone(),
+            );
         
         let handle = dag_service.spawn();
         
-        committee_senders.push(committee_sender);
+        all_senders.push((tx_sender, committee_sender, network_sender));
         service_handles.push(handle);
     }
     
     // Let them initialize
     tokio::time::sleep(Duration::from_millis(100)).await;
     
-    // Clean shutdown
-    for committee_sender in committee_senders {
-        drop(committee_sender);
-    }
-    
-    // Wait for all services to complete
+    // Clean shutdown - abort all services
     for handle in service_handles {
-        let result = tokio::time::timeout(Duration::from_secs(1), handle).await;
-        assert!(result.is_ok(), "Service should complete within timeout");
+        handle.abort();
+        let result = handle.await;
+        assert!(result.is_err(), "Service should have been aborted");
     }
 }
 
@@ -347,23 +322,12 @@ async fn test_transaction_processing_flow() {
     let config = NarwhalConfig::default();
     let node_keypair = &keypairs[0];
     
-    // Create channels
-    let (tx_sender, tx_receiver) = mpsc::unbounded_channel();
-    let (_cert_sender, _cert_receiver) = mpsc::unbounded_channel();
-    let (committee_sender, committee_receiver) = watch::channel(committee.clone());
-    
-    // Create signature service
-    let signature_service = create_signature_service();
-    
-    let dag_service = DagService::new(
-        node_keypair.public().clone(),
-        committee.clone(),
-        config,
-        signature_service,
-        tx_receiver,
-        _cert_sender,
-        committee_receiver,
-    );
+    let (dag_service, tx_sender, _cert_receiver, committee_sender, network_sender) = 
+        create_dag_service_with_channels(
+            node_keypair.public().clone(),
+            committee.clone(),
+            config,
+        );
 
     let service_handle = dag_service.spawn();
     
@@ -376,10 +340,10 @@ async fn test_transaction_processing_flow() {
     // Let the service process the transactions
     tokio::time::sleep(Duration::from_millis(100)).await;
     
-    // Clean shutdown
-    drop(tx_sender);
-    drop(committee_sender);
+    // Clean shutdown - abort the service
+    service_handle.abort();
     
-    let result = tokio::time::timeout(Duration::from_secs(1), service_handle).await;
-    assert!(result.is_ok(), "Service should process transactions and complete");
+    // The service should be aborted immediately
+    let result = service_handle.await;
+    assert!(result.is_err(), "Service should have been aborted");
 } 

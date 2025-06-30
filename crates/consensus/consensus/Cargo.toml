@@ -24,6 +24,7 @@ reth-db-api = { workspace = true }
 # ethereum
 alloy-primitives.workspace = true
 alloy-consensus.workspace = true
+alloy-rlp.workspace = true
 
 # narwhal + bullshark consensus
 narwhal = { path = "../../narwhal" }
@@ -53,6 +54,7 @@ async-trait.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
+indexmap.workspace = true
 
 [dev-dependencies]
 tempfile = { workspace = true }

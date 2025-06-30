@@ -15,7 +15,7 @@ use reth_consensus::{
         integration::NarwhalRethBridge,
         validator_keys::{ValidatorKeyPair, ValidatorRegistry, ValidatorMetadata, ValidatorIdentity},
         types::NarwhalBullsharkConfig,
-        service::ServiceConfig,
+        integration::ServiceConfig,
     },
     consensus_storage::{MdbxConsensusStorage, DatabaseOps},
     rpc::{ConsensusRpcImpl, ConsensusAdminRpcImpl, ConsensusApiServer, ConsensusAdminApiServer},

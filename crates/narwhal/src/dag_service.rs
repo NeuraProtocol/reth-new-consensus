@@ -2,7 +2,8 @@
 
 use crate::{
     types::{Certificate, Committee, Header, Vote, PublicKey, Signature, HeaderDigest}, 
-    NarwhalConfig, DagError, DagResult, Transaction, Round, Batch
+    NarwhalConfig, DagError, DagResult, Transaction, Round, Batch,
+    aggregators::VotesAggregator,
 };
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
@@ -48,14 +49,16 @@ pub struct DagService {
     processing: HashMap<Round, HashSet<HeaderDigest>>,
     /// The last header we proposed (for which we are waiting votes)
     current_header: Option<Header>,
-    /// Aggregates votes into a certificate (simplified - we'll use a basic version)
-    pending_votes: HashMap<HeaderDigest, Vec<Vote>>,
+    /// Vote aggregators indexed by header digest
+    votes_aggregators: HashMap<HeaderDigest, VotesAggregator>,
     /// Certificate storage for parent tracking
     certificates: HashMap<CertificateDigest, Certificate>,
     /// Latest certificates by author for parent tracking (for DAG parents)
     latest_certificates: HashMap<PublicKey, Certificate>,
     /// Current transaction batch being assembled
     current_batch: Vec<Transaction>,
+    /// Garbage collection round - we can clean up data older than this
+    gc_round: Round,
 }
 
 impl std::fmt::Debug for DagService {
@@ -92,10 +95,11 @@ impl DagService {
             current_round: 1,
             processing: HashMap::new(),
             current_header: None,
-            pending_votes: HashMap::new(),
+            votes_aggregators: HashMap::new(),
             certificates: HashMap::new(),
             latest_certificates: HashMap::new(),
             current_batch: Vec::new(),
+            gc_round: 0,
         }
     }
 
@@ -248,6 +252,9 @@ impl DagService {
 
          // Store as current header for vote aggregation
          self.current_header = Some(header.clone());
+        
+        // Create vote aggregator for this header
+        self.votes_aggregators.insert(header.id, VotesAggregator::with_header(header.clone()));
          
          // Mark as processing
          self.processing
@@ -356,39 +363,39 @@ impl DagService {
 
      /// Process vote (adapted from reference implementation)  
      async fn process_vote(&mut self, vote: Vote) -> DagResult<()> {
-         debug!("Processing vote from {}", vote.author);
+         debug!("Processing vote from {} for header {}", vote.author, vote.id);
          
          let header_id = vote.id;
          
-         // Store vote
-         self.pending_votes.entry(header_id).or_insert_with(Vec::new).push(vote);
-         
-         // Check if we have enough votes for certificate
-         let votes = &self.pending_votes[&header_id];
-         let total_stake: u64 = votes.iter()
-             .map(|v| self.committee.stake(&v.author))
-             .sum();
-         
-         let quorum_threshold = self.committee.quorum_threshold();
-         
-         if total_stake >= quorum_threshold {
-             // Create certificate
-             if let Some(header) = self.current_header.as_ref().filter(|h| h.id == header_id) {
-                 // Convert votes to (PublicKey, Signature) format
-                 let vote_sigs: Vec<(PublicKey, Signature)> = votes.iter()
-                     .map(|v| (v.author.clone(), v.signature.clone()))
-                     .collect();
-                 
-                 let certificate = Certificate::new(&self.committee, header.clone(), vote_sigs)?;
-                 
-                 info!("Created certificate from {} votes", votes.len());
-                 
-                 // Process the certificate
-                 self.process_certificate(certificate).await?;
-                 
-                 // Clean up votes
-                 self.pending_votes.remove(&header_id);
+         // Get or create vote aggregator for this header
+         let aggregator = match self.votes_aggregators.get_mut(&header_id) {
+             Some(agg) => agg,
+             None => {
+                 // If we don't have an aggregator, this might be a vote for someone else's header
+                 // We need to check if we know about this header
+                 if let Some(header) = self.current_header.as_ref().filter(|h| h.id == header_id) {
+                     self.votes_aggregators.entry(header_id)
+                         .or_insert_with(|| VotesAggregator::with_header(header.clone()))
+                 } else {
+                     debug!("Vote for unknown header {}, ignoring", header_id);
+                     return Ok(());
+                 }
              }
+         };
+         
+         // Add vote to aggregator
+         aggregator.add_vote(vote, &self.committee)?;
+         
+         // Check if we can form a certificate
+         if let Some(certificate) = aggregator.try_form_certificate(&self.committee)? {
+             info!("Created certificate for header {} with {} votes", 
+                   header_id, aggregator.vote_count());
+             
+             // Process the certificate
+             self.process_certificate(certificate).await?;
+             
+             // Remove the aggregator as we've formed the certificate
+             self.votes_aggregators.remove(&header_id);
          }
 
          Ok(())
@@ -400,17 +407,79 @@ impl DagService {
 
          let cert_digest = certificate.digest();
          let author = certificate.origin();
+         let cert_round = certificate.round();
 
          // Store certificate
          self.certificates.insert(cert_digest, certificate.clone());
-         self.latest_certificates.insert(author, certificate.clone());
+         self.latest_certificates.insert(author.clone(), certificate.clone());
 
          // Send to Bullshark consensus
-         if let Err(e) = self.certificate_output_sender.send(certificate) {
+         if let Err(e) = self.certificate_output_sender.send(certificate.clone()) {
              warn!("Failed to send certificate to Bullshark: {}", e);
          }
 
+         // Check if we should advance rounds based on certificates collected
+         self.try_advance_round(cert_round).await?;
+         
+         // Perform garbage collection if needed
+         self.garbage_collect(cert_round);
+
          Ok(())
+     }
+     
+     /// Try to advance to the next round if we have enough certificates
+     async fn try_advance_round(&mut self, cert_round: Round) -> DagResult<()> {
+         // Only consider advancing if this certificate is from our current round - 1
+         if cert_round != self.current_round.saturating_sub(1) {
+             return Ok(());
+         }
+         
+         // Count certificates from the previous round
+         let mut total_stake = 0u64;
+         let mut certificates_for_round = Vec::new();
+         
+         for (author, cert) in &self.latest_certificates {
+             if cert.round() == cert_round {
+                 total_stake += self.committee.stake(author);
+                 certificates_for_round.push(cert.clone());
+             }
+         }
+         
+         // Check if we have quorum of certificates from previous round
+         if total_stake >= self.committee.quorum_threshold() {
+             info!("Collected quorum of certificates for round {}, can advance to round {}", 
+                   cert_round, self.current_round + 1);
+             
+             // If we have pending transactions, create a header immediately
+             if !self.current_batch.is_empty() {
+                 self.create_and_propose_header().await?;
+             }
+         }
+         
+         Ok(())
+     }
+     
+     /// Garbage collect old state
+     fn garbage_collect(&mut self, cert_round: Round) {
+         // Update GC round if we've advanced
+         let new_gc_round = cert_round.saturating_sub(self.config.gc_depth);
+         if new_gc_round > self.gc_round {
+             self.gc_round = new_gc_round;
+             
+             // Clean up old processing state
+             self.processing.retain(|&round, _| round > self.gc_round);
+             
+             // Clean up old certificates (but keep latest certificates for parent tracking)
+             self.certificates.retain(|_, cert| cert.round() > self.gc_round);
+             
+             // Clean up old vote aggregators
+             self.votes_aggregators.retain(|_, aggregator| {
+                 // Keep aggregators that might still be active
+                 true // TODO: Add round tracking to aggregators
+             });
+             
+             debug!("Garbage collected state up to round {}", self.gc_round);
+         }
      }
 
      /// Update committee and cleanup state (from reference implementation)
@@ -424,10 +493,11 @@ impl DagService {
          self.current_round = 1;
          self.current_batch.clear();
          self.processing.clear();
-         self.pending_votes.clear();
+         self.votes_aggregators.clear();
          self.current_header = None;
+         self.gc_round = 0;
          // Keep certificates for parent tracking
-           }
+     }
 
     /// Get the current round
     pub fn current_round(&self) -> Round {

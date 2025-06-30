@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use anyhow::{Result, anyhow};
 use tracing::{info, warn};
 use rand_08::RngCore;
+use sha2::{Sha256, Digest};
 
 /// Validator identity combining EVM address and consensus key
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,6 +65,49 @@ impl ValidatorKeyPair {
         
         // Generate consensus key (BLS12-381)
         let consensus_keypair = fastcrypto::bls12381::BLS12381KeyPair::generate(&mut rng);
+        
+        Ok(Self {
+            evm_private_key,
+            evm_public_key,
+            evm_address,
+            consensus_keypair,
+        })
+    }
+    
+    /// Create validator key pair deterministically from a string seed
+    /// This ensures all nodes generate the same validator keys for shared committee
+    pub fn from_seed(seed: &str) -> Result<Self> {
+        use rand_08::SeedableRng;
+        use sha2::{Sha256, Digest};
+        
+        // Hash the string seed to get deterministic 32-byte seed
+        let mut hasher = Sha256::new();
+        hasher.update(b"RETH_NARWHAL_VALIDATOR_SEED_V1:");
+        hasher.update(seed.as_bytes());
+        let seed_bytes: [u8; 32] = hasher.finalize().into();
+        
+        // Create deterministic RNG from seed
+        let mut rng = rand_08::rngs::StdRng::from_seed(seed_bytes);
+        
+        // Generate deterministic EVM private key
+        let mut evm_key_bytes = [0u8; 32];
+        rng.fill_bytes(&mut evm_key_bytes);
+        let evm_private_key = EvmSecretKey::from_byte_array(&evm_key_bytes)
+            .map_err(|e| anyhow!("Failed to generate deterministic EVM private key: {}", e))?;
+        
+        let secp = Secp256k1::new();
+        let evm_public_key = EvmPublicKey::from_secret_key(&secp, &evm_private_key);
+        let evm_address = public_key_to_address(&evm_public_key);
+        
+        // Generate deterministic consensus key
+        let consensus_keypair = fastcrypto::bls12381::BLS12381KeyPair::generate(&mut rng);
+        
+        info!(
+            "Generated deterministic validator from seed '{}': EVM {:?}, Consensus {}",
+            seed,
+            evm_address,
+            consensus_keypair.public().encode_base64()
+        );
         
         Ok(Self {
             evm_private_key,

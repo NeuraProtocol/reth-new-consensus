@@ -34,6 +34,54 @@ pub struct NarwhalBullsharkArgs {
     /// Committee size (number of validators)
     #[arg(long = "narwhal.committee-size", default_value_t = COMMITTEE_SIZE_DEFAULT)]
     pub committee_size: usize,
+    
+    // ===== VALIDATOR KEY MANAGEMENT =====
+    
+    /// Validator private key (hex string, 0x-prefixed or raw)
+    #[arg(long = "validator.private-key", env = "VALIDATOR_PRIVATE_KEY")]
+    pub validator_private_key: Option<String>,
+    
+    /// Path to validator key file (JSON format with evm_private_key field)
+    #[arg(long = "validator.key-file", env = "VALIDATOR_KEY_FILE")]
+    pub validator_key_file: Option<std::path::PathBuf>,
+    
+    /// Directory containing validator configuration files
+    #[arg(long = "validator.config-dir", env = "VALIDATOR_CONFIG_DIR")]
+    pub validator_config_dir: Option<std::path::PathBuf>,
+    
+    /// Committee configuration file with validator public keys
+    #[arg(long = "validator.committee-config", env = "COMMITTEE_CONFIG_FILE")]
+    pub committee_config_file: Option<std::path::PathBuf>,
+    
+    /// Use deterministic consensus key derivation from EVM key
+    #[arg(long = "validator.deterministic-consensus-key", action = ArgAction::SetTrue)]
+    pub deterministic_consensus_key: bool,
+    
+    /// Validator index in committee (0-based, can also use VALIDATOR_INDEX env var)
+    #[arg(long = "validator.index", env = "VALIDATOR_INDEX")]
+    pub validator_index: Option<usize>,
+    
+    // ===== HASHICORP VAULT INTEGRATION =====
+    
+    /// Enable HashiCorp Vault for key management
+    #[arg(long = "vault.enable", action = ArgAction::SetTrue)]
+    pub vault_enabled: bool,
+    
+    /// Vault server address (e.g., https://vault.example.com:8200)
+    #[arg(long = "vault.addr", env = "VAULT_ADDR")]
+    pub vault_address: Option<String>,
+    
+    /// Vault mount path for validator keys (default: secret)
+    #[arg(long = "vault.mount-path", default_value = "secret")]
+    pub vault_mount_path: String,
+    
+    /// Vault key path for this validator's private key
+    #[arg(long = "vault.key-path", env = "VAULT_KEY_PATH")]
+    pub vault_key_path: Option<String>,
+    
+    /// Vault authentication token (not recommended, use VAULT_TOKEN env var)
+    #[arg(long = "vault.token", env = "VAULT_TOKEN")]
+    pub vault_token: Option<String>,
 
     /// Maximum batch size for transaction batching
     #[arg(long = "narwhal.max-batch-size", default_value_t = MAX_BATCH_SIZE_DEFAULT)]
@@ -90,6 +138,17 @@ impl Default for NarwhalBullsharkArgs {
             narwhal_enabled: false,
             network_address: NARWHAL_NETWORK_DEFAULT.parse().unwrap(),
             committee_size: COMMITTEE_SIZE_DEFAULT,
+            validator_private_key: None,
+            validator_key_file: None,
+            validator_config_dir: None,
+            committee_config_file: None,
+            deterministic_consensus_key: false,
+            validator_index: None,
+            vault_enabled: false,
+            vault_address: None,
+            vault_mount_path: "secret".to_string(),
+            vault_key_path: None,
+            vault_token: None,
             max_batch_size: MAX_BATCH_SIZE_DEFAULT,
             max_batch_delay_ms: 100,
             num_workers: 4,
@@ -107,6 +166,61 @@ impl Default for NarwhalBullsharkArgs {
 }
 
 impl NarwhalBullsharkArgs {
+    /// Convert CLI arguments to ValidatorKeyConfig
+    pub fn to_validator_key_config(&self) -> reth_consensus::narwhal_bullshark::validator_keys::ValidatorKeyConfig {
+        use reth_consensus::narwhal_bullshark::validator_keys::{ValidatorKeyConfig, KeyManagementStrategy};
+        
+        let strategy = if self.vault_enabled {
+            KeyManagementStrategy::External
+        } else if self.validator_key_file.is_some() || self.validator_config_dir.is_some() {
+            KeyManagementStrategy::FileSystem  
+        } else if self.validator_private_key.is_some() {
+            KeyManagementStrategy::FileSystem // Use in-memory key as file strategy
+        } else {
+            KeyManagementStrategy::Random // Fallback for testing
+        };
+        
+        ValidatorKeyConfig {
+            key_strategy: strategy,
+            key_directory: self.validator_config_dir.clone(),
+            deterministic_consensus_keys: self.deterministic_consensus_key,
+        }
+    }
+    
+    /// Get validator index for this node
+    pub fn get_validator_index(&self) -> Option<usize> {
+        // Priority: CLI arg > env var > None
+        self.validator_index
+            .or_else(|| std::env::var("VALIDATOR_INDEX").ok().and_then(|s| s.parse().ok()))
+    }
+    
+    /// Get validator private key from CLI args or environment
+    pub fn get_validator_private_key(&self) -> Option<String> {
+        self.validator_private_key.clone()
+            .or_else(|| std::env::var("VALIDATOR_PRIVATE_KEY").ok())
+    }
+    
+    /// Check if vault-based key management is configured
+    pub fn is_vault_configured(&self) -> bool {
+        self.vault_enabled && 
+        self.vault_address.is_some() && 
+        self.vault_key_path.is_some()
+    }
+    
+    /// Get vault configuration for key management
+    pub fn get_vault_config(&self) -> Option<VaultConfig> {
+        if !self.is_vault_configured() {
+            return None;
+        }
+        
+        Some(VaultConfig {
+            address: self.vault_address.clone()?,
+            mount_path: self.vault_mount_path.clone(),
+            key_path: self.vault_key_path.clone()?,
+            token: self.vault_token.clone(),
+        })
+    }
+
     /// Convert to Narwhal configuration
     pub fn to_narwhal_config(&self) -> narwhal::NarwhalConfig {
         narwhal::NarwhalConfig {
@@ -119,12 +233,10 @@ impl NarwhalBullsharkArgs {
     }
 
     /// Convert to Bullshark configuration
-    pub fn to_bullshark_config(&self) -> bullshark::BftConfig {
-        // Generate a dummy key for now (TODO: proper key management)
-        let keypair = fastcrypto::bls12381::BLS12381KeyPair::generate(&mut rand_08::thread_rng());
-        
+    /// ✅ FIX: Now uses real validator key instead of dummy random key
+    pub fn to_bullshark_config(&self, validator_keypair: &reth_consensus::narwhal_bullshark::validator_keys::ValidatorKeyPair) -> bullshark::BftConfig {
         bullshark::BftConfig {
-            node_key: keypair.public().clone(),
+            node_key: validator_keypair.consensus_keypair.public().clone(),
             gc_depth: self.gc_depth,
             finalization_timeout: std::time::Duration::from_secs(self.finalization_timeout_secs),
             max_certificates_per_round: self.max_certificates_per_round,
@@ -153,4 +265,13 @@ impl NarwhalBullsharkArgs {
     pub fn should_wait_for_peers(&self) -> bool {
         !self.bootstrap_mode && !self.peer_addresses.is_empty()
     }
+}
+
+/// Vault configuration extracted from CLI arguments
+#[derive(Debug, Clone)]
+pub struct VaultConfig {
+    pub address: String,
+    pub mount_path: String,
+    pub key_path: String,
+    pub token: Option<String>,
 } 

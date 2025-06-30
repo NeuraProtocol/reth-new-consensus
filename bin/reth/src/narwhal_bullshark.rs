@@ -11,11 +11,10 @@ use reth_tasks::TaskExecutor;
 use reth_tokio_util::EventStream;
 use reth_consensus::{
     narwhal_bullshark::{
-        ServiceConfig,
-        integration::NarwhalRethBridge,
+        integration::{NarwhalRethBridge, ServiceConfig},
         types::NarwhalBullsharkConfig,
         mempool_bridge::{MempoolOperations, PoolStats},
-        validator_keys::{ValidatorKeyPair, ValidatorRegistry, ValidatorMetadata, ValidatorKeyConfig, KeyManagementStrategy, ValidatorIdentity},
+        validator_keys::{ValidatorKeyPair, ValidatorRegistry, ValidatorMetadata, ValidatorKeyConfig, ValidatorIdentity},
     },
     consensus_storage::MdbxConsensusStorage,
     rpc::{ConsensusRpcImpl, ConsensusAdminRpcImpl},
@@ -34,7 +33,7 @@ use tracing::*;
 use fastcrypto::traits::{KeyPair, EncodeDecodeBase64};
 use anyhow::Result;
 use tokio::sync::RwLock;
-use reth_db_api::{transaction::{DbTx, DbTxMut}, cursor::DbCursorRO};
+use reth_db_api::{transaction::{DbTx, DbTxMut}};
 use reth_provider::{DatabaseProviderFactory, DBProvider};
 
 
@@ -148,16 +147,53 @@ where
     E: ConfigureEvm<Primitives = EthPrimitives> + Clone + 'static,
     N: FullNetwork + NetworkProtocols,
 {
-    info!(target: "reth::cli", "Installing Narwhal + Bullshark consensus with REAL MDBX storage");
+    info!(target: "reth::cli", "Installing Narwhal + Bullshark consensus with REAL validator key management");
 
-    // Create validator registry and committee with proper EVM integration
-    let (committee, node_key, _validator_registry) = create_validator_committee(args.committee_size)?;
+    // ✅ FIX: Use real validator key management instead of random committee
+    let (committee, node_key, validator_registry, validator_keypair) = create_validator_committee(&args)?;
 
-    // Create configuration
+    // Create configuration with proper network settings
+    // Get the bind address from CLI arguments
+    let bind_address = args.network_address;
+    info!("🔍 DEBUG: CLI processing - binding to address: {}", bind_address);
+    
+    // Build peer address map from other validators in the committee
+    let mut peer_addresses = std::collections::HashMap::new();
+    
+    // Get all validator consensus keys except our own
+    let our_key_base64 = fastcrypto::traits::EncodeDecodeBase64::encode_base64(&node_key);
+    let mut peer_index = 0;
+    
+    for (authority, _stake) in &committee.authorities {
+        let authority_base64 = fastcrypto::traits::EncodeDecodeBase64::encode_base64(authority);
+        
+        if authority_base64 != our_key_base64 {
+            // Use configured peer addresses if available, otherwise use default ports
+            let peer_address = if peer_index < args.peer_addresses.len() {
+                args.peer_addresses[peer_index]
+            } else {
+                // Default port assignment for missing peers
+                format!("127.0.0.1:{}", 9001 + peer_index).parse().expect("Valid address")
+            };
+            
+            let authority_display = authority_base64.chars().take(16).collect::<String>();
+            peer_addresses.insert(authority_base64, peer_address);
+            info!(target: "reth::narwhal_bullshark", 
+                  "Configured peer: {} -> {}", 
+                  authority_display, 
+                  peer_address);
+            peer_index += 1;
+        }
+    }
+    
     let node_config = NarwhalBullsharkConfig {
         node_public_key: node_key.clone(),
         narwhal: args.to_narwhal_config(),
-        bullshark: args.to_bullshark_config(),
+        bullshark: args.to_bullshark_config(&validator_keypair), // ✅ FIX: Use real validator keypair
+        network: reth_consensus::narwhal_bullshark::types::NetworkConfig {
+            bind_address: args.network_address,
+            peer_addresses,
+        },
     };
 
     let service_config = ServiceConfig::new(node_config, committee);
@@ -200,11 +236,11 @@ where
         .map_err(|e| eyre::eyre!("Failed to create Narwhal-Reth bridge: {}", e))?;
 
     // Note: Mempool integration is set up separately via setup_mempool_integration()
-    info!(target: "reth::narwhal_bullshark", "✅ REAL: Consensus installed with MDBX integration - use setup_mempool_integration() for full integration");
+    info!(target: "reth::narwhal_bullshark", "✅ REAL: Consensus installed with validator key management and MDBX integration");
 
     // Start the consensus bridge in a separate thread
     // For now, we skip starting the bridge here and let the caller handle it
-    info!(target: "reth::cli", "✅ REAL: Narwhal + Bullshark consensus initialized with MDBX storage");
+    info!(target: "reth::cli", "✅ REAL: Narwhal + Bullshark consensus initialized with real validator keys");
     
     // TODO: Monitor consensus health and integrate with Reth's engine events
     task_executor.spawn(async move {
@@ -217,7 +253,7 @@ where
 
     Ok((
         bridge, 
-        Arc::new(RwLock::new(_validator_registry)), 
+        Arc::new(RwLock::new(validator_registry)), 
         storage_for_return
     ))
 }
@@ -251,204 +287,287 @@ where
     Ok(())
 }
 
-/// Create a validator committee with proper EVM address integration
-/// Returns (Committee, node_consensus_key, ValidatorRegistry)
-fn create_validator_committee(size: usize) -> eyre::Result<(Committee, narwhal::types::PublicKey, ValidatorRegistry)> {
-    if size < 1 {
+/// Create a production validator committee from CLI configuration
+/// ✅ PROPER CONSENSUS: Uses real validator keys from files, vault, or CLI arguments
+fn create_validator_committee(args: &NarwhalBullsharkArgs) -> eyre::Result<(Committee, narwhal::types::PublicKey, ValidatorRegistry, ValidatorKeyPair)> {
+    if args.committee_size < 1 {
         return Err(eyre::eyre!("Committee size must be at least 1"));
     }
 
+    info!(target: "reth::narwhal_bullshark", "Creating validator committee using REAL key management");
+    info!(target: "reth::narwhal_bullshark", "Committee size: {}", args.committee_size);
+
+    // Step 1: Load this node's validator private key
+    let validator_keypair = load_node_validator_key(args)?;
+    info!(target: "reth::narwhal_bullshark", 
+          "✅ Loaded validator private key: EVM {:?}, Consensus {}", 
+          validator_keypair.evm_address,
+          validator_keypair.consensus_keypair.public().encode_base64());
+
+    // Step 2: Load committee configuration (all validator public keys)
+    let committee_public_keys = load_committee_configuration(args)?;
+    info!(target: "reth::narwhal_bullshark", 
+          "✅ Loaded committee configuration with {} validators", 
+          committee_public_keys.len());
+
+    // Step 3: Build ValidatorRegistry with all committee members
     let mut validator_registry = ValidatorRegistry::new();
     let mut stakes = HashMap::new();
-    let mut validator_keypairs = Vec::new();
-
-    info!(target: "reth::narwhal_bullshark", "Creating validator committee with {} members", size);
-
-    // Generate validators with both EVM and consensus keys
-    for i in 0..size {
-        // Generate validator with both EVM and consensus keys
-        let keypair = ValidatorKeyPair::generate()
-            .map_err(|e| eyre::eyre!("Failed to generate validator keypair: {}", e))?;
-        
-        let metadata = ValidatorMetadata {
-            name: Some(format!("Validator-{}", i)),
-            description: Some(format!("Test validator {} for development", i)),
-            contact: None,
+    
+    for (index, committee_member) in committee_public_keys.iter().enumerate() {
+        let identity = ValidatorIdentity {
+            evm_address: committee_member.evm_address,
+            consensus_public_key: committee_member.consensus_public_key.clone(),
+            metadata: ValidatorMetadata {
+                name: Some(format!("Validator-{}", index)),
+                description: Some(format!("Committee validator at index {}", index)),
+                ..Default::default()
+            },
         };
         
-        let identity = keypair.identity(metadata);
-        let evm_address = identity.evm_address;
-        let consensus_key = identity.consensus_public_key.clone();
-        
-        // Register validator
         validator_registry.register_validator(identity)
             .map_err(|e| eyre::eyre!("Failed to register validator: {}", e))?;
+        stakes.insert(committee_member.evm_address, 1000); // Equal stakes for now
         
-        // Assign equal stake (100 units each)
-        stakes.insert(evm_address, 100u64);
-        validator_keypairs.push(keypair);
-        
-        info!(target: "reth::narwhal_bullshark", 
-              "Generated validator {}: EVM address {:?}, Consensus key {:?}", 
-              i, evm_address, consensus_key.encode_base64());
+        info!(target: "reth::narwhal_bullshark",
+              "Registered committee validator {}: EVM {:?}, Consensus {}",
+              index, 
+              committee_member.evm_address,
+              committee_member.consensus_public_key.encode_base64());
     }
-    
-    // Create committee from registered validators
+
+    // Step 4: Create committee from registered validators
     let committee = validator_registry.create_committee(0, &stakes)
         .map_err(|e| eyre::eyre!("Failed to create committee: {}", e))?;
     
-    // Use the first validator's consensus key as this node's key
-    let node_consensus_key = validator_keypairs[0].consensus_keypair.public().clone();
-    
-    info!(target: "reth::narwhal_bullshark", 
-          "Created committee with {} validators, total stake: {}", 
-          committee.authorities.len(), committee.total_stake);
-    
-    // Log the validator mappings for reference
-    for validator in validator_registry.all_validators() {
-        info!(target: "reth::narwhal_bullshark",
-              "Validator mapping: EVM {:?} <-> Consensus {:?} ({})",
-              validator.evm_address,
-              validator.consensus_public_key.encode_base64(),
-              validator.metadata.name.as_deref().unwrap_or("Unknown"));
+    // Step 5: Verify this node's key is in the committee
+    let our_consensus_key = validator_keypair.consensus_keypair.public().clone();
+    if !committee.authorities.contains_key(&our_consensus_key) {
+        return Err(eyre::eyre!(
+            "This node's consensus key {} is not in the committee configuration",
+            our_consensus_key.encode_base64()
+        ));
     }
+
+    info!(target: "reth::narwhal_bullshark", 
+          "✅ Committee created successfully with {} members, total stake: {}", 
+          committee.authorities.len(), 
+          committee.total_stake);
     
-    Ok((committee, node_consensus_key, validator_registry))
+    info!(target: "reth::narwhal_bullshark",
+          "✅ This node verified as committee member with consensus key: {}", 
+          our_consensus_key.encode_base64());
+
+    Ok((committee, our_consensus_key, validator_registry, validator_keypair))
 }
 
-/// Create a production validator committee from configuration
-/// This would be used when loading real validator configurations
-pub async fn create_production_committee(
-    config: &ValidatorKeyConfig,
-    stakes: &HashMap<Address, u64>,
-    epoch: u64,
-) -> eyre::Result<(Committee, ValidatorRegistry)> {
-    let mut validator_registry = ValidatorRegistry::new();
-    
-    match config.key_strategy {
-        KeyManagementStrategy::FileSystem => {
-            info!(target: "reth::narwhal_bullshark", "Loading validators from filesystem");
-            
-            // Load validator files from the configured directory
-            let validator_files = load_validators_from_filesystem(config)?;
-            
-            for validator_file in validator_files {
-                // Skip inactive validators
-                if !validator_file.active {
-                    info!(target: "reth::narwhal_bullshark", 
-                          "Skipping inactive validator: {}", 
-                          validator_file.metadata.name.as_deref().unwrap_or("Unknown"));
-                    continue;
-                }
-                
-                // Check if this validator has the required stake
-                let stake_amount = validator_file.stake;
-                let evm_address = {
-                    // Create keypair to get the EVM address
-                    let keypair = validator_file_to_keypair(&validator_file)?;
-                    keypair.evm_address
-                };
-                
-                // Check if this EVM address is in the provided stakes map
-                if let Some(&expected_stake) = stakes.get(&evm_address) {
-                    if stake_amount != expected_stake {
-                        warn!(target: "reth::narwhal_bullshark",
-                              "Stake mismatch for validator {:?}: file has {}, expected {}",
-                              evm_address, stake_amount, expected_stake);
-                    }
-                    
-                    // Create the full validator keypair and identity
-                    let keypair = validator_file_to_keypair(&validator_file)?;
-                    let identity = create_validator_identity_from_file(&validator_file, &keypair);
-                    
-                    // Register the validator
-                    validator_registry.register_validator(identity)
-                        .map_err(|e| eyre::eyre!("Failed to register validator from file: {}", e))?;
-                    
-                    info!(target: "reth::narwhal_bullshark",
-                          "Registered validator: {} (EVM: {:?}, Stake: {})",
-                          validator_file.metadata.name.as_deref().unwrap_or("Unknown"),
-                          evm_address, stake_amount);
-                } else {
-                    info!(target: "reth::narwhal_bullshark",
-                          "Validator {} not in current epoch stake set, skipping",
-                          validator_file.metadata.name.as_deref().unwrap_or("Unknown"));
-                }
-            }
-        },
-        KeyManagementStrategy::External => {
-            // Load validators from external service (e.g., HashiCorp Vault)
-            match load_validators_from_external(&config).await {
-                Ok(external_validators) => {
-                    for external_validator in external_validators {
-                        // Create keypair from vault validator to get addresses and keys
-                        let vault_config = parse_vault_config(config)?;
-                        let mut vault_client = VaultValidatorClient::new(vault_config)?;
-                        let vault_config = VaultValidatorConfig {
-                            metadata: external_validator.metadata.clone(),
-                            evm_key_path: external_validator.external_key_id.clone(),
-                            consensus_key_path: external_validator.external_key_id.clone(),
-                            stake: external_validator.stake,
-                            active: external_validator.active,
-                            key_version: external_validator.key_version,
-                            key_access: VaultKeyAccessStrategy::RetrieveKeys {
-                                kv_mount: "secret".to_string(),
-                                key_format: VaultKeyFormat::Raw,
-                            },
-                        };
-                        
-                        if external_validator.active {
-                            let keypair = vault_config_to_keypair(&mut vault_client, &vault_config).await?;
-                            let evm_address = keypair.evm_address;
-                            
-                            if stakes.contains_key(&evm_address) {
-                                let identity = ValidatorIdentity {
-                                    evm_address,
-                                    consensus_public_key: keypair.consensus_keypair.public().clone(),
-                                    metadata: external_validator.metadata,
-                                };
-                                
-                                validator_registry.register_validator(identity)
-                                .map_err(|e| eyre::eyre!("Failed to register validator: {}", e))?;
-                            }
-                        }
-                    }
-                },
-                Err(e) => {
-                    return Err(eyre::eyre!("Failed to load validators from external service: {}", e));
-                }
-            }
-        },
-        KeyManagementStrategy::HSM => {
-            // TODO: Load from hardware security modules
-            return Err(eyre::eyre!("HSM key management not yet implemented"));
-        },
-        KeyManagementStrategy::Random => {
-            // Generate random validators for each stake entry
-            for (evm_address, stake) in stakes {
-                // In production, this would load the real consensus key for this EVM address
-                // For now, generate a random consensus key
-                let consensus_keypair = fastcrypto::bls12381::BLS12381KeyPair::generate(&mut rand_08::thread_rng());
-                
-                let identity = reth_consensus::narwhal_bullshark::validator_keys::ValidatorIdentity {
-                    evm_address: *evm_address,
-                    consensus_public_key: consensus_keypair.public().clone(),
-                    metadata: ValidatorMetadata {
-                        name: Some(format!("Validator-{:?}", evm_address)),
-                        ..Default::default()
-                    },
-                };
-                
-                validator_registry.register_validator(identity)
-                    .map_err(|e| eyre::eyre!("Failed to register validator: {}", e))?;
-            }
-        },
+/// Load this node's validator private key from CLI arguments
+/// Supports: direct private key, key file, vault, or fallback to test key generation
+fn load_node_validator_key(args: &NarwhalBullsharkArgs) -> eyre::Result<ValidatorKeyPair> {
+    // Method 1: Direct private key from CLI/env
+    if let Some(private_key_hex) = args.get_validator_private_key() {
+        info!(target: "reth::narwhal_bullshark", "Loading validator key from CLI/environment variable");
+        return parse_private_key_hex(&private_key_hex);
     }
     
-    let committee = validator_registry.create_committee(epoch, stakes)
-        .map_err(|e| eyre::eyre!("Failed to create committee: {}", e))?;
+    // Method 2: Key file
+    if let Some(key_file_path) = &args.validator_key_file {
+        info!(target: "reth::narwhal_bullshark", "Loading validator key from file: {:?}", key_file_path);
+        return load_validator_key_from_file(key_file_path);
+    }
     
-    Ok((committee, validator_registry))
+    // Method 3: Vault
+    if args.is_vault_configured() {
+        info!(target: "reth::narwhal_bullshark", "Loading validator key from HashiCorp Vault");
+        return Err(eyre::eyre!("Vault key loading not yet implemented in this function. Use async load_node_validator_key_async()"));
+    }
+    
+    // Method 4: Fallback - generate test key (for development only)
+    warn!(target: "reth::narwhal_bullshark", 
+          "No validator key configuration found. Generating random key for TESTING ONLY");
+    warn!(target: "reth::narwhal_bullshark", 
+          "Use --validator.private-key or --validator.key-file for production");
+    
+    ValidatorKeyPair::generate()
+        .map_err(|e| eyre::eyre!("Failed to generate test validator key: {}", e))
+}
+
+/// Parse hex-encoded private key from string
+fn parse_private_key_hex(private_key_hex: &str) -> eyre::Result<ValidatorKeyPair> {
+    use secp256k1::SecretKey as EvmSecretKey;
+    use alloy_primitives::hex;
+    
+    // Remove 0x prefix if present
+    let key_hex = private_key_hex.strip_prefix("0x").unwrap_or(private_key_hex);
+    
+    // Decode hex to bytes
+    let key_bytes = hex::decode(key_hex)
+        .map_err(|e| eyre::eyre!("Invalid private key hex: {}", e))?;
+    
+    if key_bytes.len() != 32 {
+        return Err(eyre::eyre!("Private key must be 32 bytes, got {}", key_bytes.len()));
+    }
+    
+    // Convert to secp256k1 key
+    let mut key_array = [0u8; 32];
+    key_array.copy_from_slice(&key_bytes);
+    let evm_private_key = EvmSecretKey::from_byte_array(&key_array)
+        .map_err(|e| eyre::eyre!("Invalid secp256k1 private key: {}", e))?;
+    
+    // Create validator keypair with deterministic consensus key
+    ValidatorKeyPair::from_evm_key_deterministic(evm_private_key)
+        .map_err(|e| eyre::eyre!("Failed to create validator keypair: {}", e))
+}
+
+/// Load validator key from JSON file
+fn load_validator_key_from_file(file_path: &std::path::Path) -> eyre::Result<ValidatorKeyPair> {
+    use std::fs;
+    
+    // Read and parse the validator key file
+    let file_content = fs::read_to_string(file_path)
+        .map_err(|e| eyre::eyre!("Failed to read validator key file {:?}: {}", file_path, e))?;
+    
+    let validator_file: ValidatorKeyFile = serde_json::from_str(&file_content)
+        .map_err(|e| eyre::eyre!("Failed to parse validator key file {:?}: {}", file_path, e))?;
+    
+    // Convert to keypair using existing infrastructure
+    validator_file_to_keypair(&validator_file)
+}
+
+/// Committee member public information
+#[derive(Debug, Clone)]
+struct CommitteeMember {
+    pub evm_address: Address,
+    pub consensus_public_key: narwhal::types::PublicKey,
+    pub network_address: std::net::SocketAddr,
+}
+
+/// Load committee configuration (all validator public keys)
+/// In production, this would come from genesis block, governance, or configuration file
+fn load_committee_configuration(args: &NarwhalBullsharkArgs) -> eyre::Result<Vec<CommitteeMember>> {
+    // Method 1: Committee config file
+    if let Some(config_file) = &args.committee_config_file {
+        info!(target: "reth::narwhal_bullshark", "Loading committee from config file: {:?}", config_file);
+        return load_committee_from_file(config_file);
+    }
+    
+    // Method 2: Validator config directory (derive committee from all validator files)
+    if let Some(config_dir) = &args.validator_config_dir {
+        info!(target: "reth::narwhal_bullshark", "Deriving committee from validator directory: {:?}", config_dir);
+        return derive_committee_from_validator_directory(config_dir, args);
+    }
+    
+    // Method 3: Fallback - create test committee for development
+    warn!(target: "reth::narwhal_bullshark", 
+          "No committee configuration found. Creating test committee for DEVELOPMENT ONLY");
+    warn!(target: "reth::narwhal_bullshark", 
+          "Use --validator.committee-config or --validator.config-dir for production");
+    
+    create_test_committee(args.committee_size)
+}
+
+/// Load committee configuration from JSON file
+fn load_committee_from_file(config_file: &std::path::Path) -> eyre::Result<Vec<CommitteeMember>> {
+    use std::fs;
+    
+    let file_content = fs::read_to_string(config_file)
+        .map_err(|e| eyre::eyre!("Failed to read committee config file {:?}: {}", config_file, e))?;
+    
+    let committee_config: CommitteeConfigFile = serde_json::from_str(&file_content)
+        .map_err(|e| eyre::eyre!("Failed to parse committee config file {:?}: {}", config_file, e))?;
+    
+    let mut members = Vec::new();
+    for (index, member) in committee_config.validators.iter().enumerate() {
+        let consensus_public_key = narwhal::types::PublicKey::decode_base64(&member.consensus_public_key)
+            .map_err(|e| eyre::eyre!("Invalid consensus public key for validator {}: {}", index, e))?;
+        
+        let network_address = member.network_address.parse()
+            .map_err(|e| eyre::eyre!("Invalid network address for validator {}: {}", index, e))?;
+        
+        members.push(CommitteeMember {
+            evm_address: member.evm_address,
+            consensus_public_key,
+            network_address,
+        });
+    }
+    
+    Ok(members)
+}
+
+/// Derive committee from validator directory (read all validator files' public keys)
+fn derive_committee_from_validator_directory(config_dir: &std::path::Path, args: &NarwhalBullsharkArgs) -> eyre::Result<Vec<CommitteeMember>> {
+    let validator_files = load_validators_from_directory(config_dir)?;
+    let mut members = Vec::new();
+    
+    for (index, validator_file) in validator_files.iter().enumerate() {
+        if !validator_file.active {
+            continue; // Skip inactive validators
+        }
+        
+        // Create keypair to get public keys
+        let keypair = validator_file_to_keypair(validator_file)?;
+        
+        // Use peer addresses if available, otherwise default ports
+        let network_address = if index < args.peer_addresses.len() {
+            args.peer_addresses[index]
+        } else {
+            format!("127.0.0.1:{}", 9001 + index).parse()
+                .map_err(|e| eyre::eyre!("Failed to create default network address: {}", e))?
+        };
+        
+        members.push(CommitteeMember {
+            evm_address: keypair.evm_address,
+            consensus_public_key: keypair.consensus_keypair.public().clone(),
+            network_address,
+        });
+    }
+    
+    Ok(members)
+}
+
+/// Create test committee for development (deterministic keys)
+fn create_test_committee(committee_size: usize) -> eyre::Result<Vec<CommitteeMember>> {
+    let mut members = Vec::new();
+    
+    for i in 0..committee_size {
+        // Create deterministic test validator
+        let seed = format!("test-validator-{}", i);
+        let keypair = ValidatorKeyPair::from_seed(&seed)
+            .map_err(|e| eyre::eyre!("Failed to create test validator {}: {}", i, e))?;
+        
+        let network_address = format!("127.0.0.1:{}", 9001 + i).parse()
+            .map_err(|e| eyre::eyre!("Failed to create network address for validator {}: {}", i, e))?;
+        
+        members.push(CommitteeMember {
+            evm_address: keypair.evm_address,
+            consensus_public_key: keypair.consensus_keypair.public().clone(),
+            network_address,
+        });
+        
+        info!(target: "reth::narwhal_bullshark",
+              "Created test validator {}: EVM {:?}, Consensus {}, Network {}",
+              i, keypair.evm_address, keypair.consensus_keypair.public().encode_base64(), network_address);
+    }
+    
+    Ok(members)
+}
+
+/// Committee configuration file format
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CommitteeConfigFile {
+    pub network: String,
+    pub epoch: u64,
+    pub validators: Vec<CommitteeValidatorConfig>,
+}
+
+/// Individual validator in committee config file
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CommitteeValidatorConfig {
+    pub name: String,
+    pub evm_address: Address,
+    pub consensus_public_key: String, // Base64-encoded
+    pub network_address: String,
+    pub stake: u64,
 }
 
 /// Check if Narwhal + Bullshark consensus should override standard Ethereum consensus

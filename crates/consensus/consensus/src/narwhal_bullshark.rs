@@ -14,11 +14,16 @@ pub mod integration;
 pub mod mempool_bridge;
 /// Validator key management for EVM-compatible consensus
 pub mod validator_keys;
+/// Storage adapter for DAG service
+pub mod dag_storage_adapter;
+/// Transaction adapter for connecting Reth transaction pool to workers
+pub mod transaction_adapter;
 
 // Re-export key types for easier access
 pub use types::{FinalizedBatch, NarwhalBullsharkConfig};
-pub use service::{NarwhalBullsharkService, ServiceConfig};
+pub use service::NarwhalBullsharkService;
 pub use integration::{NarwhalRethBridge, RethIntegrationConfig};
 pub use mempool_bridge::{MempoolBridge, PoolStats};
 pub use engine::{NarwhalBullsharkConsensus, FinalizationStream};
 pub use validator_keys::{ValidatorKeyPair, ValidatorRegistry, ValidatorIdentity, ValidatorMetadata, ValidatorKeyConfig, KeyManagementStrategy};
+pub use transaction_adapter::{TransactionAdapter, TransactionAdapterBuilder, encode_transaction};

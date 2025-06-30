@@ -236,6 +236,20 @@ impl std::fmt::Debug for NarwhalNetwork {
     }
 }
 
+impl Clone for NarwhalNetwork {
+    fn clone(&self) -> Self {
+        Self {
+            node_key: self.node_key.clone(),
+            committee: self.committee.clone(),
+            network: self.network.clone(),
+            peer_map: self.peer_map.clone(),
+            event_sender: self.event_sender.clone(),
+            certificate_store: self.certificate_store.clone(),
+            batch_store: self.batch_store.clone(),
+        }
+    }
+}
+
 impl NarwhalNetwork {
     /// Create a new Narwhal network instance with anemo
     pub fn new(

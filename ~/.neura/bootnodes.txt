@@ -1,9 +1,0 @@
-# Neura Network Bootnodes
-# Node 1 - will be filled dynamically
-enode://TBD@127.0.0.1:30303
-# Node 2 - will be filled dynamically  
-enode://TBD@127.0.0.1:30304
-# Node 3 - will be filled dynamically
-enode://TBD@127.0.0.1:30305
-# Node 4 - will be filled dynamically
-enode://TBD@127.0.0.1:30306 

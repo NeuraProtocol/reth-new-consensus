@@ -16,7 +16,7 @@ use reth_consensus::{
         validator_keys::{ValidatorKeyPair, ValidatorRegistry},
         types::NarwhalBullsharkConfig,
         mempool_bridge::MempoolBridge,
-        service::ServiceConfig,
+        integration::ServiceConfig,
     },
     consensus_storage::{MdbxConsensusStorage, DatabaseOps},
 };

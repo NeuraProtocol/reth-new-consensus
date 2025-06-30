@@ -73,4 +73,60 @@ impl Table for ConsensusLatestFinalized {
     
     type Key = u8;
     type Value = u64;
+}
+
+/// Table storing worker batch data by digest
+#[derive(Debug)]
+pub struct WorkerBatches {
+    _private: std::marker::PhantomData<()>,
+}
+
+impl Table for WorkerBatches {
+    const NAME: &'static str = "WorkerBatches";
+    const DUPSORT: bool = false;
+    
+    type Key = B256; // BatchDigest
+    type Value = Vec<u8>; // Serialized Batch
+}
+
+/// Table storing worker batch metadata
+#[derive(Debug)]
+pub struct WorkerBatchMetadata {
+    _private: std::marker::PhantomData<()>,
+}
+
+impl Table for WorkerBatchMetadata {
+    const NAME: &'static str = "WorkerBatchMetadata";
+    const DUPSORT: bool = false;
+    
+    type Key = B256; // BatchDigest
+    type Value = Vec<u8>; // Serialized metadata (timestamp, worker_id, etc)
+}
+
+/// Table storing pending transactions for workers
+#[derive(Debug)]
+pub struct WorkerPendingTransactions {
+    _private: std::marker::PhantomData<()>,
+}
+
+impl Table for WorkerPendingTransactions {
+    const NAME: &'static str = "WorkerPendingTransactions";
+    const DUPSORT: bool = false;
+    
+    type Key = B256; // Transaction hash
+    type Value = Vec<u8>; // Serialized transaction
+}
+
+/// Table storing batch acknowledgments from other workers
+#[derive(Debug)]
+pub struct WorkerBatchAcks {
+    _private: std::marker::PhantomData<()>,
+}
+
+impl Table for WorkerBatchAcks {
+    const NAME: &'static str = "WorkerBatchAcks";
+    const DUPSORT: bool = true; // Multiple acks per batch
+    
+    type Key = B256; // BatchDigest
+    type Value = Vec<u8>; // Serialized acknowledgment (worker_id, signature, etc)
 } 

@@ -10,6 +10,9 @@
 pub mod dag_service;
 pub mod gossip;
 pub mod storage;
+pub mod storage_trait;
+pub mod storage_inmemory;
+pub mod storage_mdbx;
 pub mod types;
 pub mod primary;
 pub mod worker;
@@ -18,21 +21,25 @@ pub mod error;
 pub mod config;
 pub mod network;
 pub mod rpc;
+pub mod aggregators;
+pub mod batch_maker;
+pub mod quorum_waiter;
 
 // Re-export key types
 pub use dag_service::{DagService, DagMessage};
+pub use network::{NarwhalNetwork, NetworkEvent, NetworkConfig};
 pub use gossip::GossipProtocol;
 pub use storage::DagStorage;
+pub use storage_trait::{DagStorageInterface, DagStorageRef};
 pub use types::*;
 pub use primary::Primary;
 pub use worker::Worker;
 pub use error::{DagError, DagResult};
 // pub use config::NarwhalConfig; // Using local definition instead
-pub use network::{NarwhalNetwork, NetworkEvent};
 
 use serde::{Deserialize, Serialize};
 use alloy_primitives::B256;
-use alloy_consensus::{Transaction as AlloyTransaction, TxEnvelope};
+use alloy_consensus::TxEnvelope;
 use fastcrypto::Hash;
 use blake2::digest::Update;
 

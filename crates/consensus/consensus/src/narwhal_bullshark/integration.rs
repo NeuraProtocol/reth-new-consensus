@@ -1,7 +1,7 @@
 //! Integration bridge between Narwhal/Bullshark consensus and Reth execution pipeline
 
 use crate::{
-    narwhal_bullshark::{FinalizedBatch, NarwhalBullsharkService, ServiceConfig, MempoolBridge},
+    narwhal_bullshark::{FinalizedBatch, NarwhalBullsharkService, MempoolBridge, NarwhalBullsharkConfig},
     consensus_storage::MdbxConsensusStorage,
 };
 use narwhal::{types::{Committee, PublicKey}, NarwhalNetwork};
@@ -17,13 +17,27 @@ use tracing::{info, warn};
 use anyhow::Result;
 use fastcrypto::traits::ToFromBytes;
 
+/// Service configuration for compatibility with integration layer
+#[derive(Debug, Clone)]
+pub struct ServiceConfig {
+    pub node_config: NarwhalBullsharkConfig,
+    pub committee: Committee,
+}
+
+impl ServiceConfig {
+    pub fn new(node_config: NarwhalBullsharkConfig, committee: Committee) -> Self {
+        Self { node_config, committee }
+    }
+}
+
 /// Bridge between Narwhal/Bullshark consensus and Reth blockchain execution
 pub struct NarwhalRethBridge {
     /// The consensus service
     service: Option<NarwhalBullsharkService>,
     /// Networking for Narwhal
-    #[allow(dead_code)]
     network: Option<NarwhalNetwork>,
+    /// Network event receiver for forwarding to consensus
+    network_event_receiver: Option<tokio::sync::broadcast::Receiver<narwhal::NetworkEvent>>,
     /// Channel for receiving transactions from Reth mempool (fallback mode)
     transaction_sender: mpsc::UnboundedSender<RethTransaction>,
     /// Channel for receiving finalized batches
@@ -100,7 +114,7 @@ impl NarwhalRethBridge {
         let peer_addresses_clone = network_config.as_ref().map_or(Vec::new(), |nc| nc.peer_addresses.clone());
 
         // Create networking with configurable address
-        let network = if let Some(ref net_config) = network_config {
+        let (network, network_event_receiver) = if let Some(ref net_config) = network_config {
             if net_config.enable_networking {
                 let bind_address = net_config.network_address;
                 info!("Starting Narwhal network on {}", bind_address);
@@ -127,7 +141,7 @@ impl NarwhalRethBridge {
                     key
                 };
                 
-                let (network, _network_events) = NarwhalNetwork::new(
+                let (network, network_events) = NarwhalNetwork::new(
                     config.node_config.node_public_key.clone(),
                     config.committee.clone(),
                     bind_address,
@@ -143,10 +157,10 @@ impl NarwhalRethBridge {
                           committee_keys.len(), net_config.peer_addresses.len());
                 }
                 
-                Some(network)
+                (Some(network), Some(network_events))
             } else {
                 info!("Networking disabled for testing");
-                None
+                (None, None)
             }
         } else {
             // Default: use random port for testing
@@ -175,14 +189,34 @@ impl NarwhalRethBridge {
                 key
             };
             
-            let (network, _network_events) = NarwhalNetwork::new(
+            let (network, network_events) = NarwhalNetwork::new(
                 config.node_config.node_public_key.clone(),
                 config.committee.clone(),
                 bind_address,
                 network_private_key,
             )?;
-            Some(network)
+            (Some(network), Some(network_events))
         };
+
+        // Create peer address mapping for committee
+        let mut peer_addresses_map = std::collections::HashMap::new();
+        if let Some(ref net_config) = network_config {
+            // Map peer addresses to committee public keys
+            let committee_keys: Vec<_> = config.committee.authorities.keys()
+                .filter(|&key| key != &config.node_config.node_public_key)
+                .cloned()
+                .collect();
+            
+            for (i, &addr) in net_config.peer_addresses.iter().enumerate() {
+                if i < committee_keys.len() {
+                    peer_addresses_map.insert(committee_keys[i].clone(), addr);
+                }
+            }
+        }
+
+        let listen_address = network_config.as_ref()
+            .map(|nc| nc.network_address)
+            .unwrap_or_else(|| "127.0.0.1:0".parse().unwrap());
 
         let service = NarwhalBullsharkService::new(
             config.node_config,
@@ -191,11 +225,14 @@ impl NarwhalRethBridge {
             finalized_batch_sender,
             committee_receiver,
             storage.clone(), // Properly inject the MDBX storage
-        );
+            network_event_receiver, // Connect network events for REAL distributed consensus
+            network.clone().map(|n| Arc::new(n)), // ✅ FIX: Pass cloned network handle for outbound broadcasting
+        )?;
 
         Ok(Self {
             service: Some(service),
             network,
+            network_event_receiver: None, // Network events are passed to the service
             transaction_sender,
             finalized_batch_receiver,
             committee_sender,
@@ -226,8 +263,9 @@ impl NarwhalRethBridge {
 
     /// Start the consensus service
     pub async fn start(&mut self) -> Result<()> {
-        if let Some(service) = self.service.take() {
-            let _handles = service.spawn()?;
+        if let Some(mut service) = self.service.take() {
+            let spawn_result = service.spawn().await;
+            let _handles = spawn_result?;
             info!("Narwhal + Bullshark consensus service started");
             
             // Connect to peers if we have addresses and networking is enabled
@@ -261,6 +299,10 @@ impl NarwhalRethBridge {
                     }
                 }
             }
+            
+            // TODO: Start outbound bridge to handle broadcasting from service
+            // Since we can't clone the network, this would need to be implemented
+            // as a separate task that receives outbound messages and forwards them
             
             Ok(())
         } else {
@@ -427,6 +469,29 @@ pub fn create_test_config(node_key: PublicKey, committee: Committee) -> ServiceC
         node_public_key: node_key,
         narwhal: narwhal::NarwhalConfig::default(),
         bullshark: bullshark::BftConfig::default(),
+        network: crate::narwhal_bullshark::types::NetworkConfig::default(),
+    };
+    
+    ServiceConfig::new(node_config, committee)
+}
+
+/// Helper function to create configuration with explicit network settings
+pub fn create_test_config_with_network(
+    node_key: PublicKey, 
+    committee: Committee,
+    bind_port: u16,
+    peer_addresses: std::collections::HashMap<String, std::net::SocketAddr>
+) -> ServiceConfig {
+    let bind_address = format!("127.0.0.1:{}", bind_port).parse().expect("Valid address");
+    
+    let node_config = crate::narwhal_bullshark::types::NarwhalBullsharkConfig {
+        node_public_key: node_key,
+        narwhal: narwhal::NarwhalConfig::default(),
+        bullshark: bullshark::BftConfig::default(),
+        network: crate::narwhal_bullshark::types::NetworkConfig {
+            bind_address,
+            peer_addresses,
+        },
     };
     
     ServiceConfig::new(node_config, committee)

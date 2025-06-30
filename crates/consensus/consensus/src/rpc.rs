@@ -535,6 +535,7 @@ use fastcrypto::traits::EncodeDecodeBase64;
 /// 
 /// This struct provides the actual implementation of consensus RPC methods
 /// by interfacing with the Narwhal + Bullshark consensus system.
+#[derive(Debug)]
 pub struct ConsensusRpcImpl {
     /// Reference to the consensus bridge
     consensus_bridge: Arc<RwLock<NarwhalRethBridge>>,
@@ -803,6 +804,7 @@ impl ConsensusApiServer for ConsensusRpcImpl {
 }
 
 /// Administrative RPC implementation
+#[derive(Debug)]
 pub struct ConsensusAdminRpcImpl {
     /// Reference to the consensus RPC implementation
     consensus_rpc: Arc<ConsensusRpcImpl>,
