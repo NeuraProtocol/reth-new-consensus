@@ -1,6 +1,6 @@
 // Consensus extension tables for Narwhal + Bullshark
 
-use reth_db_api::table::Table;
+use reth_db_api::table::{Table, DupSort};
 use alloy_primitives::B256;
 use std;
 use alloc::vec::Vec;
@@ -129,4 +129,44 @@ impl Table for WorkerBatchAcks {
     
     type Key = B256; // BatchDigest
     type Value = Vec<u8>; // Serialized acknowledgment (worker_id, signature, etc)
+}
+
+impl DupSort for WorkerBatchAcks {
+    type SubKey = Vec<u8>; // Worker ID as subkey
+}
+
+/// Table storing votes indexed by header digest
+#[derive(Debug)]
+pub struct ConsensusVotes {
+    _private: std::marker::PhantomData<()>,
+}
+
+impl Table for ConsensusVotes {
+    const NAME: &'static str = "ConsensusVotes";
+    const DUPSORT: bool = true; // Multiple votes per header
+    
+    type Key = B256; // HeaderDigest
+    type Value = Vec<u8>; // Serialized Vote
+}
+
+impl DupSort for ConsensusVotes {
+    type SubKey = Vec<u8>; // Voter public key as subkey
+}
+
+/// Table indexing certificates by round for efficient round queries
+#[derive(Debug)]
+pub struct ConsensusCertificatesByRound {
+    _private: std::marker::PhantomData<()>,
+}
+
+impl Table for ConsensusCertificatesByRound {
+    const NAME: &'static str = "ConsensusCertificatesByRound";
+    const DUPSORT: bool = true; // Multiple certificates per round
+    
+    type Key = u64; // Round number
+    type Value = Vec<u8>; // Certificate digest
+}
+
+impl DupSort for ConsensusCertificatesByRound {
+    type SubKey = Vec<u8>; // Certificate digest as subkey
 } 

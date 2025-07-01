@@ -240,6 +240,8 @@ mod tests {
             .author(keypairs[0].public().clone())
             .round(1)
             .epoch(0)
+            .payload(Default::default())
+            .parents(Default::default())
             .build(&keypairs[0])
             .unwrap();
 
@@ -268,6 +270,8 @@ mod tests {
             .author(keypairs[0].public().clone())
             .round(1)
             .epoch(0)
+            .payload(Default::default())
+            .parents(Default::default())
             .build(&keypairs[0])
             .unwrap();
 

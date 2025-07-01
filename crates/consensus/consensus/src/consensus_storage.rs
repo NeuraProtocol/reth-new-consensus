@@ -62,6 +62,24 @@ pub trait DatabaseOps: std::fmt::Debug {
     
     /// REAL: Count entries in all consensus tables
     fn get_table_stats(&self) -> Result<(u64, u64, u64)>; // (certs, batches, vertices)
+    
+    /// REAL: Store vote for a header
+    fn put_vote(&self, header_digest: B256, vote_data: Vec<u8>) -> Result<()>;
+    
+    /// REAL: Get all votes for a header
+    fn get_votes(&self, header_digest: B256) -> Result<Vec<Vec<u8>>>;
+    
+    /// REAL: Remove all votes for a header
+    fn remove_votes(&self, header_digest: B256) -> Result<()>;
+    
+    /// REAL: Index certificate by round
+    fn index_certificate_by_round(&self, round: u64, cert_digest: Vec<u8>) -> Result<()>;
+    
+    /// REAL: Get certificate digests by round
+    fn get_certificates_by_round(&self, round: u64) -> Result<Vec<Vec<u8>>>;
+    
+    /// REAL: Remove certificates before a round
+    fn remove_certificates_before_round(&self, round: u64) -> Result<u64>;
 }
 
 impl MdbxConsensusStorage {
@@ -258,6 +276,72 @@ impl MdbxConsensusStorage {
     /// REAL: Check if batch exists in MDBX  
     pub fn batch_exists(&self, batch_id: u64) -> Result<bool> {
         Ok(self.get_batch(batch_id)?.is_some())
+    }
+
+    /// REAL: Store vote for a header in MDBX
+    pub fn store_vote(&self, header_digest: B256, vote_data: Vec<u8>) -> Result<()> {
+        let db_ops = self.db_ops.lock().unwrap();
+        let ops = db_ops.as_ref().ok_or_else(|| anyhow::anyhow!("Database operations not injected"))?;
+        
+        // REAL: Execute write operation using ConsensusVotes table
+        ops.put_vote(header_digest, vote_data)?;
+        debug!("✅ REAL: Stored vote for header {} in MDBX", header_digest);
+        Ok(())
+    }
+    
+    /// REAL: Get all votes for a header from MDBX
+    pub fn get_votes(&self, header_digest: B256) -> Result<Vec<Vec<u8>>> {
+        let db_ops = self.db_ops.lock().unwrap();
+        let ops = db_ops.as_ref().ok_or_else(|| anyhow::anyhow!("Database operations not injected"))?;
+        
+        // REAL: Execute read operation using ConsensusVotes table
+        let votes = ops.get_votes(header_digest)?;
+        debug!("✅ REAL: Retrieved {} votes for header {} from MDBX", votes.len(), header_digest);
+        Ok(votes)
+    }
+    
+    /// REAL: Remove all votes for a header from MDBX
+    pub fn remove_votes(&self, header_digest: B256) -> Result<()> {
+        let db_ops = self.db_ops.lock().unwrap();
+        let ops = db_ops.as_ref().ok_or_else(|| anyhow::anyhow!("Database operations not injected"))?;
+        
+        // REAL: Execute delete operation using ConsensusVotes table
+        ops.remove_votes(header_digest)?;
+        debug!("✅ REAL: Removed votes for header {} from MDBX", header_digest);
+        Ok(())
+    }
+    
+    /// REAL: Index certificate by round in MDBX
+    pub fn index_certificate_by_round(&self, round: u64, cert_digest: Vec<u8>) -> Result<()> {
+        let db_ops = self.db_ops.lock().unwrap();
+        let ops = db_ops.as_ref().ok_or_else(|| anyhow::anyhow!("Database operations not injected"))?;
+        
+        // REAL: Execute write operation using ConsensusCertificatesByRound table
+        ops.index_certificate_by_round(round, cert_digest)?;
+        debug!("✅ REAL: Indexed certificate for round {} in MDBX", round);
+        Ok(())
+    }
+    
+    /// REAL: Get certificate digests by round from MDBX
+    pub fn get_certificates_by_round(&self, round: u64) -> Result<Vec<Vec<u8>>> {
+        let db_ops = self.db_ops.lock().unwrap();
+        let ops = db_ops.as_ref().ok_or_else(|| anyhow::anyhow!("Database operations not injected"))?;
+        
+        // REAL: Execute read operation using ConsensusCertificatesByRound table
+        let certificates = ops.get_certificates_by_round(round)?;
+        debug!("✅ REAL: Retrieved {} certificates for round {} from MDBX", certificates.len(), round);
+        Ok(certificates)
+    }
+    
+    /// REAL: Remove certificates before a round from MDBX
+    pub fn remove_certificates_before_round(&self, round: u64) -> Result<u64> {
+        let db_ops = self.db_ops.lock().unwrap();
+        let ops = db_ops.as_ref().ok_or_else(|| anyhow::anyhow!("Database operations not injected"))?;
+        
+        // REAL: Execute delete operation using indexed tables
+        let removed_count = ops.remove_certificates_before_round(round)?;
+        debug!("✅ REAL: Removed {} certificates before round {} from MDBX", removed_count, round);
+        Ok(removed_count)
     }
 
     /// Set database environment (compatibility shim for existing code)

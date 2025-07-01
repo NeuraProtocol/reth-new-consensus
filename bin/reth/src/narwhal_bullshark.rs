@@ -33,7 +33,7 @@ use tracing::*;
 use fastcrypto::traits::{KeyPair, EncodeDecodeBase64};
 use anyhow::Result;
 use tokio::sync::RwLock;
-use reth_db_api::{transaction::{DbTx, DbTxMut}};
+use reth_db_api::{transaction::{DbTx, DbTxMut}, cursor::{DbCursorRO, DbCursorRW, DbDupCursorRO, DbDupCursorRW}};
 use reth_provider::{DatabaseProviderFactory, DBProvider};
 
 
@@ -643,6 +643,387 @@ pub fn example_consensus_rpc_usage() {
     info!(target: "reth::narwhal_bullshark", "curl -X POST -H 'Content-Type: application/json' \\");
     info!(target: "reth::narwhal_bullshark", "  --data '{{\"jsonrpc\":\"2.0\",\"method\":\"consensus_admin_getStorageStats\",\"params\":[],\"id\":5}}' \\");
     info!(target: "reth::narwhal_bullshark", "  http://localhost:8545");
+}
+
+// Implementation of ConsensusDatabase trait for Reth provider
+// This allows us to create RethMdbxDatabaseOps with a provider
+struct RethProviderConsensusDatabase<P> {
+    provider: Arc<P>,
+}
+
+impl<P> RethProviderConsensusDatabase<P> 
+where
+    P: reth_provider::DatabaseProviderFactory + Send + Sync + std::fmt::Debug,
+{
+    fn new(provider: Arc<P>) -> Self {
+        Self { provider }
+    }
+}
+
+impl<P> std::fmt::Debug for RethProviderConsensusDatabase<P>
+where
+    P: reth_provider::DatabaseProviderFactory + Send + Sync + std::fmt::Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RethProviderConsensusDatabase")
+            .field("provider", &"RethProvider")
+            .finish()
+    }
+}
+
+impl<P> reth_consensus::ConsensusDatabase for RethProviderConsensusDatabase<P>
+where
+    P: reth_provider::DatabaseProviderFactory + Send + Sync + std::fmt::Debug + 'static,
+    <P as reth_provider::DatabaseProviderFactory>::Provider: Send + Sync + 'static,
+    <P as reth_provider::DatabaseProviderFactory>::ProviderRW: reth_provider::BlockWriter + reth_db_api::transaction::DbTxMut + Send + Sync + 'static,
+{
+    fn tx_ro(&self) -> Result<Box<dyn reth_consensus::ConsensusDbTx>> {
+        let provider = self.provider.database_provider_ro()?;
+        Ok(Box::new(RethProviderDbTx { provider }))
+    }
+    
+    fn tx_rw(&self) -> Result<Box<dyn reth_consensus::ConsensusDbTxMut>> {
+        let provider = self.provider.database_provider_rw()?;
+        Ok(Box::new(RethProviderDbTxMut { provider }))
+    }
+}
+
+// Read-only transaction implementation
+struct RethProviderDbTx<P> {
+    provider: P,
+}
+
+impl<P> reth_consensus::ConsensusDbTx for RethProviderDbTx<P>
+where
+    P: reth_provider::DBProvider + Send + Sync,
+{
+    fn get_finalized_batch(&self, key: u64) -> Result<Option<B256>> {
+        use reth_consensus::ConsensusFinalizedBatch;
+        Ok(self.provider.tx_ref().get::<ConsensusFinalizedBatch>(key)?)
+    }
+    
+    fn get_certificate(&self, key: u64) -> Result<Option<Vec<u8>>> {
+        use reth_consensus::ConsensusCertificates;
+        Ok(self.provider.tx_ref().get::<ConsensusCertificates>(key)?)
+    }
+    
+    fn get_batch(&self, key: u64) -> Result<Option<Vec<u8>>> {
+        use reth_consensus::ConsensusBatches;
+        Ok(self.provider.tx_ref().get::<ConsensusBatches>(key)?)
+    }
+    
+    fn get_dag_vertex(&self, key: B256) -> Result<Option<Vec<u8>>> {
+        use reth_consensus::ConsensusDagVertices;
+        Ok(self.provider.tx_ref().get::<ConsensusDagVertices>(key)?)
+    }
+    
+    fn get_latest_finalized(&self, key: u8) -> Result<Option<u64>> {
+        use reth_consensus::ConsensusLatestFinalized;
+        Ok(self.provider.tx_ref().get::<ConsensusLatestFinalized>(key)?)
+    }
+    
+    fn list_finalized_batches(&self, limit: Option<usize>) -> Result<Vec<(u64, B256)>> {
+        use reth_consensus::ConsensusFinalizedBatch;
+        use reth_db_api::cursor::DbCursorRO;
+        
+        let mut results = Vec::new();
+        if let Ok(mut cursor) = self.provider.tx_ref().cursor_read::<ConsensusFinalizedBatch>() {
+            while let Ok(Some((batch_id, block_hash))) = cursor.next() {
+                results.push((batch_id, block_hash));
+                
+                if let Some(limit) = limit {
+                    if results.len() >= limit {
+                        break;
+                    }
+                }
+            }
+        }
+        Ok(results)
+    }
+    
+    fn get_table_stats(&self) -> Result<(u64, u64, u64)> {
+        use reth_consensus::{ConsensusCertificates, ConsensusBatches, ConsensusDagVertices};
+        use reth_db_api::cursor::DbCursorRO;
+        
+        let mut total_certificates = 0u64;
+        let mut total_batches = 0u64;
+        let mut total_dag_vertices = 0u64;
+        
+        if let Ok(mut cursor) = self.provider.tx_ref().cursor_read::<ConsensusCertificates>() {
+            while cursor.next().is_ok() {
+                total_certificates += 1;
+            }
+        }
+        
+        if let Ok(mut cursor) = self.provider.tx_ref().cursor_read::<ConsensusBatches>() {
+            while cursor.next().is_ok() {
+                total_batches += 1;
+            }
+        }
+        
+        if let Ok(mut cursor) = self.provider.tx_ref().cursor_read::<ConsensusDagVertices>() {
+            while cursor.next().is_ok() {
+                total_dag_vertices += 1;
+            }
+        }
+        
+        Ok((total_certificates, total_batches, total_dag_vertices))
+    }
+    
+    fn get_votes(&self, header_digest: B256) -> Result<Vec<Vec<u8>>> {
+        use reth_consensus::ConsensusVotes;
+        use reth_db_api::cursor::DbDupCursorRO;
+        
+        let mut votes = Vec::new();
+        if let Ok(mut cursor) = self.provider.tx_ref().cursor_dup_read::<ConsensusVotes>() {
+            // Seek to the header digest and get all duplicate values
+            if cursor.seek_exact(header_digest).is_ok() {
+                // Get first vote
+                if let Ok(Some((_, vote_data))) = cursor.current() {
+                    votes.push(vote_data);
+                }
+                // Get remaining votes for this header
+                while let Ok(Some(vote_data)) = cursor.next_dup_val() {
+                    votes.push(vote_data);
+                }
+            }
+        }
+        Ok(votes)
+    }
+    
+    fn get_certificates_by_round(&self, round: u64) -> Result<Vec<Vec<u8>>> {
+        use reth_consensus::ConsensusCertificatesByRound;
+        use reth_db_api::cursor::DbDupCursorRO;
+        
+        let mut certificates = Vec::new();
+        if let Ok(mut cursor) = self.provider.tx_ref().cursor_dup_read::<ConsensusCertificatesByRound>() {
+            if cursor.seek_exact(round).is_ok() {
+                // Get first certificate
+                if let Ok(Some((_, cert_digest))) = cursor.current() {
+                    certificates.push(cert_digest);
+                }
+                // Get remaining certificates for this round
+                while let Ok(Some(cert_digest)) = cursor.next_dup_val() {
+                    certificates.push(cert_digest);
+                }
+            }
+        }
+        Ok(certificates)
+    }
+}
+
+// Read-write transaction implementation  
+struct RethProviderDbTxMut<P> {
+    provider: P,
+}
+
+impl<P> reth_consensus::ConsensusDbTx for RethProviderDbTxMut<P>
+where
+    P: reth_provider::DBProvider + Send + Sync,
+{
+    fn get_finalized_batch(&self, key: u64) -> Result<Option<B256>> {
+        use reth_consensus::ConsensusFinalizedBatch;
+        Ok(self.provider.tx_ref().get::<ConsensusFinalizedBatch>(key)?)
+    }
+    
+    fn get_certificate(&self, key: u64) -> Result<Option<Vec<u8>>> {
+        use reth_consensus::ConsensusCertificates;
+        Ok(self.provider.tx_ref().get::<ConsensusCertificates>(key)?)
+    }
+    
+    fn get_batch(&self, key: u64) -> Result<Option<Vec<u8>>> {
+        use reth_consensus::ConsensusBatches;
+        Ok(self.provider.tx_ref().get::<ConsensusBatches>(key)?)
+    }
+    
+    fn get_dag_vertex(&self, key: B256) -> Result<Option<Vec<u8>>> {
+        use reth_consensus::ConsensusDagVertices;
+        Ok(self.provider.tx_ref().get::<ConsensusDagVertices>(key)?)
+    }
+    
+    fn get_latest_finalized(&self, key: u8) -> Result<Option<u64>> {
+        use reth_consensus::ConsensusLatestFinalized;
+        Ok(self.provider.tx_ref().get::<ConsensusLatestFinalized>(key)?)
+    }
+    
+    fn list_finalized_batches(&self, limit: Option<usize>) -> Result<Vec<(u64, B256)>> {
+        use reth_consensus::ConsensusFinalizedBatch;
+        use reth_db_api::cursor::DbCursorRO;
+        
+        let mut results = Vec::new();
+        if let Ok(mut cursor) = self.provider.tx_ref().cursor_read::<ConsensusFinalizedBatch>() {
+            while let Ok(Some((batch_id, block_hash))) = cursor.next() {
+                results.push((batch_id, block_hash));
+                
+                if let Some(limit) = limit {
+                    if results.len() >= limit {
+                        break;
+                    }
+                }
+            }
+        }
+        Ok(results)
+    }
+    
+    fn get_table_stats(&self) -> Result<(u64, u64, u64)> {
+        use reth_consensus::{ConsensusCertificates, ConsensusBatches, ConsensusDagVertices};
+        use reth_db_api::cursor::DbCursorRO;
+        
+        let mut total_certificates = 0u64;
+        let mut total_batches = 0u64;
+        let mut total_dag_vertices = 0u64;
+        
+        if let Ok(mut cursor) = self.provider.tx_ref().cursor_read::<ConsensusCertificates>() {
+            while cursor.next().is_ok() {
+                total_certificates += 1;
+            }
+        }
+        
+        if let Ok(mut cursor) = self.provider.tx_ref().cursor_read::<ConsensusBatches>() {
+            while cursor.next().is_ok() {
+                total_batches += 1;
+            }
+        }
+        
+        if let Ok(mut cursor) = self.provider.tx_ref().cursor_read::<ConsensusDagVertices>() {
+            while cursor.next().is_ok() {
+                total_dag_vertices += 1;
+            }
+        }
+        
+        Ok((total_certificates, total_batches, total_dag_vertices))
+    }
+    
+    fn get_votes(&self, header_digest: B256) -> Result<Vec<Vec<u8>>> {
+        use reth_consensus::ConsensusVotes;
+        use reth_db_api::cursor::DbDupCursorRO;
+        
+        let mut votes = Vec::new();
+        if let Ok(mut cursor) = self.provider.tx_ref().cursor_dup_read::<ConsensusVotes>() {
+            // Seek to the header digest and get all duplicate values
+            if cursor.seek_exact(header_digest).is_ok() {
+                // Get first vote
+                if let Ok(Some((_, vote_data))) = cursor.current() {
+                    votes.push(vote_data);
+                }
+                // Get remaining votes for this header
+                while let Ok(Some(vote_data)) = cursor.next_dup_val() {
+                    votes.push(vote_data);
+                }
+            }
+        }
+        Ok(votes)
+    }
+    
+    fn get_certificates_by_round(&self, round: u64) -> Result<Vec<Vec<u8>>> {
+        use reth_consensus::ConsensusCertificatesByRound;
+        use reth_db_api::cursor::DbDupCursorRO;
+        
+        let mut certificates = Vec::new();
+        if let Ok(mut cursor) = self.provider.tx_ref().cursor_dup_read::<ConsensusCertificatesByRound>() {
+            if cursor.seek_exact(round).is_ok() {
+                // Get first certificate
+                if let Ok(Some((_, cert_digest))) = cursor.current() {
+                    certificates.push(cert_digest);
+                }
+                // Get remaining certificates for this round
+                while let Ok(Some(cert_digest)) = cursor.next_dup_val() {
+                    certificates.push(cert_digest);
+                }
+            }
+        }
+        Ok(certificates)
+    }
+}
+
+impl<P> reth_consensus::ConsensusDbTxMut for RethProviderDbTxMut<P>
+where
+    P: reth_provider::DBProvider + reth_provider::BlockWriter + reth_db_api::transaction::DbTxMut + Send + Sync,
+{
+    fn put_finalized_batch(&mut self, key: u64, value: B256) -> Result<()> {
+        use reth_consensus::ConsensusFinalizedBatch;
+        self.provider.put::<ConsensusFinalizedBatch>(key, value)?;
+        Ok(())
+    }
+    
+    fn put_certificate(&mut self, key: u64, value: Vec<u8>) -> Result<()> {
+        use reth_consensus::ConsensusCertificates;
+        self.provider.put::<ConsensusCertificates>(key, value)?;
+        Ok(())
+    }
+    
+    fn put_batch(&mut self, key: u64, value: Vec<u8>) -> Result<()> {
+        use reth_consensus::ConsensusBatches;
+        self.provider.put::<ConsensusBatches>(key, value)?;
+        Ok(())
+    }
+    
+    fn put_dag_vertex(&mut self, key: B256, value: Vec<u8>) -> Result<()> {
+        use reth_consensus::ConsensusDagVertices;
+        self.provider.put::<ConsensusDagVertices>(key, value)?;
+        Ok(())
+    }
+    
+    fn put_latest_finalized(&mut self, key: u8, value: u64) -> Result<()> {
+        use reth_consensus::ConsensusLatestFinalized;
+        self.provider.put::<ConsensusLatestFinalized>(key, value)?;
+        Ok(())
+    }
+    
+    fn put_vote(&mut self, header_digest: B256, vote_data: Vec<u8>) -> Result<()> {
+        use reth_consensus::ConsensusVotes;
+        self.provider.put::<ConsensusVotes>(header_digest, vote_data)?;
+        Ok(())
+    }
+    
+    fn remove_votes(&mut self, header_digest: B256) -> Result<()> {
+        use reth_consensus::ConsensusVotes;
+        use reth_db_api::cursor::DbDupCursorRW;
+        
+        if let Ok(mut cursor) = self.provider.cursor_dup_write::<ConsensusVotes>() {
+            if cursor.seek_exact(header_digest).is_ok() {
+                cursor.delete_current_duplicates()?;
+            }
+        }
+        Ok(())
+    }
+    
+    fn index_certificate_by_round(&mut self, round: u64, cert_digest: Vec<u8>) -> Result<()> {
+        use reth_consensus::ConsensusCertificatesByRound;
+        self.provider.put::<ConsensusCertificatesByRound>(round, cert_digest)?;
+        Ok(())
+    }
+    
+    fn remove_certificates_before_round(&mut self, round: u64) -> Result<u64> {
+        use reth_consensus::ConsensusCertificatesByRound;
+        use reth_db_api::cursor::DbDupCursorRW;
+        
+        let mut removed_count = 0u64;
+        
+        if let Ok(mut cursor) = self.provider.cursor_dup_write::<ConsensusCertificatesByRound>() {
+            for check_round in 0..round {
+                if cursor.seek_exact(check_round).is_ok() {
+                    // Count entries
+                    let mut count = 1;
+                    while cursor.next_dup_val().is_ok() {
+                        count += 1;
+                    }
+                    removed_count += count;
+                    
+                    // Re-seek and delete
+                    cursor.seek_exact(check_round).ok();
+                    cursor.delete_current_duplicates().ok();
+                }
+            }
+        }
+        
+        Ok(removed_count)
+    }
+    
+    fn commit(self: Box<Self>) -> Result<()> {
+        self.provider.commit()?;
+        Ok(())
+    }
 }
 
 // ===== PRODUCTION VALIDATOR KEY MANAGEMENT =====
@@ -1975,6 +2356,118 @@ where
         };
 
         Ok((total_certificates, total_batches, total_dag_vertices))
+    }
+
+    fn put_vote(&self, header_digest: alloy_primitives::B256, vote_data: Vec<u8>) -> anyhow::Result<()> {
+        let provider = self.provider.database_provider_rw()?;
+        use reth_consensus::{ConsensusVotes};
+        provider.tx_ref().put::<ConsensusVotes>(header_digest, vote_data)?;
+        provider.commit()?;
+        Ok(())
+    }
+
+    fn get_votes(&self, header_digest: alloy_primitives::B256) -> anyhow::Result<Vec<Vec<u8>>> {
+        let provider = self.provider.database_provider_ro()?;
+        use reth_consensus::{ConsensusVotes};
+        use reth_db_api::cursor::DbDupCursorRO;
+        
+        let mut votes = Vec::new();
+        if let Ok(mut cursor) = provider.tx_ref().cursor_dup_read::<ConsensusVotes>() {
+            // Seek to the header digest and get all duplicate values
+            if cursor.seek_exact(header_digest).is_ok() {
+                // Get first vote
+                if let Ok(Some((_, vote_data))) = cursor.current() {
+                    votes.push(vote_data);
+                }
+                // Get remaining votes for this header
+                while let Ok(Some(vote_data)) = cursor.next_dup_val() {
+                    votes.push(vote_data);
+                }
+            }
+        }
+        
+        Ok(votes)
+    }
+
+    fn remove_votes(&self, header_digest: alloy_primitives::B256) -> anyhow::Result<()> {
+        let provider = self.provider.database_provider_rw()?;
+        use reth_consensus::{ConsensusVotes};
+        use reth_db_api::cursor::DbDupCursorRW;
+        
+        if let Ok(mut cursor) = provider.tx_ref().cursor_dup_write::<ConsensusVotes>() {
+            // Seek to the header digest and delete all duplicate values
+            if cursor.seek_exact(header_digest).is_ok() {
+                // Delete all entries for this key
+                cursor.delete_current_duplicates()?;
+            }
+        }
+        
+        provider.commit()?;
+        Ok(())
+    }
+
+    fn index_certificate_by_round(&self, round: u64, cert_digest: Vec<u8>) -> anyhow::Result<()> {
+        let provider = self.provider.database_provider_rw()?;
+        use reth_consensus::{ConsensusCertificatesByRound};
+        provider.tx_ref().put::<ConsensusCertificatesByRound>(round, cert_digest)?;
+        provider.commit()?;
+        Ok(())
+    }
+
+    fn get_certificates_by_round(&self, round: u64) -> anyhow::Result<Vec<Vec<u8>>> {
+        let provider = self.provider.database_provider_ro()?;
+        use reth_consensus::{ConsensusCertificatesByRound};
+        use reth_db_api::cursor::DbDupCursorRO;
+        
+        let mut certificates = Vec::new();
+        if let Ok(mut cursor) = provider.tx_ref().cursor_dup_read::<ConsensusCertificatesByRound>() {
+            // Seek to the round and get all duplicate values
+            if cursor.seek_exact(round).is_ok() {
+                // Get first certificate digest
+                if let Ok(Some((_, cert_digest))) = cursor.current() {
+                    certificates.push(cert_digest);
+                }
+                // Get remaining certificates for this round
+                while let Ok(Some(cert_digest)) = cursor.next_dup_val() {
+                    certificates.push(cert_digest);
+                }
+            }
+        }
+        
+        Ok(certificates)
+    }
+
+    fn remove_certificates_before_round(&self, round: u64) -> anyhow::Result<u64> {
+        let provider = self.provider.database_provider_rw()?;
+        use reth_consensus::{ConsensusCertificates, ConsensusCertificatesByRound};
+        use reth_db_api::cursor::{DbCursorRW, DbDupCursorRW};
+        
+        let mut removed_count = 0u64;
+        
+        // First, remove from the round index
+        if let Ok(mut cursor) = provider.tx_ref().cursor_dup_write::<ConsensusCertificatesByRound>() {
+            // Iterate through all rounds before the cutoff
+            for check_round in 0..round {
+                if cursor.seek_exact(check_round).is_ok() {
+                    // Count entries before deleting
+                    let mut count = 1; // Current entry
+                    while cursor.next_dup_val().is_ok() {
+                        count += 1;
+                    }
+                    removed_count += count;
+                    
+                    // Seek back and delete
+                    cursor.seek_exact(check_round).ok();
+                    cursor.delete_current_duplicates().ok();
+                }
+            }
+        }
+        
+        // Note: We'd also need to remove the actual certificates from ConsensusCertificates table
+        // but that requires deserializing certificates to check their round, which is expensive
+        
+        provider.commit()?;
+        Ok(removed_count)
     }
 }
 

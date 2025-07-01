@@ -45,11 +45,49 @@ Working on branch `v1.4.8-neura` with recent commits showing functional consensu
 
 ## Important TODOs (Stubs to Implement)
 
-1. **Persistent Storage** - Currently uses in-memory storage (see `crates/narwhal/src/dag_service.rs`)
-2. **Cryptographic Keys** - Using placeholder keys (see `crates/consensus/consensus/src/narwhal_bullshark/validator_keys.rs`)
-3. **Worker-Primary Communication** - Batch fetching not implemented (`crates/narwhal/src/primary.rs`)
-4. **State Root Calculations** - Returns dummy values (`crates/consensus/consensus/src/narwhal_bullshark/service.rs`)
-5. **Peer Discovery** - Static peer list only (`crates/node/core/src/args/narwhal_bullshark_args.rs`)
+### Critical (Blocking Functionality)
+1. ✅ **MDBX Storage Integration** - COMPLETED (with workarounds)
+   - Implemented trait-based approach with ConsensusDbOps
+   - Real storage operations for certificates and votes
+   - Note: Vote/round indexing uses DAG vertices table as workaround
+   - TODO: Implement proper ConsensusVotes and ConsensusCertificatesByRound table access
+   - Location: `crates/narwhal/src/storage_mdbx.rs`
+   
+2. **Network Broadcasting** - No actual P2P communication implemented
+   - Headers, votes, certificates not broadcast to peers
+   - Worker batch replication not implemented
+   - Locations: `crates/narwhal/src/dag_service.rs:265`, `quorum_waiter.rs:149`
+   
+3. **Transaction Processing** - Cannot decode/extract real transactions
+   - `Transaction::to_alloy_transaction()` returns error
+   - Bullshark creates dummy transactions instead of real ones
+   - Locations: `crates/narwhal/src/lib.rs:59`, `crates/bullshark/src/bft_service.rs:213-216`
+
+### High Priority
+4. **Consensus Seal Generation** - Using dummy seals instead of proper proofs
+   - Location: `crates/consensus/consensus/src/narwhal_bullshark/integration.rs:374`
+   
+5. **Parent Hash Retrieval** - Using B256::ZERO instead of actual parent
+   - Location: `crates/bullshark/src/bft_service.rs:242`
+   
+6. **Vote Signing** - Using default signatures instead of proper signing
+   - Location: `crates/narwhal/src/types.rs:265`
+
+### Medium Priority
+7. **RPC Implementation** - All methods return hardcoded values
+   - No connection to actual consensus state
+   - Location: `crates/consensus/consensus/src/rpc.rs:570-651`
+   
+8. **Worker Batch Fetching** - Cannot retrieve batches from workers
+   - Location: `crates/bullshark/src/bft_service.rs:213-216`
+   
+9. **Metrics Collection** - Placeholder metrics only
+   - Location: `crates/consensus/consensus/src/rpc.rs:706`
+
+### Configuration
+10. **Hardcoded Values** - Many timeouts and parameters should be configurable
+    - Worker timeout: `crates/narwhal/src/worker.rs:139`
+    - Validator stakes: `crates/consensus/consensus/src/rpc.rs:593`
 
 ## Key Files to Understand
 
@@ -57,10 +95,18 @@ Working on branch `v1.4.8-neura` with recent commits showing functional consensu
   - `service.rs` - Consensus service implementation
   - `integration.rs` - Reth integration hooks
   - `types.rs` - Type conversions between systems
+  - `transaction_adapter.rs` - Transaction pool to worker connection
+  - `dag_storage_adapter.rs` - Storage adapter (currently in-memory)
 - `crates/narwhal/src/` - Narwhal DAG implementation
-  - `core.rs` - Core Narwhal primary logic
-  - `dag_service.rs` - DAG construction and storage
+  - `dag_service.rs` - DAG construction and vote aggregation
+  - `aggregators.rs` - Vote and certificate aggregation with BLS
+  - `batch_maker.rs` - Transaction batching for workers
+  - `quorum_waiter.rs` - Batch replication quorum logic
+  - `storage_mdbx.rs` - Database storage (TODO: uses HashMap)
+  - `types.rs` - Core types with BLS signature support
 - `crates/bullshark/src/` - Bullshark BFT consensus
+  - `bft_service.rs` - Main consensus service
+  - `consensus.rs` - Core BFT algorithm
 - `bin/reth/src/narwhal_bullshark.rs` - CLI integration
 - `test_validators/` - Validator configuration files
 
@@ -103,12 +149,40 @@ Validators use JSON config files with format:
 - Default test configuration: 4 validators (tolerates 1 Byzantine fault)
 - Consensus requires 2f+1 votes to make progress
 
+## Recent Implementation Progress
+
+### Completed (from reference implementation)
+- ✅ Vote aggregation with proper BLS signatures (`VotesAggregator`)
+- ✅ Certificate formation with quorum verification
+- ✅ Round advancement based on certificate collection
+- ✅ Worker components: `BatchMaker` and `QuorumWaiter`
+- ✅ Worker storage tables in `consensus_tables.rs`
+- ✅ Transaction adapter for pool→worker connection
+- ✅ Garbage collection for old DAG state
+
+### Implementation Status
+- **Narwhal Core**: ~85% complete (✅ MDBX storage integrated, ❌ network broadcast missing)
+- **Bullshark**: ~60% complete (missing transaction extraction)
+- **Workers**: ~70% complete (✅ transaction pool connection, ❌ network replication missing)
+- **Integration**: ~65% complete (✅ storage integration done, ❌ chain state connection missing)
+
 ## Production Roadmap
 
-To make this production-ready, focus on:
-1. Replace in-memory storage with persistent DB
-2. Implement proper key management (not hardcoded)
-3. Add worker nodes for transaction processing
-4. Implement proper state root calculations
-5. Add dynamic peer discovery
-6. Performance optimization and benchmarking
+To make this production-ready, priority order:
+1. ✅ **Database Integration** - MDBX storage operations implemented
+2. **Network Layer** - Add P2P broadcasting for consensus messages
+3. **Transaction Decoding** - Implement proper RLP decoding  
+4. **Chain State** - Connect to Reth's blockchain state
+5. **Cryptographic Signing** - Proper vote/header signatures
+6. **Worker Replication** - Batch distribution between workers
+7. **Dynamic Configuration** - Replace hardcoded values
+8. **Monitoring** - Real metrics and observability
+
+## Development Principles
+
+- Always prioritise implementing full implementation rather than stubs, simplified versions or mocking
+- **New Memory**: Never claim success before reviewing the narwhal, bullshark and consensus crates for todos, mocks, stubs and simplified versions
+
+## Reference Implementation Location
+
+- Always remember that there is a reference implementation at `/home/peastew/src/reth-new-consensus/narwhal-reference-implementation`

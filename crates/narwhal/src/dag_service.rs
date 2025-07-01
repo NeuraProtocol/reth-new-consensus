@@ -4,6 +4,7 @@ use crate::{
     types::{Certificate, Committee, Header, Vote, PublicKey, Signature, HeaderDigest}, 
     NarwhalConfig, DagError, DagResult, Transaction, Round, Batch,
     aggregators::VotesAggregator,
+    storage_trait::{DagStorageInterface, DagStorageRef},
 };
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
@@ -41,6 +42,10 @@ pub struct DagService {
     certificate_output_sender: mpsc::UnboundedSender<Certificate>,
     /// Watch channel for reconfiguration
     reconfigure_receiver: watch::Receiver<Committee>,
+    /// Storage backend for persistence
+    storage: DagStorageRef,
+    /// Sender for outbound network messages (headers, votes, certificates)
+    network_sender: Option<mpsc::UnboundedSender<DagMessage>>,
     
     // State tracking (from reference implementation)
     /// Current round for transaction batching
@@ -82,6 +87,7 @@ impl DagService {
         rx_network_messages: mpsc::UnboundedReceiver<DagMessage>,
         certificate_output_sender: mpsc::UnboundedSender<Certificate>,
         reconfigure_receiver: watch::Receiver<Committee>,
+        storage: DagStorageRef,
     ) -> Self {
         Self {
             name,
@@ -92,6 +98,8 @@ impl DagService {
             rx_network_messages,
             certificate_output_sender,
             reconfigure_receiver,
+            storage,
+            network_sender: None,
             current_round: 1,
             processing: HashMap::new(),
             current_header: None,
@@ -101,6 +109,34 @@ impl DagService {
             current_batch: Vec::new(),
             gc_round: 0,
         }
+    }
+    
+    /// Create a new DAG service with network sender
+    pub fn with_network_sender(
+        name: PublicKey,
+        committee: Committee,
+        config: NarwhalConfig,
+        signature_service: SignatureService<Signature>,
+        transaction_receiver: mpsc::UnboundedReceiver<Transaction>,
+        rx_network_messages: mpsc::UnboundedReceiver<DagMessage>,
+        certificate_output_sender: mpsc::UnboundedSender<Certificate>,
+        reconfigure_receiver: watch::Receiver<Committee>,
+        storage: DagStorageRef,
+        network_sender: mpsc::UnboundedSender<DagMessage>,
+    ) -> Self {
+        let mut service = Self::new(
+            name,
+            committee,
+            config,
+            signature_service,
+            transaction_receiver,
+            rx_network_messages,
+            certificate_output_sender,
+            reconfigure_receiver,
+            storage,
+        );
+        service.network_sender = Some(network_sender);
+        service
     }
 
     /// Spawn the DAG service
@@ -262,7 +298,17 @@ impl DagService {
              .or_insert_with(HashSet::new)
              .insert(header.id);
 
-         // TODO: Broadcast header to network (network integration needed)
+         // Send header for network broadcast
+         if let Some(ref sender) = self.network_sender {
+             if sender.send(DagMessage::Header(header.clone())).is_err() {
+                 warn!("Failed to send header for broadcast - channel closed");
+             } else {
+                 debug!("Sent header {} for network broadcast", header.id);
+             }
+         } else {
+             debug!("No network sender configured, skipping header broadcast");
+         }
+         
          info!("Created header {} for round {}", header.id, header.round);
 
          // Clear batch and advance round
@@ -354,8 +400,23 @@ impl DagService {
 
      /// Send vote for header (from reference implementation)
      async fn send_vote(&mut self, header: &Header) -> DagResult<()> {
-         let vote = Vote::new(header, &self.name);
-         debug!("Created vote for header {}", header.id);
+         // Create vote with proper signature using fastcrypto API
+         let vote = {
+             let mut sig_service = self.signature_service.lock().await;
+             Vote::new_with_signature_service(header, &self.name, &mut *sig_service).await
+         };
+         debug!("Created signed vote for header {}", header.id);
+
+         // Send vote for network broadcast
+         if let Some(ref sender) = self.network_sender {
+             if sender.send(DagMessage::Vote(vote.clone())).is_err() {
+                 warn!("Failed to send vote for broadcast - channel closed");
+             } else {
+                 debug!("Sent vote for header {} for network broadcast", header.id);
+             }
+         } else {
+             debug!("No network sender configured, skipping vote broadcast");
+         }
 
          // Process our own vote
          self.process_vote(vote).await
@@ -383,6 +444,9 @@ impl DagService {
              }
          };
          
+         // Store vote in persistent storage
+         self.storage.store_vote(vote.id, vote.clone()).await?;
+         
          // Add vote to aggregator
          aggregator.add_vote(vote, &self.committee)?;
          
@@ -390,6 +454,17 @@ impl DagService {
          if let Some(certificate) = aggregator.try_form_certificate(&self.committee)? {
              info!("Created certificate for header {} with {} votes", 
                    header_id, aggregator.vote_count());
+             
+             // Send certificate for network broadcast if we formed it
+             if let Some(ref sender) = self.network_sender {
+                 if sender.send(DagMessage::Certificate(certificate.clone())).is_err() {
+                     warn!("Failed to send certificate for broadcast - channel closed");
+                 } else {
+                     debug!("Sent certificate for header {} for network broadcast", header_id);
+                 }
+             } else {
+                 debug!("No network sender configured, skipping certificate broadcast");
+             }
              
              // Process the certificate
              self.process_certificate(certificate).await?;
@@ -409,7 +484,11 @@ impl DagService {
          let author = certificate.origin();
          let cert_round = certificate.round();
 
-         // Store certificate
+         // Store certificate in persistent storage
+         self.storage.store_certificate(certificate.clone()).await?;
+         self.storage.store_latest_certificate(author.clone(), certificate.clone()).await?;
+
+         // Also keep in memory for fast access
          self.certificates.insert(cert_digest, certificate.clone());
          self.latest_certificates.insert(author.clone(), certificate.clone());
 
@@ -473,7 +552,7 @@ impl DagService {
              self.certificates.retain(|_, cert| cert.round() > self.gc_round);
              
              // Clean up old vote aggregators
-             self.votes_aggregators.retain(|_, aggregator| {
+             self.votes_aggregators.retain(|_, _aggregator| {
                  // Keep aggregators that might still be active
                  true // TODO: Add round tracking to aggregators
              });

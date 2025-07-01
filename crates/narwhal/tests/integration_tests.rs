@@ -3,6 +3,7 @@
 use narwhal::{
     DagService, DagMessage, types::{Vote, Committee, HeaderBuilder},
     NarwhalConfig, Transaction,
+    storage_inmemory::InMemoryDagStorage,
 };
 use tokio::sync::{mpsc, watch};
 use std::collections::{HashMap, BTreeSet};
@@ -55,6 +56,8 @@ fn create_dag_service_with_channels(
     
     let signature_service = create_signature_service();
     
+    let storage = InMemoryDagStorage::new_ref();
+    
     let dag_service = DagService::new(
         node_key,
         committee,
@@ -64,6 +67,7 @@ fn create_dag_service_with_channels(
         network_receiver,
         cert_sender,
         committee_receiver,
+        storage,
     );
     
     (dag_service, tx_sender, cert_receiver, committee_sender, network_sender)

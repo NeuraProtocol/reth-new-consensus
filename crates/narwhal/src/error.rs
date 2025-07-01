@@ -72,4 +72,8 @@ pub enum DagError {
     /// Consensus protocol error
     #[error("Consensus error: {0}")]
     Consensus(String),
+    
+    /// Storage-specific error
+    #[error("Storage error: {0}")]
+    StorageError(String),
 } 

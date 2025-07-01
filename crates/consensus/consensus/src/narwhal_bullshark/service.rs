@@ -13,6 +13,7 @@ use crate::{
 };
 #[allow(unused_imports)]
 use crate::narwhal_bullshark::dag_storage_adapter::MdbxDagStorageAdapter;
+use crate::narwhal_bullshark::consensus_db_ops_impl::create_mdbx_dag_storage;
 use anyhow::Result;
 use reth_primitives::TransactionSigned as RethTransaction;
 use tokio::sync::{mpsc, watch};
@@ -20,6 +21,7 @@ use tokio::task::JoinHandle;
 use tracing::{info, warn, debug};
 use std::sync::Arc;
 use std::net::SocketAddr;
+use alloy_rlp::Decodable;
 
 // Use the REAL implementations from the proper crates
 use narwhal::{
@@ -33,7 +35,7 @@ use bullshark::{
     storage::InMemoryConsensusStorage,
 };
 use fastcrypto::{
-    traits::{KeyPair as _, EncodeDecodeBase64},
+    traits::{KeyPair as _, EncodeDecodeBase64, ToFromBytes},
     bls12381::BLS12381KeyPair,
     SignatureService,
 };
@@ -122,19 +124,17 @@ impl NarwhalBullsharkService {
         let signature_service = SignatureService::new(keypair);
 
         // Create storage adapter for DAG service
-        // TODO: Wire up storage once DagService is updated to accept it
-        let _dag_storage = if let Some(storage) = &self.storage {
-            info!("✅ MDBX storage provided for DAG service (not yet integrated)");
-            MdbxDagStorageAdapter::new_ref(storage.clone())
+        // Using the real MDBX storage implementation
+        let dag_storage = if let Some(storage) = &self.storage {
+            info!("✅ MDBX storage provided for DAG service - using real database operations");
+            create_mdbx_dag_storage(storage.clone())
         } else {
             info!("⚠️ No MDBX storage provided, using in-memory storage for DAG");
             narwhal::storage_inmemory::InMemoryDagStorage::new_ref()
         };
 
-        // Create REAL Narwhal DAG service
-        // Note: Current DagService doesn't support storage parameter yet
-        // TODO: Update DagService to accept storage parameter
-        let dag_service = DagService::new(
+        // Create REAL Narwhal DAG service with storage and network sender
+        let dag_service = DagService::with_network_sender(
             node_key.clone(),
             self.committee_receiver.borrow().clone(),
             NarwhalConfig::default(),
@@ -143,6 +143,8 @@ impl NarwhalBullsharkService {
             dag_network_receiver,
             certificate_sender,
             dag_committee_receiver,
+            dag_storage,
+            dag_outbound_sender,
         );
 
         info!("✅ Created real Narwhal DAG service for node {}", node_key.encode_base64());
@@ -221,11 +223,12 @@ impl NarwhalBullsharkService {
 
             while let Some(reth_tx) = transaction_receiver.recv().await {
                 // Convert Reth transaction to Narwhal transaction
-                // Use transaction hash as simple identifier for now
-                let tx_bytes = reth_tx.hash().as_slice().to_vec();
+                // Use RLP encoding for consensus
+                let tx_bytes = alloy_rlp::encode(&reth_tx);
                 let narwhal_tx = NarwhalTransaction::from_bytes(tx_bytes);
 
-                debug!("🔄 Bridging transaction: {} bytes", narwhal_tx.as_bytes().len());
+                debug!("🔄 Bridging transaction: {} -> {} bytes", 
+                    reth_tx.hash(), narwhal_tx.as_bytes().len());
 
                 if tx_sender.send(narwhal_tx).is_err() {
                     warn!("Failed to send transaction to Narwhal - channel closed");
@@ -245,24 +248,77 @@ impl NarwhalBullsharkService {
         mut batch_receiver: mpsc::UnboundedReceiver<FinalizedBatchInternal>,
     ) -> Result<JoinHandle<()>> {
         let finalized_sender = self.finalized_batch_sender.clone();
+        let mut committee_receiver = self.committee_receiver.clone();
 
         let handle = tokio::spawn(async move {
             info!("🏭 Batch processor active: Bullshark → Reth");
 
             while let Some(internal_batch) = batch_receiver.recv().await {
                 // Convert Bullshark batch to Reth format
-                // For now, create empty transaction list since we need actual Reth transactions
-                // In production, this would reconstruct Reth transactions from consensus data
+                // Decode Narwhal transactions back to Reth transactions
+                let mut reth_transactions = Vec::new();
+                let mut decode_errors = 0;
+                
+                for narwhal_tx in &internal_batch.transactions {
+                    // Decode RLP encoded transaction
+                    let mut tx_bytes = narwhal_tx.as_bytes();
+                    match RethTransaction::decode(&mut tx_bytes) {
+                        Ok(tx) => reth_transactions.push(tx),
+                        Err(e) => {
+                            warn!("Failed to decode transaction: {:?}", e);
+                            decode_errors += 1;
+                        }
+                    }
+                }
+                
+                // Extract consensus information from the internal batch
+                let consensus_round = internal_batch.round;
+                
+                // Get the first certificate's digest (most important for finalization)
+                let certificate_digest = if let Some(cert) = internal_batch.certificates.first() {
+                    // Convert Narwhal certificate digest to B256
+                    use fastcrypto::Hash;
+                    let digest = cert.digest();
+                    let digest_bytes: [u8; 32] = digest.to_bytes();
+                    alloy_primitives::B256::from(digest_bytes)
+                } else {
+                    // Fallback if no certificates
+                    alloy_primitives::B256::ZERO
+                };
+                
+                // Get current committee
+                let committee = committee_receiver.borrow().clone();
+                
+                // Extract validator signatures from the certificates
+                let mut validator_signatures = Vec::new();
+                // For now, use placeholder signatures since we have aggregated signatures
+                // In a real implementation, we would decompose the aggregate or store individual sigs
+                for cert in &internal_batch.certificates {
+                    // Get the aggregated signature bytes
+                    use fastcrypto::traits::ToFromBytes;
+                    let agg_sig_bytes = cert.aggregated_signature().as_bytes();
+                    // For each signer in the certificate, add to validator signatures
+                    // Note: This is a simplification - in reality we'd need the individual signatures
+                    for (validator, _) in cert.signers(&committee) {
+                        validator_signatures.push((validator, agg_sig_bytes.to_vec()));
+                    }
+                }
+                
                 let finalized_batch = FinalizedBatch {
                     block_number: internal_batch.block_number,
                     parent_hash: internal_batch.parent_hash,
-                    transactions: Vec::new(), // TODO: Convert narwhal::Transaction back to TransactionSigned
+                    transactions: reth_transactions,
                     timestamp: internal_batch.timestamp,
+                    consensus_round,
+                    certificate_digest,
+                    validator_signatures,
                 };
 
-                info!("✅ Finalized batch {} with {} narwhal transactions (conversion to Reth pending)",
+                info!("✅ Finalized batch {} with {}/{} transactions (decode errors: {})",
                      finalized_batch.block_number,
-                     internal_batch.transactions.len());
+                     finalized_batch.transactions.len(),
+                     internal_batch.transactions.len(),
+                     decode_errors);
 
                 if finalized_sender.send(finalized_batch).is_err() {
                     warn!("Failed to send finalized batch to Reth - channel closed");

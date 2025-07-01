@@ -18,6 +18,8 @@ pub mod validator_keys;
 pub mod dag_storage_adapter;
 /// Transaction adapter for connecting Reth transaction pool to workers
 pub mod transaction_adapter;
+/// Implementation of ConsensusDbOps for Narwhal storage integration
+pub mod consensus_db_ops_impl;
 
 // Re-export key types for easier access
 pub use types::{FinalizedBatch, NarwhalBullsharkConfig};

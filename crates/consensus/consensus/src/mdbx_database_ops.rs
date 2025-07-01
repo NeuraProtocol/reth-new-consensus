@@ -34,6 +34,10 @@ pub trait ConsensusDbTx: Send + Sync {
     fn list_finalized_batches(&self, limit: Option<usize>) -> Result<Vec<(u64, B256)>>;
     /// Get table statistics
     fn get_table_stats(&self) -> Result<(u64, u64, u64)>;
+    /// Get votes for a header from ConsensusVotes table
+    fn get_votes(&self, header_digest: B256) -> Result<Vec<Vec<u8>>>;
+    /// Get certificate digests by round from ConsensusCertificatesByRound table
+    fn get_certificates_by_round(&self, round: u64) -> Result<Vec<Vec<u8>>>;
 }
 
 /// Trait for read-write database transactions
@@ -48,6 +52,14 @@ pub trait ConsensusDbTxMut: ConsensusDbTx {
     fn put_dag_vertex(&mut self, key: B256, value: Vec<u8>) -> Result<()>;
     /// Put value to ConsensusLatestFinalized table
     fn put_latest_finalized(&mut self, key: u8, value: u64) -> Result<()>;
+    /// Put vote to ConsensusVotes table
+    fn put_vote(&mut self, header_digest: B256, vote_data: Vec<u8>) -> Result<()>;
+    /// Remove votes for a header from ConsensusVotes table
+    fn remove_votes(&mut self, header_digest: B256) -> Result<()>;
+    /// Index certificate by round in ConsensusCertificatesByRound table
+    fn index_certificate_by_round(&mut self, round: u64, cert_digest: Vec<u8>) -> Result<()>;
+    /// Remove certificates before a round from all tables
+    fn remove_certificates_before_round(&mut self, round: u64) -> Result<u64>;
     /// Commit the transaction
     fn commit(self: Box<Self>) -> Result<()>;
 }
@@ -184,5 +196,57 @@ impl DatabaseOps for RethMdbxDatabaseOps {
                total_certificates, total_batches, total_dag_vertices);
 
         Ok((total_certificates, total_batches, total_dag_vertices))
+    }
+    
+    /// REAL: Store vote for a header in ConsensusVotes table
+    fn put_vote(&self, header_digest: B256, vote_data: Vec<u8>) -> Result<()> {
+        let mut tx = self.database.tx_rw()?;
+        tx.put_vote(header_digest, vote_data)?;
+        tx.commit()?;
+        debug!("✅ REAL: Put vote for header {} to MDBX", header_digest);
+        Ok(())
+    }
+    
+    /// REAL: Get all votes for a header from ConsensusVotes table
+    fn get_votes(&self, header_digest: B256) -> Result<Vec<Vec<u8>>> {
+        let tx = self.database.tx_ro()?;
+        let result = tx.get_votes(header_digest)?;
+        debug!("✅ REAL: Read {} votes for header {} from MDBX", result.len(), header_digest);
+        Ok(result)
+    }
+    
+    /// REAL: Remove all votes for a header from ConsensusVotes table
+    fn remove_votes(&self, header_digest: B256) -> Result<()> {
+        let mut tx = self.database.tx_rw()?;
+        tx.remove_votes(header_digest)?;
+        tx.commit()?;
+        debug!("✅ REAL: Removed votes for header {} from MDBX", header_digest);
+        Ok(())
+    }
+    
+    /// REAL: Index certificate by round in ConsensusCertificatesByRound table
+    fn index_certificate_by_round(&self, round: u64, cert_digest: Vec<u8>) -> Result<()> {
+        let mut tx = self.database.tx_rw()?;
+        tx.index_certificate_by_round(round, cert_digest)?;
+        tx.commit()?;
+        debug!("✅ REAL: Indexed certificate for round {} in MDBX", round);
+        Ok(())
+    }
+    
+    /// REAL: Get certificate digests by round from ConsensusCertificatesByRound table
+    fn get_certificates_by_round(&self, round: u64) -> Result<Vec<Vec<u8>>> {
+        let tx = self.database.tx_ro()?;
+        let result = tx.get_certificates_by_round(round)?;
+        debug!("✅ REAL: Read {} certificates for round {} from MDBX", result.len(), round);
+        Ok(result)
+    }
+    
+    /// REAL: Remove certificates before a round from all tables
+    fn remove_certificates_before_round(&self, round: u64) -> Result<u64> {
+        let mut tx = self.database.tx_rw()?;
+        let removed_count = tx.remove_certificates_before_round(round)?;
+        tx.commit()?;
+        debug!("✅ REAL: Removed {} certificates before round {} from MDBX", removed_count, round);
+        Ok(removed_count)
     }
 } 

@@ -49,6 +49,8 @@ struct MockDatabaseOps {
     batches: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<u64, Vec<u8>>>>,
     dag_vertices: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<B256, Vec<u8>>>>,
     latest_finalized: std::sync::Arc<std::sync::Mutex<Option<u64>>>,
+    votes: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<B256, Vec<Vec<u8>>>>>,
+    certificates_by_round: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<u64, Vec<Vec<u8>>>>>,
 }
 
 impl MockDatabaseOps {
@@ -130,6 +132,52 @@ impl DatabaseOps for MockDatabaseOps {
         let batches = self.batches.lock().unwrap().len() as u64;
         let vertices = self.dag_vertices.lock().unwrap().len() as u64;
         Ok((certs, batches, vertices))
+    }
+    
+    fn put_vote(&self, header_id: B256, vote: Vec<u8>) -> anyhow::Result<()> {
+        let mut votes = self.votes.lock().unwrap();
+        votes.entry(header_id).or_insert_with(Vec::new).push(vote);
+        Ok(())
+    }
+    
+    fn get_votes(&self, header_id: B256) -> anyhow::Result<Vec<Vec<u8>>> {
+        let votes = self.votes.lock().unwrap();
+        Ok(votes.get(&header_id).cloned().unwrap_or_default())
+    }
+    
+    fn remove_votes(&self, header_id: B256) -> anyhow::Result<()> {
+        let mut votes = self.votes.lock().unwrap();
+        votes.remove(&header_id);
+        Ok(())
+    }
+    
+    fn index_certificate_by_round(&self, round: u64, certificate: Vec<u8>) -> anyhow::Result<()> {
+        let mut certs_by_round = self.certificates_by_round.lock().unwrap();
+        certs_by_round.entry(round).or_insert_with(Vec::new).push(certificate);
+        Ok(())
+    }
+    
+    fn get_certificates_by_round(&self, round: u64) -> anyhow::Result<Vec<Vec<u8>>> {
+        let certs_by_round = self.certificates_by_round.lock().unwrap();
+        Ok(certs_by_round.get(&round).cloned().unwrap_or_default())
+    }
+    
+    fn remove_certificates_before_round(&self, round: u64) -> anyhow::Result<u64> {
+        let mut certs_by_round = self.certificates_by_round.lock().unwrap();
+        let mut removed = 0u64;
+        
+        let rounds_to_remove: Vec<u64> = certs_by_round.keys()
+            .filter(|&&r| r < round)
+            .copied()
+            .collect();
+        
+        for r in rounds_to_remove {
+            if let Some(certs) = certs_by_round.remove(&r) {
+                removed += certs.len() as u64;
+            }
+        }
+        
+        Ok(removed)
     }
 }
 

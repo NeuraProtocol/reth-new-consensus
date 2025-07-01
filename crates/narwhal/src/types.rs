@@ -15,6 +15,7 @@ use std::{
 };
 use derive_builder::Builder;
 use indexmap::IndexMap;
+use alloy_primitives::B256;
 
 /// The epoch number
 pub type Epoch = u64;
@@ -104,6 +105,19 @@ impl fmt::Display for HeaderDigest {
     }
 }
 
+impl HeaderDigest {
+    /// Convert to a 32-byte array
+    pub fn to_bytes(self) -> [u8; 32] {
+        self.0
+    }
+}
+
+impl From<HeaderDigest> for B256 {
+    fn from(hd: HeaderDigest) -> Self {
+        B256::from(hd.0)
+    }
+}
+
 /// A certificate digest
 #[derive(Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct CertificateDigest([u8; 32]);
@@ -115,6 +129,11 @@ impl From<CertificateDigest> for Digest {
 }
 
 impl CertificateDigest {
+    /// Create a new certificate digest from bytes
+    pub fn new(digest: [u8; 32]) -> CertificateDigest {
+        CertificateDigest(digest)
+    }
+    
     /// Get the raw bytes of this digest
     pub fn as_bytes(&self) -> &[u8; 32] {
         &self.0
@@ -282,6 +301,27 @@ impl Vote {
 
         let vote_digest: Digest = vote.digest().into();
         let signature = signer.try_sign(vote_digest.as_ref()).unwrap_or_default();
+
+        Self { signature, ..vote }
+    }
+    
+    /// Create a new vote with signature service using real cryptography
+    pub async fn new_with_signature_service(
+        header: &Header, 
+        author: &PublicKey, 
+        signature_service: &mut fastcrypto::SignatureService<Signature>
+    ) -> Self {
+        let vote = Self {
+            id: header.id,
+            round: header.round,
+            epoch: header.epoch,
+            origin: header.author.clone(),
+            author: author.clone(),
+            signature: Signature::default(),
+        };
+
+        let vote_digest: Digest = vote.digest().into();
+        let signature = signature_service.request_signature(vote_digest).await;
 
         Self { signature, ..vote }
     }
@@ -472,6 +512,27 @@ impl Certificate {
         }
 
         Ok(())
+    }
+    
+    /// Get the aggregated signature
+    pub fn aggregated_signature(&self) -> &AggregateSignature {
+        &self.aggregated_signature
+    }
+    
+    /// Get signers' public keys and their signatures  
+    pub fn signers(&self, committee: &Committee) -> Vec<(PublicKey, Signature)> {
+        let committee_keys: Vec<&PublicKey> = committee.authorities.keys().collect();
+        let mut signers = Vec::new();
+        
+        for (index, &authority) in committee_keys.iter().enumerate() {
+            if self.signed_authorities.contains(index as u32) {
+                // For aggregated signatures, we would need to decompose them
+                // For now, return the authority with a placeholder
+                signers.push((authority.clone(), Signature::default()));
+            }
+        }
+        
+        signers
     }
 }
 

@@ -17,9 +17,8 @@ use anyhow::anyhow;
 pub struct MdbxDagStorageAdapter {
     /// Reference to the consensus storage
     consensus_storage: Arc<MdbxConsensusStorage>,
-    /// Temporary in-memory cache for data not yet in consensus tables
-    /// TODO: Extend consensus tables to include all needed DAG data
-    votes_cache: Arc<RwLock<HashMap<narwhal::types::HeaderDigest, Vec<narwhal::types::Vote>>>>,
+    /// Temporary in-memory cache for latest certificates per authority
+    /// This is an optimization to avoid repeated DB lookups
     latest_certificates_cache: Arc<RwLock<HashMap<narwhal::types::PublicKey, narwhal::types::Certificate>>>,
 }
 
@@ -28,7 +27,6 @@ impl MdbxDagStorageAdapter {
     pub fn new(consensus_storage: Arc<MdbxConsensusStorage>) -> Self {
         Self {
             consensus_storage,
-            votes_cache: Arc::new(RwLock::new(HashMap::new())),
             latest_certificates_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -46,24 +44,88 @@ impl DagStorageInterface for MdbxDagStorageAdapter {
         let cert_bytes = bincode::serialize(&certificate)
             .map_err(|e| DagError::Storage(anyhow::anyhow!("Failed to serialize certificate: {}", e)))?;
         
-        // Store in consensus storage
-        // TODO: Use proper certificate ID from consensus tables
-        let cert_id = 0u64; // Placeholder - need proper ID generation
+        // Use certificate digest as B256 for storage
+        let cert_digest = certificate.digest();
+        let digest_bytes: [u8; 32] = cert_digest.to_bytes();
+        let digest_b256 = alloy_primitives::B256::from(digest_bytes);
         
-        // For now, just cache in memory
-        // TODO: Implement actual storage using consensus_storage
+        // Store in MDBX DAG vertices table
+        self.consensus_storage.store_dag_vertex(digest_b256, cert_bytes.clone())
+            .map_err(|e| DagError::Storage(anyhow::anyhow!("Failed to store certificate: {}", e)))?;
+        
+        // Also index by round for retrieval
+        let round = certificate.round();
+        self.consensus_storage.index_certificate_by_round(round, digest_bytes.to_vec())
+            .map_err(|e| DagError::Storage(anyhow::anyhow!("Failed to index certificate by round: {}", e)))?;
         
         Ok(())
     }
     
     async fn get_certificate(&self, digest: &CertificateDigest) -> Option<Certificate> {
-        // TODO: Implement retrieval from consensus storage
-        None
+        // Convert certificate digest to B256 for MDBX lookup
+        let digest_bytes: [u8; 32] = digest.to_bytes();
+        let digest_b256 = alloy_primitives::B256::from(digest_bytes);
+        
+        // Retrieve from MDBX storage
+        match self.consensus_storage.get_dag_vertex(digest_b256) {
+            Ok(Some(cert_bytes)) => {
+                // Deserialize certificate from bytes
+                match bincode::deserialize::<Certificate>(&cert_bytes) {
+                    Ok(certificate) => Some(certificate),
+                    Err(e) => {
+                        tracing::warn!("Failed to deserialize certificate: {:?}", e);
+                        None
+                    }
+                }
+            }
+            Ok(None) => None,
+            Err(e) => {
+                tracing::warn!("Failed to retrieve certificate from storage: {:?}", e);
+                None
+            }
+        }
     }
     
     async fn get_certificates_by_round(&self, round: Round) -> Vec<Certificate> {
-        // TODO: Implement retrieval from consensus storage
-        Vec::new()
+        // Get certificate digests for this round from the index
+        match self.consensus_storage.get_certificates_by_round(round) {
+            Ok(digest_vecs) => {
+                let mut certificates = Vec::new();
+                
+                for digest_vec in digest_vecs {
+                    if digest_vec.len() == 32 {
+                        // Convert Vec<u8> to B256 for MDBX lookup
+                        let mut digest_bytes = [0u8; 32];
+                        digest_bytes.copy_from_slice(&digest_vec);
+                        let digest_b256 = alloy_primitives::B256::from(digest_bytes);
+                        
+                        // Retrieve certificate from storage
+                        match self.consensus_storage.get_dag_vertex(digest_b256) {
+                            Ok(Some(cert_bytes)) => {
+                                match bincode::deserialize::<Certificate>(&cert_bytes) {
+                                    Ok(certificate) => certificates.push(certificate),
+                                    Err(e) => {
+                                        tracing::warn!("Failed to deserialize certificate: {:?}", e);
+                                    }
+                                }
+                            }
+                            Ok(None) => {
+                                tracing::warn!("Certificate digest indexed but certificate not found");
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to retrieve certificate: {:?}", e);
+                            }
+                        }
+                    }
+                }
+                
+                certificates
+            }
+            Err(e) => {
+                tracing::warn!("Failed to get certificates by round: {:?}", e);
+                Vec::new()
+            }
+        }
     }
     
     async fn get_latest_certificate(&self, authority: &PublicKey) -> Option<Certificate> {
@@ -78,29 +140,105 @@ impl DagStorageInterface for MdbxDagStorageAdapter {
     }
     
     async fn store_vote(&self, header_digest: HeaderDigest, vote: Vote) -> DagResult<()> {
-        let mut votes = self.votes_cache.write().await;
-        votes.entry(header_digest).or_insert_with(Vec::new).push(vote);
+        // Convert header digest to B256 for storage
+        let digest_bytes: [u8; 32] = header_digest.to_bytes();
+        let digest_b256 = alloy_primitives::B256::from(digest_bytes);
+        
+        // Serialize vote to bytes
+        let vote_bytes = bincode::serialize(&vote)
+            .map_err(|e| DagError::Storage(anyhow::anyhow!("Failed to serialize vote: {}", e)))?;
+        
+        // Store in MDBX using consensus storage
+        self.consensus_storage.store_vote(digest_b256, vote_bytes)
+            .map_err(|e| DagError::Storage(anyhow::anyhow!("Failed to store vote: {}", e)))?;
+        
         Ok(())
     }
     
     async fn get_votes(&self, header_digest: &HeaderDigest) -> Vec<Vote> {
-        let votes = self.votes_cache.read().await;
-        votes.get(header_digest).cloned().unwrap_or_default()
+        // Convert header digest to B256 for lookup
+        let digest_bytes: [u8; 32] = header_digest.to_bytes();
+        let digest_b256 = alloy_primitives::B256::from(digest_bytes);
+        
+        // Retrieve from MDBX
+        match self.consensus_storage.get_votes(digest_b256) {
+            Ok(vote_bytes_vec) => {
+                let mut votes = Vec::new();
+                
+                for vote_bytes in vote_bytes_vec {
+                    match bincode::deserialize::<Vote>(&vote_bytes) {
+                        Ok(vote) => votes.push(vote),
+                        Err(e) => {
+                            tracing::warn!("Failed to deserialize vote: {:?}", e);
+                        }
+                    }
+                }
+                
+                votes
+            }
+            Err(e) => {
+                tracing::warn!("Failed to get votes: {:?}", e);
+                Vec::new()
+            }
+        }
     }
     
     async fn remove_votes(&self, header_digest: &HeaderDigest) -> DagResult<()> {
-        let mut votes = self.votes_cache.write().await;
-        votes.remove(header_digest);
+        // Convert header digest to B256
+        let digest_bytes: [u8; 32] = header_digest.to_bytes();
+        let digest_b256 = alloy_primitives::B256::from(digest_bytes);
+        
+        // Remove from MDBX
+        self.consensus_storage.remove_votes(digest_b256)
+            .map_err(|e| DagError::Storage(anyhow::anyhow!("Failed to remove votes: {}", e)))?;
+        
         Ok(())
     }
     
     async fn get_parents_for_round(&self, round: Round) -> Vec<CertificateDigest> {
-        // TODO: Implement using consensus storage
-        Vec::new()
+        // For getting parents, we need certificates from round - 1
+        if round == 0 {
+            return Vec::new();
+        }
+        
+        let parent_round = round - 1;
+        
+        // Get all certificates from parent round
+        match self.consensus_storage.get_certificates_by_round(parent_round) {
+            Ok(digest_vecs) => {
+                let mut parent_digests = Vec::new();
+                
+                for digest_vec in digest_vecs {
+                    if digest_vec.len() == 32 {
+                        // Convert Vec<u8> back to CertificateDigest
+                        let mut digest_bytes = [0u8; 32];
+                        digest_bytes.copy_from_slice(&digest_vec);
+                        
+                        // Create CertificateDigest from bytes
+                        let cert_digest = CertificateDigest::new(digest_bytes);
+                        parent_digests.push(cert_digest);
+                    }
+                }
+                
+                parent_digests
+            }
+            Err(e) => {
+                tracing::warn!("Failed to get parents for round {}: {:?}", round, e);
+                Vec::new()
+            }
+        }
     }
     
     async fn garbage_collect(&self, cutoff_round: Round) -> DagResult<()> {
-        // TODO: Implement garbage collection
-        Ok(())
+        // Remove certificates and votes before the cutoff round
+        match self.consensus_storage.remove_certificates_before_round(cutoff_round) {
+            Ok(removed_count) => {
+                tracing::info!("Garbage collected {} certificates before round {}", removed_count, cutoff_round);
+                Ok(())
+            }
+            Err(e) => {
+                Err(DagError::Storage(anyhow::anyhow!("Failed to garbage collect: {}", e)))
+            }
+        }
     }
 }
