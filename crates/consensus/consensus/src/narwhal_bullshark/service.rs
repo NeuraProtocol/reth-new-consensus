@@ -8,8 +8,9 @@
 //! It does NOT reimplement consensus - it uses the existing crates.
 
 use crate::{
-    narwhal_bullshark::{FinalizedBatch, NarwhalBullsharkConfig},
+    narwhal_bullshark::{FinalizedBatch, NarwhalBullsharkConfig, ConsensusRpcConfig},
     consensus_storage::MdbxConsensusStorage,
+    rpc::{ConsensusRpcImpl, ConsensusAdminRpcImpl, ConsensusApiServer, ConsensusAdminApiServer},
 };
 #[allow(unused_imports)]
 use crate::narwhal_bullshark::dag_storage_adapter::MdbxDagStorageAdapter;
@@ -22,6 +23,7 @@ use tracing::{info, warn, debug};
 use std::sync::Arc;
 use std::net::SocketAddr;
 use alloy_rlp::Decodable;
+use tokio::sync::RwLock;
 
 // Use the REAL implementations from the proper crates
 use narwhal::{
@@ -58,14 +60,22 @@ pub struct NarwhalBullsharkService {
     network_handle: Option<Arc<narwhal::NarwhalNetwork>>,
     /// Storage backend for consensus data
     storage: Option<Arc<MdbxConsensusStorage>>,
-    /// Running state
-    is_running: bool,
+    /// Running state (shared with RPC)
+    is_running: Arc<RwLock<bool>>,
+    /// RPC server configuration
+    rpc_config: Option<ConsensusRpcConfig>,
+    /// RPC server handle (if running)
+    rpc_server_handle: Option<jsonrpsee::server::ServerHandle>,
+    /// Node configuration for RPC
+    node_config: NarwhalBullsharkConfig,
+    /// Current committee for RPC
+    current_committee: Arc<RwLock<Committee>>,
 }
 
 impl std::fmt::Debug for NarwhalBullsharkService {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NarwhalBullsharkService")
-            .field("is_running", &self.is_running)
+            .field("is_running", &*self.is_running.blocking_read())
             .field("has_dag_service", &self.dag_service.is_some())
             .field("has_bft_service", &self.bft_service.is_some())
             .finish()
@@ -89,6 +99,8 @@ impl NarwhalBullsharkService {
         info!("🔍 Network handle provided: {}", network_handle.is_some());
         info!("🔍 Network event receiver provided: {}", network_event_receiver.is_some());
 
+        let current_committee = Arc::new(RwLock::new(committee.clone()));
+        
         Ok(Self {
             dag_service: None,
             bft_service: None,
@@ -99,13 +111,17 @@ impl NarwhalBullsharkService {
             network_event_receiver,
             network_handle,
             storage,
-            is_running: false,
+            is_running: Arc::new(RwLock::new(false)),
+            rpc_config: None,
+            rpc_server_handle: None,
+            node_config: config,
+            current_committee,
         })
     }
 
     /// Start the consensus service using REAL implementations
     pub async fn spawn(&mut self) -> Result<()> {
-        if self.is_running {
+        if *self.is_running.read().await {
             return Err(anyhow::anyhow!("Service already running"));
         }
 
@@ -200,7 +216,12 @@ impl NarwhalBullsharkService {
         let outbound_bridge_handle = self.spawn_outbound_network_bridge(dag_outbound_receiver).await?;
         self.task_handles.push(outbound_bridge_handle);
 
-        self.is_running = true;
+        *self.is_running.write().await = true;
+
+        // Start RPC server if configured
+        if let Err(e) = self.start_rpc_server().await {
+            warn!("Failed to start RPC server: {}", e);
+        }
 
         info!("🎉 Narwhal + Bullshark consensus active using REAL implementations");
         info!("🔄 DAG service processing transactions → BFT service providing finality");
@@ -445,7 +466,7 @@ impl NarwhalBullsharkService {
 
     /// Stop the service
     pub async fn stop(&mut self) -> Result<()> {
-        if !self.is_running {
+        if !*self.is_running.read().await {
             return Ok(());
         }
 
@@ -461,7 +482,10 @@ impl NarwhalBullsharkService {
             handle.abort();
         }
 
-        self.is_running = false;
+        // Stop RPC server
+        self.stop_rpc_server();
+
+        *self.is_running.write().await = false;
         info!("✅ Consensus service stopped");
 
         Ok(())
@@ -469,13 +493,65 @@ impl NarwhalBullsharkService {
 
     /// Check if running
     pub fn is_running(&self) -> bool {
-        self.is_running
+        *self.is_running.blocking_read()
+    }
+
+    /// Configure RPC server (must be called before spawn)
+    pub fn with_rpc(mut self, config: ConsensusRpcConfig) -> Self {
+        self.rpc_config = Some(config);
+        self
+    }
+
+    /// Start the RPC server if configured
+    async fn start_rpc_server(&mut self) -> Result<()> {
+        if let Some(rpc_config) = &self.rpc_config {
+            info!("Starting consensus RPC server on {}:{}", rpc_config.host, rpc_config.port);
+            
+            // Create validator registry if we have storage
+            let validator_registry = if let Some(ref _storage) = self.storage {
+                // Create a new empty validator registry
+                let registry = crate::narwhal_bullshark::validator_keys::ValidatorRegistry::new();
+                Some(Arc::new(RwLock::new(registry)))
+            } else {
+                None
+            };
+            
+            // Start the standalone RPC server
+            match super::service_rpc::start_service_rpc_server(
+                rpc_config.clone(),
+                self.node_config.clone(),
+                self.current_committee.clone(),
+                validator_registry,
+                self.storage.clone(),
+                self.is_running.clone(),
+            ).await {
+                Ok(handle) => {
+                    self.rpc_server_handle = Some(handle);
+                    info!("✅ Consensus RPC server started successfully");
+                    info!("📡 RPC endpoints available at http://{}:{}/", rpc_config.host, rpc_config.port);
+                }
+                Err(e) => {
+                    warn!("Failed to start consensus RPC server: {}", e);
+                    return Err(e);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Stop the RPC server if running
+    fn stop_rpc_server(&mut self) {
+        if let Some(handle) = self.rpc_server_handle.take() {
+            handle.stop().ok();
+            info!("Consensus RPC server stopped");
+        }
     }
 }
 
 impl Drop for NarwhalBullsharkService {
     fn drop(&mut self) {
-        if self.is_running {
+        if *self.is_running.blocking_read() {
             // Best effort cleanup
             if let Some(bft_handle) = self.bft_service.take() {
                 bft_handle.abort();
@@ -483,6 +559,7 @@ impl Drop for NarwhalBullsharkService {
             for handle in self.task_handles.drain(..) {
                 handle.abort();
             }
+            self.stop_rpc_server();
         }
     }
 } 

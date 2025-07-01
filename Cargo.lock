@@ -7635,6 +7635,7 @@ dependencies = [
  "eyre",
  "fastcrypto",
  "futures",
+ "jsonrpsee",
  "narwhal",
  "rand 0.8.5",
  "reqwest",

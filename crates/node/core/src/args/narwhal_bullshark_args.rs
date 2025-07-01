@@ -130,6 +130,10 @@ pub struct NarwhalBullsharkArgs {
     /// Bootstrap mode - start without waiting for peers
     #[arg(long = "narwhal.bootstrap", action = ArgAction::SetTrue)]
     pub bootstrap_mode: bool,
+    
+    /// Port for standalone consensus RPC server (0 = disabled)
+    #[arg(long = "consensus-rpc-port", default_value_t = 0)]
+    pub consensus_rpc_port: u16,
 }
 
 impl Default for NarwhalBullsharkArgs {
@@ -161,6 +165,7 @@ impl Default for NarwhalBullsharkArgs {
             disable_metrics: false,
             peer_addresses: Vec::new(),
             bootstrap_mode: false,
+            consensus_rpc_port: 0,
         }
     }
 }

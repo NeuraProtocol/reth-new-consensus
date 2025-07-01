@@ -218,8 +218,8 @@ impl NarwhalRethBridge {
             .map(|nc| nc.network_address)
             .unwrap_or_else(|| "127.0.0.1:0".parse().unwrap());
 
-        let service = NarwhalBullsharkService::new(
-            config.node_config,
+        let mut service = NarwhalBullsharkService::new(
+            config.node_config.clone(),
             config.committee,
             transaction_receiver,
             finalized_batch_sender,
@@ -228,6 +228,22 @@ impl NarwhalRethBridge {
             network_event_receiver, // Connect network events for REAL distributed consensus
             network.clone().map(|n| Arc::new(n)), // ✅ FIX: Pass cloned network handle for outbound broadcasting
         )?;
+        
+        // Configure RPC if port is set in network config
+        if let Some(ref net_config) = network_config {
+            if net_config.enable_networking && net_config.network_address.port() > 0 {
+                // Check if we should enable RPC based on a convention
+                // (e.g., RPC port = network port + 1000)
+                let rpc_port = net_config.network_address.port() + 1000;
+                let rpc_config = super::types::ConsensusRpcConfig {
+                    port: rpc_port,
+                    host: "127.0.0.1".to_string(),
+                    enable_admin: false,
+                };
+                service = service.with_rpc(rpc_config);
+                info!("Consensus RPC will be available on port {}", rpc_port);
+            }
+        }
 
         Ok(Self {
             service: Some(service),
@@ -421,6 +437,26 @@ impl NarwhalRethBridge {
         
         info!("Mempool operations configured for consensus bridge");
         Ok(())
+    }
+
+    /// Get the current committee
+    pub fn get_current_committee(&self) -> Committee {
+        self.committee.clone()
+    }
+
+    /// Check if consensus is running
+    pub fn is_running(&self) -> bool {
+        self.service.is_some() && self.service.as_ref().unwrap().is_running()
+    }
+    
+    /// Configure the consensus service with RPC (must be called before start)
+    pub fn with_rpc(&mut self, config: super::types::ConsensusRpcConfig) -> Result<()> {
+        if let Some(service) = self.service.take() {
+            self.service = Some(service.with_rpc(config));
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Service already started"))
+        }
     }
 }
 

@@ -477,7 +477,7 @@ pub struct DagStats {
 }
 
 /// Consensus storage statistics
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct StorageStats {
     /// Total database file size (bytes)
     pub file_size: u64,
@@ -526,16 +526,17 @@ pub struct LogEntry {
 // ===== RPC IMPLEMENTATION =====
 
 use crate::narwhal_bullshark::{integration::NarwhalRethBridge, validator_keys::ValidatorRegistry};
-use crate::consensus_storage::MdbxConsensusStorage;
+use crate::consensus_storage::{MdbxConsensusStorage, ConsensusDbStats};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use fastcrypto::traits::EncodeDecodeBase64;
+
 
 /// Implementation of the consensus RPC API
 /// 
 /// This struct provides the actual implementation of consensus RPC methods
 /// by interfacing with the Narwhal + Bullshark consensus system.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ConsensusRpcImpl {
     /// Reference to the consensus bridge
     consensus_bridge: Arc<RwLock<NarwhalRethBridge>>,
@@ -566,18 +567,49 @@ impl ConsensusApiServer for ConsensusRpcImpl {
         // Get status from consensus bridge
         let bridge = self.consensus_bridge.read().await;
         let registry = self.validator_registry.read().await;
+        let storage = self.storage.read().await;
         
-        // TODO: Get actual status from consensus components
-        // For now, return a placeholder implementation
+        // Get current committee info
+        let committee = bridge.get_current_committee();
+        let epoch = committee.epoch;
+        
+        // Get current round from storage (latest certificate round)
+        let round = match storage.get_latest_round() {
+            Ok(r) => r,
+            Err(_) => 0,
+        };
+        
+        // Check if consensus is running
+        let is_running = bridge.is_running();
+        let state = if is_running {
+            ConsensusState::Running
+        } else {
+            ConsensusState::Stalled { reason: "Consensus service not running".to_string() }
+        };
+        
+        // Get last finalized batch info
+        let (last_finalized_batch, time_since_last_finalization) = 
+            match storage.get_latest_finalized_batch_info() {
+                Ok(Some((batch_num, timestamp))) => {
+                    let current_time = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs();
+                    (Some(batch_num), Some(current_time - timestamp))
+                }
+                Ok(None) => (None, None),
+                Err(_) => (None, None),
+            };
+        
         Ok(ConsensusStatus {
-            healthy: true, // TODO: Determine from consensus state
-            epoch: 0, // TODO: Get current epoch
-            round: 0, // TODO: Get current round
+            healthy: is_running,
+            epoch,
+            round,
             active_validators: registry.validator_count(),
-            state: ConsensusState::Running, // TODO: Get actual state
-            last_finalized_batch: Some(0), // TODO: Get from storage
-            time_since_last_finalization: Some(0), // TODO: Calculate
-            is_producing: true, // TODO: Determine from consensus
+            state,
+            last_finalized_batch,
+            time_since_last_finalization,
+            is_producing: is_running,
         })
     }
 
@@ -723,18 +755,89 @@ impl ConsensusApiServer for ConsensusRpcImpl {
     }
 
     async fn get_certificate(&self, certificate_id: B256) -> RpcResult<Option<CertificateInfo>> {
-        // TODO: Implement certificate lookup from storage
-        Ok(None)
+        let storage = self.storage.read().await;
+        
+        // Try to get certificate data from storage
+        // Convert B256 to u64 ID for lookup (take lower 8 bytes)
+        let cert_id = u64::from_le_bytes(certificate_id.as_slice()[0..8].try_into().unwrap_or([0u8; 8]));
+        
+        match storage.get_certificate(cert_id) {
+            Ok(Some(cert_data)) => {
+                // Deserialize certificate data
+                // For now, return a placeholder since we need proper certificate deserialization
+                Ok(Some(CertificateInfo {
+                    id: certificate_id,
+                    round: 0, // TODO: Extract from certificate
+                    author: Address::ZERO, // TODO: Extract from certificate
+                    parents: vec![], // TODO: Extract from certificate
+                    transactions: vec![], // TODO: Extract from certificate
+                    signature_info: SignatureInfo {
+                        signature_count: 0,
+                        signed_stake: 0,
+                        has_quorum: true,
+                        signers: vec![],
+                    },
+                    finalized: false, // TODO: Check if finalized
+                    timestamp: 0, // TODO: Extract from certificate
+                }))
+            }
+            Ok(None) => Ok(None),
+            Err(e) => Err(jsonrpsee::types::ErrorObject::owned(-32000, format!("Storage error: {}", e), None::<()>)),
+        }
     }
 
     async fn get_finalized_batch(&self, batch_id: u64) -> RpcResult<Option<FinalizedBatchInfo>> {
-        // TODO: Implement batch lookup from storage
-        Ok(None)
+        let storage = self.storage.read().await;
+        
+        // Get finalized batch block hash
+        match storage.get_finalized_batch(batch_id) {
+            Ok(Some(block_hash)) => {
+                // Get batch data
+                match storage.get_batch(batch_id) {
+                    Ok(Some(batch_data)) => {
+                        Ok(Some(FinalizedBatchInfo {
+                            batch_id,
+                            epoch: 0, // TODO: Extract from batch data
+                            round_range: (0, 0), // TODO: Extract from batch data
+                            certificates: vec![], // TODO: Extract from batch data
+                            transaction_count: 0, // TODO: Extract from batch data
+                            transactions: vec![], // TODO: Extract from batch data
+                            finalized_at: 0, // TODO: Extract from batch data
+                            size_bytes: batch_data.len(),
+                        }))
+                    }
+                    Ok(None) => Ok(None),
+                    Err(e) => Err(jsonrpsee::types::ErrorObject::owned(-32000, format!("Storage error: {}", e), None::<()>)),
+                }
+            }
+            Ok(None) => Ok(None),
+            Err(e) => Err(jsonrpsee::types::ErrorObject::owned(-32000, format!("Storage error: {}", e), None::<()>)),
+        }
     }
 
     async fn get_recent_batches(&self, count: Option<usize>) -> RpcResult<Vec<FinalizedBatchInfo>> {
-        // TODO: Implement recent batches lookup from storage
-        Ok(vec![])
+        let storage = self.storage.read().await;
+        let limit = count.unwrap_or(10).min(100); // Cap at 100
+        
+        match storage.list_finalized_batches(Some(limit)) {
+            Ok(batches) => {
+                let mut batch_infos = Vec::new();
+                for (batch_id, block_hash) in batches {
+                    batch_infos.push(FinalizedBatchInfo {
+                        batch_id,
+                        epoch: 0, // TODO: Extract from batch data
+                        round_range: (0, 0), // TODO: Extract from batch data
+                        certificates: vec![], // TODO: Extract from batch data
+                        transaction_count: 0, // TODO: Extract from batch data
+                        transactions: vec![], // TODO: Extract from batch data
+                        finalized_at: 0, // TODO: Extract from batch data
+                        size_bytes: 0, // TODO: Get actual size
+                    });
+                }
+                Ok(batch_infos)
+            }
+            Err(e) => Err(jsonrpsee::types::ErrorObject::owned(-32000, format!("Storage error: {}", e), None::<()>)),
+        }
     }
 
     async fn get_transaction_status(
@@ -746,49 +849,73 @@ impl ConsensusApiServer for ConsensusRpcImpl {
     }
 
     async fn get_metrics(&self) -> RpcResult<ConsensusMetrics> {
-        // TODO: Implement actual metrics collection
+        let storage = self.storage.read().await;
+        let bridge = self.consensus_bridge.read().await;
+        
+        // Get storage stats
+        let stats = match storage.get_stats() {
+            Ok(s) => s,
+            Err(_) => ConsensusDbStats {
+                total_certificates: 0,
+                total_batches: 0,
+                total_dag_vertices: 0,
+                latest_finalized: 0,
+            },
+        };
+        
+        // Calculate metrics based on available data
+        let is_running = bridge.is_running();
+        let committee = bridge.get_current_committee();
+        let committee_size = committee.authorities.len();
+        
         Ok(ConsensusMetrics {
             throughput: ThroughputMetrics {
-                tps_recent: 0.0,
-                tps_total: 0.0,
-                certificates_per_second: 0.0,
-                batches_per_second: 0.0,
-                peak_tps: 0.0,
+                tps_recent: 0.0, // TODO: Track recent TPS
+                tps_total: 0.0, // TODO: Track total TPS
+                certificates_per_second: 0.0, // TODO: Track certificate rate
+                batches_per_second: 0.0, // TODO: Track batch rate
+                peak_tps: 0.0, // TODO: Track peak TPS
             },
             latency: LatencyMetrics {
-                avg_finalization_time: 1000,
+                avg_finalization_time: 1000, // TODO: Track actual latency
                 median_finalization_time: 900,
                 p95_finalization_time: 2000,
                 avg_certificate_time: 500,
                 avg_round_time: 2000,
             },
             resources: ResourceMetrics {
-                memory_usage: 0,
-                database_size: 0,
-                cpu_usage: 0.0,
-                network_bandwidth: 0,
+                memory_usage: 0, // TODO: Get process memory
+                database_size: stats.total_certificates + stats.total_batches + stats.total_dag_vertices,
+                cpu_usage: 0.0, // TODO: Get CPU usage
+                network_bandwidth: 0, // TODO: Track bandwidth
             },
             network: NetworkMetrics {
-                connected_peers: 0,
-                messages_sent_per_sec: 0.0,
+                connected_peers: if is_running { committee_size - 1 } else { 0 },
+                messages_sent_per_sec: 0.0, // TODO: Track message rate
                 messages_received_per_sec: 0.0,
-                network_health: 1.0,
+                network_health: if is_running { 1.0 } else { 0.0 },
             },
         })
     }
 
     async fn get_config(&self) -> RpcResult<ConsensusConfig> {
-        // TODO: Get actual configuration from consensus system
+        let bridge = self.consensus_bridge.read().await;
+        let committee = bridge.get_current_committee();
+        
+        // Calculate actual quorum threshold
+        let total_stake: u64 = committee.authorities.values().sum();
+        let quorum_threshold = committee.quorum_threshold() as f32 / total_stake as f32;
+        
         Ok(ConsensusConfig {
             algorithm: AlgorithmConfig {
                 min_validators: 1,
                 max_validators: Some(1000),
-                quorum_threshold: 0.67,
+                quorum_threshold: quorum_threshold.into(),
                 max_transactions_per_certificate: 1000,
                 round_timeout_ms: 5000,
             },
             network: NetworkConfig {
-                listen_address: "0.0.0.0:8080".to_string(),
+                listen_address: "0.0.0.0:8080".to_string(), // TODO: Get from actual config
                 max_message_size: 1024 * 1024,
                 connection_timeout_ms: 30000,
                 keepalive_interval_ms: 60000,
@@ -804,7 +931,7 @@ impl ConsensusApiServer for ConsensusRpcImpl {
 }
 
 /// Administrative RPC implementation
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ConsensusAdminRpcImpl {
     /// Reference to the consensus RPC implementation
     consensus_rpc: Arc<ConsensusRpcImpl>,

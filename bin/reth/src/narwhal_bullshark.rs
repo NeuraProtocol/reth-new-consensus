@@ -17,8 +17,7 @@ use reth_consensus::{
         validator_keys::{ValidatorKeyPair, ValidatorRegistry, ValidatorMetadata, ValidatorKeyConfig, ValidatorIdentity},
     },
     consensus_storage::MdbxConsensusStorage,
-    rpc::{ConsensusRpcImpl, ConsensusAdminRpcImpl},
-
+    rpc::{ConsensusRpcImpl, ConsensusAdminRpcImpl, ConsensusApiServer, ConsensusAdminApiServer},
 };
 use reth_transaction_pool::{TransactionPool, TransactionPoolExt, EthPooledTransaction, NewTransactionEvent, BlockInfo, TransactionListenerKind};
 use reth_primitives::TransactionSigned as RethTransaction;
@@ -35,6 +34,7 @@ use anyhow::Result;
 use tokio::sync::RwLock;
 use reth_db_api::{transaction::{DbTx, DbTxMut}, cursor::{DbCursorRO, DbCursorRW, DbDupCursorRO, DbDupCursorRW}};
 use reth_provider::{DatabaseProviderFactory, DBProvider};
+use jsonrpsee::{server::ServerBuilder, RpcModule};
 
 
 /// Concrete implementation of MempoolOperations for Reth's transaction pool
@@ -592,18 +592,18 @@ pub fn install_consensus_rpc(
     consensus_bridge: Arc<RwLock<NarwhalRethBridge>>,
     validator_registry: Arc<RwLock<ValidatorRegistry>>, 
     storage: Arc<RwLock<MdbxConsensusStorage>>,
-) -> (Arc<ConsensusRpcImpl>, Arc<ConsensusAdminRpcImpl>) {
+) -> (ConsensusRpcImpl, ConsensusAdminRpcImpl) {
     
     info!(target: "reth::narwhal_bullshark", "Installing consensus RPC endpoints");
     
     // Create the RPC implementations
-    let consensus_rpc = Arc::new(ConsensusRpcImpl::new(
+    let consensus_rpc = ConsensusRpcImpl::new(
         consensus_bridge,
         validator_registry,
-        storage,
-    ));
+        storage.clone(),
+    );
     
-    let admin_rpc = Arc::new(ConsensusAdminRpcImpl::new(consensus_rpc.clone()));
+    let admin_rpc = ConsensusAdminRpcImpl::new(Arc::new(consensus_rpc.clone()));
     
     info!(target: "reth::narwhal_bullshark", "Consensus RPC endpoints installed successfully");
     info!(target: "reth::narwhal_bullshark", "Available endpoints:");
@@ -611,6 +611,60 @@ pub fn install_consensus_rpc(
     info!(target: "reth::narwhal_bullshark", "  consensus_admin_* - Administrative operations");
     
     (consensus_rpc, admin_rpc)
+}
+
+/// Start a separate RPC server for consensus endpoints
+/// 
+/// This starts a standalone JSON-RPC server that exposes the consensus and consensus_admin
+/// namespaces. This is useful when the main RPC server has already been started and cannot
+/// be modified to include consensus endpoints.
+pub async fn start_consensus_rpc_server(
+    consensus_bridge: Arc<RwLock<NarwhalRethBridge>>,
+    validator_registry: Arc<RwLock<ValidatorRegistry>>,
+    storage: Arc<RwLock<MdbxConsensusStorage>>,
+    port: u16,
+) -> eyre::Result<jsonrpsee::server::ServerHandle> {
+    use jsonrpsee::server::ServerBuilder;
+    
+    info!(target: "reth::narwhal_bullshark", "Starting standalone consensus RPC server on port {}", port);
+    
+    // Create RPC implementations
+    let (consensus_rpc, consensus_admin_rpc) = install_consensus_rpc(
+        consensus_bridge,
+        validator_registry,
+        storage,
+    );
+    
+    // Build RPC module
+    let mut module = jsonrpsee::RpcModule::new(());
+    module.merge(consensus_rpc.into_rpc())?;
+    module.merge(consensus_admin_rpc.into_rpc())?;
+    
+    // Start server
+    let server = ServerBuilder::default()
+        .build(format!("127.0.0.1:{}", port))
+        .await?;
+        
+    let addr = server.local_addr()?;
+    let handle = server.start(module);
+    
+    info!(target: "reth::narwhal_bullshark", "✅ Consensus RPC server started at http://{}", addr);
+    info!(target: "reth::narwhal_bullshark", "Available endpoints:");
+    info!(target: "reth::narwhal_bullshark", "  - consensus_getStatus");
+    info!(target: "reth::narwhal_bullshark", "  - consensus_getCommittee");
+    info!(target: "reth::narwhal_bullshark", "  - consensus_getValidator");
+    info!(target: "reth::narwhal_bullshark", "  - consensus_listValidators");
+    info!(target: "reth::narwhal_bullshark", "  - consensus_getCertificate");
+    info!(target: "reth::narwhal_bullshark", "  - consensus_getFinalizedBatch");
+    info!(target: "reth::narwhal_bullshark", "  - consensus_admin_getDagInfo");
+    info!(target: "reth::narwhal_bullshark", "  - consensus_admin_getStorageStats");
+    info!(target: "reth::narwhal_bullshark", "");
+    info!(target: "reth::narwhal_bullshark", "Example usage:");
+    info!(target: "reth::narwhal_bullshark", "  curl -X POST -H \"Content-Type: application/json\" \\");
+    info!(target: "reth::narwhal_bullshark", "    -d '{{\"jsonrpc\":\"2.0\",\"method\":\"consensus_getStatus\",\"params\":[],\"id\":1}}' \\");
+    info!(target: "reth::narwhal_bullshark", "    http://127.0.0.1:{}", port);
+    
+    Ok(handle)
 }
 
 /// Example usage of consensus RPC endpoints

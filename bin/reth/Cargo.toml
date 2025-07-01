@@ -62,6 +62,9 @@ tokio = { workspace = true, features = ["sync", "macros", "time", "rt-multi-thre
 futures.workspace = true
 async-trait.workspace = true
 
+# rpc
+jsonrpsee = { workspace = true, features = ["server"] }
+
 # narwhal + bullshark consensus
 narwhal = { path = "../../crates/narwhal" }
 bullshark = { path = "../../crates/bullshark" }

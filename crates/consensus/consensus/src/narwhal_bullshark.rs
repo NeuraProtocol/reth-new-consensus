@@ -20,12 +20,15 @@ pub mod dag_storage_adapter;
 pub mod transaction_adapter;
 /// Implementation of ConsensusDbOps for Narwhal storage integration
 pub mod consensus_db_ops_impl;
+/// Service-based RPC implementation for standalone consensus RPC server
+pub mod service_rpc;
 
 // Re-export key types for easier access
-pub use types::{FinalizedBatch, NarwhalBullsharkConfig};
+pub use types::{FinalizedBatch, NarwhalBullsharkConfig, ConsensusRpcConfig};
 pub use service::NarwhalBullsharkService;
 pub use integration::{NarwhalRethBridge, RethIntegrationConfig};
 pub use mempool_bridge::{MempoolBridge, PoolStats};
 pub use engine::{NarwhalBullsharkConsensus, FinalizationStream};
 pub use validator_keys::{ValidatorKeyPair, ValidatorRegistry, ValidatorIdentity, ValidatorMetadata, ValidatorKeyConfig, KeyManagementStrategy};
 pub use transaction_adapter::{TransactionAdapter, TransactionAdapterBuilder, encode_transaction};
+pub use service_rpc::start_service_rpc_server;

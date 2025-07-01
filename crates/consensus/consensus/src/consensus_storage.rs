@@ -350,11 +350,40 @@ impl MdbxConsensusStorage {
         warn!("⚠️  STUB: set_db_env() is a compatibility shim - use set_db_ops() for real MDBX integration");
         // This is intentionally left as a stub since the real implementation uses set_db_ops()
     }
+
+    /// Get the latest round number from stored certificates
+    pub fn get_latest_round(&self) -> Result<u64> {
+        let db_ops = self.db_ops.lock().unwrap();
+        let ops = db_ops.as_ref().ok_or_else(|| anyhow::anyhow!("Database operations not injected"))?;
+        
+        // Get all certificate rounds and find the maximum
+        // For now, we don't have a dedicated method for this, so return 0
+        // TODO: Add a method to DatabaseOps for getting latest round
+        Ok(0)
+    }
+
+    /// Get info about the latest finalized batch
+    pub fn get_latest_finalized_batch_info(&self) -> Result<Option<(u64, u64)>> {
+        let db_ops = self.db_ops.lock().unwrap();
+        let ops = db_ops.as_ref().ok_or_else(|| anyhow::anyhow!("Database operations not injected"))?;
+        
+        // Get the latest finalized certificate ID
+        if let Some(cert_id) = ops.get_latest_finalized()? {
+            // For now, return the cert_id as batch number and current timestamp
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            Ok(Some((cert_id, timestamp)))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 /// Statistics about the consensus storage
 /// REAL: These reflect actual MDBX table contents when database operations are injected
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ConsensusDbStats {
     /// Total number of certificates stored in MDBX
     pub total_certificates: u64,

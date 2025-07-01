@@ -8,6 +8,27 @@ use rand_08;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
+/// Configuration for consensus RPC server
+#[derive(Debug, Clone)]
+pub struct ConsensusRpcConfig {
+    /// Port to bind the RPC server to
+    pub port: u16,
+    /// Host to bind the RPC server to
+    pub host: String,
+    /// Whether to enable admin endpoints
+    pub enable_admin: bool,
+}
+
+impl Default for ConsensusRpcConfig {
+    fn default() -> Self {
+        Self {
+            port: 9999,
+            host: "127.0.0.1".to_string(),
+            enable_admin: false,
+        }
+    }
+}
+
 /// A finalized batch of transactions from Narwhal + Bullshark consensus
 #[derive(Debug, Clone)]
 pub struct FinalizedBatch {
