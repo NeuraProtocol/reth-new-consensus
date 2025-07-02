@@ -143,10 +143,10 @@ pub struct ConsensusVotes {
 
 impl Table for ConsensusVotes {
     const NAME: &'static str = "ConsensusVotes";
-    const DUPSORT: bool = true; // Multiple votes per header
+    const DUPSORT: bool = false; // Changed to false to avoid DUPSORT complexity
     
-    type Key = B256; // HeaderDigest
-    type Value = Vec<u8>; // Serialized Vote
+    type Key = B256; // HeaderDigest  
+    type Value = Vec<u8>; // Serialized list of votes (we'll store all votes for a header as one value)
 }
 
 impl DupSort for ConsensusVotes {

@@ -1,0 +1,1985 @@
+🚀 Starting Neura Multivalidator Test (Chain ID: 266, Coin: ANKR)
+🔑 Using REAL Validator Key Management (No Random Keys!)
+🏛️ Committee loaded from test_validators/ directory
+==================================================================
+🔨 Building Reth with Narwhal + Bullshark consensus...
+warning: extern crate `reth_execution_types` is unused in crate `narwhal`
+  |
+  = help: remove the dependency or add `use reth_execution_types as _;` to the crate root
+note: the lint level is defined here
+ --> crates/narwhal/src/lib.rs:6:29
+  |
+6 | #![cfg_attr(not(test), warn(unused_crate_dependencies))]
+  |                             ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: extern crate `reth_primitives` is unused in crate `narwhal`
+  |
+  = help: remove the dependency or add `use reth_primitives as _;` to the crate root
+
+warning: extern crate `revm` is unused in crate `narwhal`
+  |
+  = help: remove the dependency or add `use revm as _;` to the crate root
+
+warning: extern crate `url` is unused in crate `narwhal`
+  |
+  = help: remove the dependency or add `use url as _;` to the crate root
+
+warning: extern crate `uuid` is unused in crate `narwhal`
+  |
+  = help: remove the dependency or add `use uuid as _;` to the crate root
+
+warning: unused import: `traits::Signer`
+  --> crates/narwhal/src/dag_service.rs:13:50
+   |
+13 | use fastcrypto::{SignatureService, Hash, Digest, traits::Signer, Verifier};
+   |                                                  ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `DagError`
+ --> crates/narwhal/src/storage_trait.rs:4:13
+  |
+4 | use crate::{DagError, DagResult, types::*, Round};
+  |             ^^^^^^^^
+
+warning: unused import: `DagError`
+ --> crates/narwhal/src/storage_inmemory.rs:8:23
+  |
+8 |     Round, DagResult, DagError,
+  |                       ^^^^^^^^
+
+warning: unused import: `warn`
+  --> crates/narwhal/src/storage_mdbx.rs:15:28
+   |
+15 | use tracing::{debug, info, warn, error};
+   |                            ^^^^
+
+warning: unused import: `BTreeMap`
+  --> crates/narwhal/src/types.rs:13:38
+   |
+13 |     collections::{BTreeSet, HashMap, BTreeMap},
+   |                                      ^^^^^^^^
+
+warning: unused imports: `Certificate`, `Header`, and `Vote`
+  --> crates/narwhal/src/primary.rs:16:13
+   |
+16 |     types::{Certificate, Header, Vote, Committee, PublicKey},
+   |             ^^^^^^^^^^^  ^^^^^^  ^^^^
+
+warning: unused import: `sync::Arc`
+  --> crates/narwhal/src/primary.rs:20:11
+   |
+20 | use std::{sync::Arc, time::Duration, net::Ipv4Addr};
+   |           ^^^^^^^^^
+
+warning: unused import: `DagError`
+  --> crates/narwhal/src/worker.rs:13:5
+   |
+13 |     DagError, DagResult,
+   |     ^^^^^^^^
+
+warning: unused import: `debug`
+  --> crates/narwhal/src/worker.rs:19:21
+   |
+19 | use tracing::{info, debug};
+   |                     ^^^^^
+
+warning: unused import: `narwhal_dag_client::NarwhalDagClient`
+ --> crates/narwhal/src/network.rs:6:15
+  |
+6 |         dag::{narwhal_dag_client::NarwhalDagClient, narwhal_dag_server::*},
+  |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `bytes::Bytes`
+  --> crates/narwhal/src/network.rs:14:5
+   |
+14 | use bytes::Bytes;
+   |     ^^^^^^^^^^^^
+
+warning: unused import: `ToFromBytes`
+  --> crates/narwhal/src/network.rs:15:36
+   |
+15 | use fastcrypto::{traits::{KeyPair, ToFromBytes}, Hash};
+   |                                    ^^^^^^^^^^^
+
+warning: unused import: `error`
+  --> crates/narwhal/src/network.rs:24:34
+   |
+24 | use tracing::{debug, info, warn, error};
+   |                                  ^^^^^
+
+warning: unused imports: `Header` and `Vote`
+ --> crates/narwhal/src/rpc.rs:3:20
+  |
+3 | use crate::types::{Header, Vote, Certificate, CertificateDigest};
+  |                    ^^^^^^  ^^^^
+
+warning: unused import: `HeaderDigest`
+ --> crates/narwhal/src/aggregators.rs:7:62
+  |
+7 |     types::{Vote, Certificate, Header, PublicKey, Signature, HeaderDigest},
+  |                                                              ^^^^^^^^^^^^
+
+warning: unused imports: `AggregateAuthenticator`, `BLS12381AggregateSignature`, `BLS12381PublicKey`, `BLS12381Signature`, and `KeyPair`
+  --> crates/narwhal/src/aggregators.rs:11:14
+   |
+11 |     traits::{AggregateAuthenticator, KeyPair},
+   |              ^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^
+12 |     bls12381::{BLS12381AggregateSignature, BLS12381PublicKey, BLS12381Signature},
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^
+
+warning: unused import: `Epoch`
+ --> crates/narwhal/src/batch_maker.rs:7:24
+  |
+7 |     types::{Committee, Epoch},
+  |                        ^^^^^
+
+warning: unused import: `std::time::SystemTime`
+  --> crates/narwhal/src/batch_maker.rs:15:5
+   |
+15 | use std::time::SystemTime;
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `timeout`
+  --> crates/narwhal/src/quorum_waiter.rs:13:12
+   |
+13 |     time::{timeout, Duration},
+   |            ^^^^^^^
+
+warning: variable does not need to be mutable
+  --> crates/narwhal/src/batch_maker.rs:88:13
+   |
+88 |         let mut timer = sleep(self.config.max_batch_delay);
+   |             ----^^^^^
+   |             |
+   |             help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` on by default
+
+warning: unused import: `DagStorageInterface`
+ --> crates/narwhal/src/dag_service.rs:7:21
+  |
+7 |     storage_trait::{DagStorageInterface, DagStorageRef},
+  |                     ^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `header_digest`
+  --> crates/narwhal/src/storage_inmemory.rs:64:32
+   |
+64 |     async fn store_vote(&self, header_digest: HeaderDigest, vote: Vote) -> DagResult<()> {
+   |                                ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_header_digest`
+   |
+   = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `header_digest`
+  --> crates/narwhal/src/storage_inmemory.rs:72:34
+   |
+72 |     async fn remove_votes(&self, header_digest: &HeaderDigest) -> DagResult<()> {
+   |                                  ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_header_digest`
+
+warning: type `WorkerChannelReceivers` is more private than the item `WorkerChannels::new`
+  --> crates/narwhal/src/worker.rs:36:5
+   |
+36 |     pub fn new(committee: Committee) -> (Self, WorkerChannelReceivers) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ associated function `WorkerChannels::new` is reachable at visibility `pub`
+   |
+note: but type `WorkerChannelReceivers` is only usable at visibility `pub(self)`
+  --> crates/narwhal/src/worker.rs:64:1
+   |
+64 | struct WorkerChannelReceivers {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = note: `#[warn(private_interfaces)]` on by default
+
+warning: type `WorkerChannelReceivers` is more private than the item `Worker::spawn`
+   --> crates/narwhal/src/worker.rs:111:5
+    |
+111 |     pub fn spawn(self, channels: WorkerChannelReceivers) -> Vec<JoinHandle<DagResult<()>>> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ method `Worker::spawn` is reachable at visibility `pub`
+    |
+note: but type `WorkerChannelReceivers` is only usable at visibility `pub(self)`
+   --> crates/narwhal/src/worker.rs:64:1
+    |
+64  | struct WorkerChannelReceivers {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `get_cert_digest` is never used
+   --> crates/narwhal/src/storage_mdbx.rs:122:14
+    |
+67  | impl MdbxDagStorage {
+    | ------------------- method in this implementation
+...
+122 |     async fn get_cert_digest(&self, id: u64) -> Option<CertificateDigest> {
+    |              ^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: constant `HEARTBEAT_INTERVAL` is never used
+  --> crates/narwhal/src/primary.rs:28:7
+   |
+28 | const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(1);
+   |       ^^^^^^^^^^^^^^^^^^
+
+warning: associated constant `INADDR_ANY` is never used
+  --> crates/narwhal/src/primary.rs:48:11
+   |
+47 | impl Primary {
+   | ------------ associated constant in this implementation
+48 |     const INADDR_ANY: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
+   |           ^^^^^^^^^^
+
+warning: field `batch_timeout` is never read
+  --> crates/narwhal/src/quorum_waiter.rs:49:5
+   |
+31 | pub struct QuorumWaiter {
+   |            ------------ field in this struct
+...
+49 |     batch_timeout: Duration,
+   |     ^^^^^^^^^^^^^
+
+warning: field `batch` is never read
+  --> crates/narwhal/src/quorum_waiter.rs:54:5
+   |
+52 | struct PendingBatch {
+   |        ------------ field in this struct
+53 |     /// The batch itself
+54 |     batch: Batch,
+   |     ^^^^^
+
+warning: `narwhal` (lib) generated 35 warnings (run `cargo fix --lib -p narwhal` to apply 20 suggestions)
+warning: extern crate `bincode` is unused in crate `bullshark`
+  |
+  = help: remove the dependency or add `use bincode as _;` to the crate root
+note: the lint level is defined here
+ --> crates/bullshark/src/lib.rs:6:29
+  |
+6 | #![cfg_attr(not(test), warn(unused_crate_dependencies))]
+  |                             ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `fastcrypto::traits::KeyPair`
+  --> crates/bullshark/src/bft_service.rs:18:5
+   |
+18 | use fastcrypto::traits::KeyPair;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `rand_08`
+  --> crates/bullshark/src/bft_service.rs:19:5
+   |
+19 | use rand_08;
+   |     ^^^^^^^
+
+warning: unused import: `rand_08`
+  --> crates/bullshark/src/finality.rs:15:5
+   |
+15 | use rand_08;
+   |     ^^^^^^^
+
+warning: unused import: `fastcrypto::traits::KeyPair`
+  --> crates/bullshark/src/finality.rs:16:5
+   |
+16 | use fastcrypto::traits::KeyPair;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a module
+  --> crates/bullshark/src/lib.rs:14:1
+   |
+14 | pub mod storage;
+   | ^^^^^^^^^^^^^^^
+   |
+   = note: requested on the command line with `-W missing-docs`
+
+warning: missing documentation for a method
+   --> crates/bullshark/src/consensus.rs:250:5
+    |
+250 | /     pub fn write_consensus_state(
+251 | |         &self,
+252 | |         consensus_index: SequenceNumber,
+253 | |         _certificate_digest: &CertificateDigest,
+254 | |     ) -> BullsharkResult<()> {
+    | |____________________________^
+
+warning: missing documentation for a method
+   --> crates/bullshark/src/consensus.rs:260:5
+    |
+260 |     pub fn read_last_consensus_index(&self) -> BullsharkResult<SequenceNumber> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+   --> crates/bullshark/src/consensus.rs:265:5
+    |
+265 |     pub fn read_last_committed(&self) -> BullsharkResult<HashMap<PublicKey, Round>> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+   --> crates/bullshark/src/consensus.rs:270:5
+    |
+270 |     pub fn clear(&self) -> BullsharkResult<()> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a module
+ --> crates/bullshark/src/storage/mod.rs:1:1
+  |
+1 | pub mod tables;
+  | ^^^^^^^^^^^^^^
+
+warning: missing documentation for an associated function
+  --> crates/bullshark/src/storage/mod.rs:56:5
+   |
+56 |     pub fn new() -> Self {
+   |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+ --> crates/bullshark/src/storage/tables.rs:7:5
+  |
+7 |     pub batch_id: u64,
+  |     ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+ --> crates/bullshark/src/storage/tables.rs:8:5
+  |
+8 |     pub transactions: Vec<Vec<u8>>,
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+ --> crates/bullshark/src/storage/tables.rs:9:5
+  |
+9 |     pub block_hash: B256,
+  |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/bullshark/src/storage/tables.rs:10:5
+   |
+10 |     pub timestamp: u64,
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/bullshark/src/storage/tables.rs:11:5
+   |
+11 |     pub signature: Vec<u8>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/bullshark/src/storage/tables.rs:17:5
+   |
+17 |     pub id: u64,
+   |     ^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/bullshark/src/storage/tables.rs:18:5
+   |
+18 |     pub transactions: Vec<Vec<u8>>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/bullshark/src/storage/tables.rs:19:5
+   |
+19 |     pub timestamp: u64,
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: `bullshark` (lib) generated 20 warnings (run `cargo fix --lib -p bullshark` to apply 4 suggestions)
+warning: extern crate `indexmap` is unused in crate `reth_consensus`
+  |
+  = help: remove the dependency or add `use indexmap as _;` to the crate root
+note: the lint level is defined here
+ --> crates/consensus/consensus/src/lib.rs:8:29
+  |
+8 | #![cfg_attr(not(test), warn(unused_crate_dependencies))]
+  |                             ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: extern crate `reth_db` is unused in crate `reth_consensus`
+  |
+  = help: remove the dependency or add `use reth_db as _;` to the crate root
+
+warning: unused import: `VerifyingKey`
+   --> crates/consensus/consensus/src/narwhal_bullshark/types.rs:179:47
+    |
+179 |         use fastcrypto::traits::{ToFromBytes, VerifyingKey, AggregateAuthenticator};
+    |                                               ^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `BLS12381PublicKey`
+   --> crates/consensus/consensus/src/narwhal_bullshark/types.rs:180:64
+    |
+180 |         use fastcrypto::bls12381::{BLS12381AggregateSignature, BLS12381PublicKey};
+    |                                                                ^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `ConsensusAdminApiServer`, `ConsensusAdminRpcImpl`, `ConsensusApiServer`, and `ConsensusRpcImpl`
+  --> crates/consensus/consensus/src/narwhal_bullshark/service.rs:13:11
+   |
+13 |     rpc::{ConsensusRpcImpl, ConsensusAdminRpcImpl, ConsensusApiServer, ConsensusAdminApiServer},
+   |           ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::net::SocketAddr`
+  --> crates/consensus/consensus/src/narwhal_bullshark/service.rs:24:5
+   |
+24 | use std::net::SocketAddr;
+   |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PublicKey`
+  --> crates/consensus/consensus/src/narwhal_bullshark/service.rs:31:24
+   |
+31 |     types::{Committee, PublicKey},
+   |                        ^^^^^^^^^
+
+warning: unused import: `bls12381::BLS12381KeyPair`
+  --> crates/consensus/consensus/src/narwhal_bullshark/service.rs:41:5
+   |
+41 |     bls12381::BLS12381KeyPair,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `Address` and `U256`
+ --> crates/consensus/consensus/src/narwhal_bullshark/mempool_bridge.rs:5:24
+  |
+5 | use alloy_primitives::{Address, B256, U256, TxHash};
+  |                        ^^^^^^^        ^^^^
+
+warning: unused import: `watch`
+ --> crates/consensus/consensus/src/narwhal_bullshark/mempool_bridge.rs:6:25
+  |
+6 | use tokio::sync::{mpsc, watch};
+  |                         ^^^^^
+
+warning: unused import: `std::sync::Arc`
+ --> crates/consensus/consensus/src/narwhal_bullshark/mempool_bridge.rs:9:5
+  |
+9 | use std::sync::Arc;
+  |     ^^^^^^^^^^^^^^
+
+warning: unused import: `Sha256`
+  --> crates/consensus/consensus/src/narwhal_bullshark/validator_keys.rs:16:12
+   |
+16 | use sha2::{Sha256, Digest};
+   |            ^^^^^^
+
+warning: unused import: `anyhow::anyhow`
+  --> crates/consensus/consensus/src/narwhal_bullshark/dag_storage_adapter.rs:14:5
+   |
+14 | use anyhow::anyhow;
+   |     ^^^^^^^^^^^^^^
+
+warning: unused imports: `LogEntry` and `TransactionConsensusStatus`
+  --> crates/consensus/consensus/src/narwhal_bullshark/service_rpc.rs:12:20
+   |
+12 |     SignatureInfo, TransactionConsensusStatus, ThroughputMetrics, LatencyMetrics,
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+13 |     ResourceMetrics, NetworkMetrics, AlgorithmConfig, NetworkConfig as RpcNetworkConfig,
+14 |     PerformanceConfig, DagStats, LogEntry,
+   |                                  ^^^^^^^^
+
+warning: unused import: `crate::ConsensusDbStats`
+  --> crates/consensus/consensus/src/narwhal_bullshark/service_rpc.rs:16:5
+   |
+16 | use crate::ConsensusDbStats;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::consensus_tables::*`
+ --> crates/consensus/consensus/src/consensus_storage.rs:3:5
+  |
+3 | use crate::consensus_tables::*;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `transaction::DbTxMut`
+ --> crates/consensus/consensus/src/mdbx_database_ops.rs:4:38
+  |
+4 | use reth_db_api::{transaction::DbTx, transaction::DbTxMut, cursor::DbCursorRO};
+  |                                      ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::consensus_tables::*`
+ --> crates/consensus/consensus/src/mdbx_database_ops.rs:6:5
+  |
+6 | use crate::consensus_tables::*;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> crates/consensus/consensus/src/narwhal_bullshark/service.rs:311:13
+    |
+311 |         let mut committee_receiver = self.committee_receiver.clone();
+    |             ----^^^^^^^^^^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: unused import: `fastcrypto::traits::KeyPair`
+ --> crates/consensus/consensus/src/narwhal_bullshark/types.rs:6:5
+  |
+6 | use fastcrypto::traits::KeyPair;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `ToFromBytes`
+  --> crates/consensus/consensus/src/narwhal_bullshark/service.rs:40:48
+   |
+40 |     traits::{KeyPair as _, EncodeDecodeBase64, ToFromBytes},
+   |                                                ^^^^^^^^^^^
+
+warning: unused import: `KeyPair`
+  --> crates/consensus/consensus/src/narwhal_bullshark/service.rs:40:14
+   |
+40 |     traits::{KeyPair as _, EncodeDecodeBase64, ToFromBytes},
+   |              ^^^^^^^
+
+warning: unused import: `Digest`
+  --> crates/consensus/consensus/src/narwhal_bullshark/validator_keys.rs:16:20
+   |
+16 | use sha2::{Sha256, Digest};
+   |                    ^^^^^^
+
+warning: unused import: `cursor::DbCursorRO`
+ --> crates/consensus/consensus/src/mdbx_database_ops.rs:4:60
+  |
+4 | use reth_db_api::{transaction::DbTx, transaction::DbTxMut, cursor::DbCursorRO};
+  |                                                            ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `transaction::DbTx`
+ --> crates/consensus/consensus/src/mdbx_database_ops.rs:4:19
+  |
+4 | use reth_db_api::{transaction::DbTx, transaction::DbTxMut, cursor::DbCursorRO};
+  |                   ^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `listen_address`
+   --> crates/consensus/consensus/src/narwhal_bullshark/integration.rs:217:13
+    |
+217 |         let listen_address = network_config.as_ref()
+    |             ^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_listen_address`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `consensus_tx_receiver`
+   --> crates/consensus/consensus/src/narwhal_bullshark/integration.rs:434:39
+    |
+434 |             let (consensus_tx_sender, consensus_tx_receiver) = mpsc::unbounded_channel();
+    |                                       ^^^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_consensus_tx_receiver`
+
+warning: unused variable: `cert_data`
+  --> crates/consensus/consensus/src/narwhal_bullshark/consensus_db_ops_impl.rs:44:33
+   |
+44 |     fn store_certificate(&self, cert_data: Vec<u8>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+   |                                 ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_cert_data`
+
+warning: unused variable: `digest`
+  --> crates/consensus/consensus/src/narwhal_bullshark/consensus_db_ops_impl.rs:50:31
+   |
+50 |     fn get_certificate(&self, digest: B256) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
+   |                               ^^^^^^ help: if this is intentional, prefix it with an underscore: `_digest`
+
+warning: unused variable: `header_data`
+  --> crates/consensus/consensus/src/narwhal_bullshark/consensus_db_ops_impl.rs:55:28
+   |
+55 |     fn store_header(&self, header_data: Vec<u8>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+   |                            ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_header_data`
+
+warning: unused variable: `digest`
+  --> crates/consensus/consensus/src/narwhal_bullshark/consensus_db_ops_impl.rs:60:26
+   |
+60 |     fn get_header(&self, digest: B256) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
+   |                          ^^^^^^ help: if this is intentional, prefix it with an underscore: `_digest`
+
+warning: unused variable: `header_digest`
+  --> crates/consensus/consensus/src/narwhal_bullshark/consensus_db_ops_impl.rs:65:26
+   |
+65 |     fn store_vote(&self, header_digest: B256, vote_data: Vec<u8>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+   |                          ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_header_digest`
+
+warning: unused variable: `vote_data`
+  --> crates/consensus/consensus/src/narwhal_bullshark/consensus_db_ops_impl.rs:65:47
+   |
+65 |     fn store_vote(&self, header_digest: B256, vote_data: Vec<u8>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+   |                                               ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_vote_data`
+
+warning: unused variable: `header_digest`
+  --> crates/consensus/consensus/src/narwhal_bullshark/consensus_db_ops_impl.rs:70:25
+   |
+70 |     fn get_votes(&self, header_digest: B256) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
+   |                         ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_header_digest`
+
+warning: unused variable: `header_digest`
+  --> crates/consensus/consensus/src/narwhal_bullshark/consensus_db_ops_impl.rs:75:28
+   |
+75 |     fn remove_votes(&self, header_digest: B256) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+   |                            ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_header_digest`
+
+warning: unused variable: `round`
+  --> crates/consensus/consensus/src/narwhal_bullshark/consensus_db_ops_impl.rs:80:41
+   |
+80 |     fn get_certificates_by_round(&self, round: u64) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
+   |                                         ^^^^^ help: if this is intentional, prefix it with an underscore: `_round`
+
+warning: unused variable: `round`
+  --> crates/consensus/consensus/src/narwhal_bullshark/consensus_db_ops_impl.rs:85:48
+   |
+85 |     fn remove_certificates_before_round(&self, round: u64) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+   |                                                ^^^^^ help: if this is intentional, prefix it with an underscore: `_round`
+
+warning: unused variable: `certificate`
+  --> crates/consensus/consensus/src/narwhal_bullshark/consensus_db_ops_impl.rs:94:39
+   |
+94 |     async fn store_certificate(&self, certificate: Certificate) -> DagResult<()> {
+   |                                       ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_certificate`
+
+warning: unused variable: `digest`
+   --> crates/consensus/consensus/src/narwhal_bullshark/consensus_db_ops_impl.rs:102:37
+    |
+102 |     async fn get_certificate(&self, digest: &CertificateDigest) -> Option<Certificate> {
+    |                                     ^^^^^^ help: if this is intentional, prefix it with an underscore: `_digest`
+
+warning: unused variable: `header_digest`
+   --> crates/consensus/consensus/src/narwhal_bullshark/consensus_db_ops_impl.rs:110:32
+    |
+110 |     async fn store_vote(&self, header_digest: HeaderDigest, vote: Vote) -> DagResult<()> {
+    |                                ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_header_digest`
+
+warning: unused variable: `vote`
+   --> crates/consensus/consensus/src/narwhal_bullshark/consensus_db_ops_impl.rs:110:61
+    |
+110 |     async fn store_vote(&self, header_digest: HeaderDigest, vote: Vote) -> DagResult<()> {
+    |                                                             ^^^^ help: if this is intentional, prefix it with an underscore: `_vote`
+
+warning: unused variable: `header_digest`
+   --> crates/consensus/consensus/src/narwhal_bullshark/consensus_db_ops_impl.rs:117:31
+    |
+117 |     async fn get_votes(&self, header_digest: &HeaderDigest) -> Vec<Vote> {
+    |                               ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_header_digest`
+
+warning: unused variable: `header_digest`
+   --> crates/consensus/consensus/src/narwhal_bullshark/consensus_db_ops_impl.rs:123:34
+    |
+123 |     async fn remove_votes(&self, header_digest: &HeaderDigest) -> DagResult<()> {
+    |                                  ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_header_digest`
+
+warning: unused variable: `round`
+   --> crates/consensus/consensus/src/narwhal_bullshark/consensus_db_ops_impl.rs:129:47
+    |
+129 |     async fn get_certificates_by_round(&self, round: Round) -> Vec<Certificate> {
+    |                                               ^^^^^ help: if this is intentional, prefix it with an underscore: `_round`
+
+warning: unused variable: `authority`
+   --> crates/consensus/consensus/src/narwhal_bullshark/consensus_db_ops_impl.rs:135:46
+    |
+135 |     async fn store_latest_certificate(&self, authority: PublicKey, certificate: Certificate) -> DagResult<()> {
+    |                                              ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_authority`
+
+warning: unused variable: `certificate`
+   --> crates/consensus/consensus/src/narwhal_bullshark/consensus_db_ops_impl.rs:135:68
+    |
+135 |     async fn store_latest_certificate(&self, authority: PublicKey, certificate: Certificate) -> DagResult<()> {
+    |                                                                    ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_certificate`
+
+warning: unused variable: `authority`
+   --> crates/consensus/consensus/src/narwhal_bullshark/consensus_db_ops_impl.rs:141:44
+    |
+141 |     async fn get_latest_certificate(&self, authority: &PublicKey) -> Option<Certificate> {
+    |                                            ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_authority`
+
+warning: unused variable: `round`
+   --> crates/consensus/consensus/src/narwhal_bullshark/consensus_db_ops_impl.rs:147:43
+    |
+147 |     async fn get_parents_for_round(&self, round: Round) -> Vec<CertificateDigest> {
+    |                                           ^^^^^ help: if this is intentional, prefix it with an underscore: `_round`
+
+warning: unused variable: `cutoff_round`
+   --> crates/consensus/consensus/src/narwhal_bullshark/consensus_db_ops_impl.rs:153:37
+    |
+153 |     async fn garbage_collect(&self, cutoff_round: Round) -> DagResult<()> {
+    |                                     ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_cutoff_round`
+
+warning: unused variable: `storage`
+   --> crates/consensus/consensus/src/narwhal_bullshark/service_rpc.rs:495:25
+    |
+495 |         if let Some(ref storage) = self.consensus_rpc.storage {
+    |                         ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_storage`
+
+warning: unused variable: `ops`
+   --> crates/consensus/consensus/src/consensus_storage.rs:107:18
+    |
+107 |             Some(ops) => {
+    |                  ^^^ help: if this is intentional, prefix it with an underscore: `_ops`
+
+warning: unused variable: `ops`
+   --> crates/consensus/consensus/src/consensus_storage.rs:357:13
+    |
+357 |         let ops = db_ops.as_ref().ok_or_else(|| anyhow::anyhow!("Database operations not injected"))?;
+    |             ^^^ help: if this is intentional, prefix it with an underscore: `_ops`
+
+warning: unused variable: `cert_data`
+   --> crates/consensus/consensus/src/rpc.rs:765:21
+    |
+765 |             Ok(Some(cert_data)) => {
+    |                     ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_cert_data`
+
+warning: unused variable: `block_hash`
+   --> crates/consensus/consensus/src/rpc.rs:794:21
+    |
+794 |             Ok(Some(block_hash)) => {
+    |                     ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_block_hash`
+
+warning: unused variable: `block_hash`
+   --> crates/consensus/consensus/src/rpc.rs:825:32
+    |
+825 |                 for (batch_id, block_hash) in batches {
+    |                                ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_block_hash`
+
+warning: unused variable: `tx_hash`
+   --> crates/consensus/consensus/src/rpc.rs:845:9
+    |
+845 |         tx_hash: TxHash,
+    |         ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_tx_hash`
+
+warning: unused variable: `storage`
+   --> crates/consensus/consensus/src/rpc.rs:971:13
+    |
+971 |         let storage = self.consensus_rpc.storage.read().await;
+    |             ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_storage`
+
+warning: variable does not need to be mutable
+   --> crates/consensus/consensus/src/rpc.rs:987:13
+    |
+987 |         let mut storage = self.consensus_rpc.storage.write().await;
+    |             ----^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable `cumulative` is assigned to, but never used
+    --> crates/consensus/consensus/src/rpc.rs:1024:13
+     |
+1024 |     let mut cumulative = 0u64;
+     |             ^^^^^^^^^^
+     |
+     = note: consider using `_cumulative` instead
+
+warning: field `network_event_receiver` is never read
+  --> crates/consensus/consensus/src/narwhal_bullshark/integration.rs:40:5
+   |
+34 | pub struct NarwhalRethBridge {
+   |            ----------------- field in this struct
+...
+40 |     network_event_receiver: Option<tokio::sync::broadcast::Receiver<narwhal::NetworkEvent>>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: field `storage` is never read
+  --> crates/consensus/consensus/src/narwhal_bullshark/consensus_db_ops_impl.rs:22:5
+   |
+21 | pub struct MdbxDagStorageAdapter {
+   |            --------------------- field in this struct
+22 |     storage: Arc<MdbxConsensusStorage>,
+   |     ^^^^^^^
+
+warning: trait `ConsensusDatabaseOps` is never used
+  --> crates/consensus/consensus/src/narwhal_bullshark/consensus_db_ops_impl.rs:26:7
+   |
+26 | trait ConsensusDatabaseOps: Send + Sync {
+   |       ^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `ConsensusDbOpsImpl` is never constructed
+  --> crates/consensus/consensus/src/narwhal_bullshark/consensus_db_ops_impl.rs:39:8
+   |
+39 | struct ConsensusDbOpsImpl {
+   |        ^^^^^^^^^^^^^^^^^^
+
+warning: method `db_ops` is never used
+   --> crates/consensus/consensus/src/consensus_storage.rs:104:8
+    |
+85  | impl MdbxConsensusStorage {
+    | ------------------------- method in this implementation
+...
+104 |     fn db_ops(&self) -> Result<Box<dyn DatabaseOps + Send + Sync>> {
+    |        ^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/consensus/consensus/src/narwhal_bullshark/integration.rs:23:5
+   |
+23 |     pub node_config: NarwhalBullsharkConfig,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: requested on the command line with `-W missing-docs`
+
+warning: missing documentation for a struct field
+  --> crates/consensus/consensus/src/narwhal_bullshark/integration.rs:24:5
+   |
+24 |     pub committee: Committee,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an associated function
+  --> crates/consensus/consensus/src/narwhal_bullshark/integration.rs:28:5
+   |
+28 |     pub fn new(node_config: NarwhalBullsharkConfig, committee: Committee) -> Self {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type does not implement `std::fmt::Debug`; consider adding `#[derive(Debug)]` or a manual implementation
+  --> crates/consensus/consensus/src/narwhal_bullshark/mempool_bridge.rs:30:1
+   |
+30 | / pub struct MempoolBridge {
+31 | |     /// Mempool operations provider (injected at runtime)
+32 | |     mempool_ops: Option<Box<dyn MempoolOperations>>,
+33 | |     /// Channel to send transactions to consensus system
+...  |
+44 | |     max_processed_history: usize,
+45 | | }
+   | |_^
+   |
+   = note: requested on the command line with `-W missing-debug-implementations`
+
+warning: type does not implement `std::fmt::Debug`; consider adding `#[derive(Debug)]` or a manual implementation
+  --> crates/consensus/consensus/src/narwhal_bullshark/dag_storage_adapter.rs:17:1
+   |
+17 | / pub struct MdbxDagStorageAdapter {
+18 | |     /// Reference to the consensus storage
+19 | |     consensus_storage: Arc<MdbxConsensusStorage>,
+20 | |     /// Temporary in-memory cache for latest certificates per authority
+21 | |     /// This is an optimization to avoid repeated DB lookups
+22 | |     latest_certificates_cache: Arc<RwLock<HashMap<narwhal::types::PublicKey, narwhal::types::Certificate>>>,
+23 | | }
+   | |_^
+
+warning: type does not implement `std::fmt::Debug`; consider adding `#[derive(Debug)]` or a manual implementation
+  --> crates/consensus/consensus/src/narwhal_bullshark/transaction_adapter.rs:15:1
+   |
+15 | / pub struct TransactionAdapter {
+16 | |     /// Channel to receive encoded transactions
+17 | |     rx_transactions: mpsc::UnboundedReceiver<Vec<u8>>,
+18 | |     /// Channels to send transactions to workers
+...  |
+21 | |     current_worker: std::sync::atomic::AtomicUsize,
+22 | | }
+   | |_^
+
+warning: type does not implement `std::fmt::Debug`; consider adding `#[derive(Debug)]` or a manual implementation
+  --> crates/consensus/consensus/src/narwhal_bullshark/transaction_adapter.rs:77:1
+   |
+77 | / pub struct TransactionAdapterBuilder {
+78 | |     /// Channels to workers
+79 | |     tx_to_workers: Vec<mpsc::UnboundedSender<narwhal::Transaction>>,
+80 | | }
+   | |_^
+
+warning: type does not implement `std::fmt::Debug`; consider adding `#[derive(Debug)]` or a manual implementation
+  --> crates/consensus/consensus/src/narwhal_bullshark/consensus_db_ops_impl.rs:21:1
+   |
+21 | / pub struct MdbxDagStorageAdapter {
+22 | |     storage: Arc<MdbxConsensusStorage>,
+23 | | }
+   | |_^
+
+warning: type does not implement `std::fmt::Debug`; consider adding `#[derive(Debug)]` or a manual implementation
+  --> crates/consensus/consensus/src/narwhal_bullshark/service_rpc.rs:33:1
+   |
+33 | / pub struct ServiceConsensusRpcImpl {
+34 | |     /// Node configuration
+35 | |     node_config: NarwhalBullsharkConfig,
+36 | |     /// Current committee
+...  |
+43 | |     is_running: Arc<RwLock<bool>>,
+44 | | }
+   | |_^
+
+warning: type does not implement `std::fmt::Debug`; consider adding `#[derive(Debug)]` or a manual implementation
+   --> crates/consensus/consensus/src/narwhal_bullshark/service_rpc.rs:460:1
+    |
+460 | / pub struct ServiceConsensusAdminRpcImpl {
+461 | |     /// Reference to the consensus RPC implementation
+462 | |     consensus_rpc: Arc<ServiceConsensusRpcImpl>,
+463 | | }
+    | |_^
+
+warning: type does not implement `std::fmt::Debug`; consider adding `#[derive(Debug)]` or a manual implementation
+  --> crates/consensus/consensus/src/bullshark_storage_adapter.rs:10:1
+   |
+10 | / pub struct BullsharkMdbxAdapter {
+11 | |     storage: Arc<MdbxConsensusStorage>,
+12 | | }
+   | |_^
+
+warning: missing documentation for an associated function
+  --> crates/consensus/consensus/src/bullshark_storage_adapter.rs:15:5
+   |
+15 |     pub fn new(storage: Arc<MdbxConsensusStorage>) -> Self {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/consensus/consensus/src/rpc.rs:130:15
+    |
+130 |     Stalled { reason: String },
+    |               ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/consensus/consensus/src/rpc.rs:198:15
+    |
+198 |     Slashed { reason: String },
+    |               ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/consensus/consensus/src/rpc.rs:323:16
+    |
+323 |     Rejected { reason: String },
+    |                ^^^^^^^^^^^^^^
+
+warning: `reth-consensus` (lib) generated 79 warnings (run `cargo fix --lib -p reth-consensus` to apply 18 suggestions)
+warning: extern crate `rand_08` is unused in crate `reth_node_core`
+  |
+  = help: remove the dependency or add `use rand_08 as _;` to the crate root
+note: the lint level is defined here
+ --> crates/node/core/src/lib.rs:8:29
+  |
+8 | #![cfg_attr(not(test), warn(unused_crate_dependencies))]
+  |                             ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `reth-node-core` (lib) generated 1 warning
+warning: extern crate `alloy_consensus` is unused in crate `reth`
+   |
+   = help: remove the dependency or add `use alloy_consensus as _;` to the crate root
+note: the lint level is defined here
+  --> bin/reth/src/lib.rs:27:29
+   |
+27 | #![cfg_attr(not(test), warn(unused_crate_dependencies))]
+   |                             ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: extern crate `alloy_primitives` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use alloy_primitives as _;` to the crate root
+
+warning: extern crate `anyhow` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use anyhow as _;` to the crate root
+
+warning: extern crate `async_trait` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use async_trait as _;` to the crate root
+
+warning: extern crate `base64` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use base64 as _;` to the crate root
+
+warning: extern crate `bullshark` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use bullshark as _;` to the crate root
+
+warning: extern crate `fastcrypto` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use fastcrypto as _;` to the crate root
+
+warning: extern crate `futures` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use futures as _;` to the crate root
+
+warning: extern crate `jsonrpsee` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use jsonrpsee as _;` to the crate root
+
+warning: extern crate `narwhal` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use narwhal as _;` to the crate root
+
+warning: extern crate `rand_08` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use rand_08 as _;` to the crate root
+
+warning: extern crate `reqwest` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use reqwest as _;` to the crate root
+
+warning: extern crate `reth_db_api` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use reth_db_api as _;` to the crate root
+
+warning: extern crate `reth_db_models` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use reth_db_models as _;` to the crate root
+
+warning: extern crate `secp256k1` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use secp256k1 as _;` to the crate root
+
+warning: extern crate `serde` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use serde as _;` to the crate root
+
+warning: extern crate `serde_json` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use serde_json as _;` to the crate root
+
+warning: `reth` (lib) generated 17 warnings
+warning: unused import: `warn`
+  --> bin/reth/src/main.rs:11:21
+   |
+11 | use tracing::{info, warn};
+   |                     ^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `RwLock`
+  --> bin/reth/src/main.rs:12:22
+   |
+12 | use std::sync::{Arc, RwLock};
+   |                      ^^^^^^
+
+warning: unused imports: `BlockWriter` and `ProviderError`
+  --> bin/reth/src/narwhal_bullshark.rs:11:5
+   |
+11 |     ProviderError, BlockWriter,
+   |     ^^^^^^^^^^^^^  ^^^^^^^^^^^
+
+warning: unused import: `Block`
+  --> bin/reth/src/narwhal_bullshark.rs:15:36
+   |
+15 | use reth_primitives::{SealedBlock, Block};
+   |                                    ^^^^^
+
+warning: unused imports: `RpcModule` and `server::ServerBuilder`
+  --> bin/reth/src/narwhal_bullshark.rs:42:17
+   |
+42 | use jsonrpsee::{server::ServerBuilder, RpcModule};
+   |                 ^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^
+
+warning: unused import: `ConsensusCertificates`
+    --> bin/reth/src/narwhal_bullshark.rs:2675:30
+     |
+2675 |         use reth_consensus::{ConsensusCertificates, ConsensusCertificatesByRound};
+     |                              ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `DbCursorRW`
+    --> bin/reth/src/narwhal_bullshark.rs:2676:35
+     |
+2676 |         use reth_db_api::cursor::{DbCursorRW, DbDupCursorRW};
+     |                                   ^^^^^^^^^^
+
+warning: unused imports: `consensus_mode_description`, `install_consensus_rpc`, and `start_consensus_rpc_server`
+  --> bin/reth/src/main.rs:19:5
+   |
+19 |     consensus_mode_description,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+20 |     install_consensus_rpc,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+21 |     start_consensus_rpc_server,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `role`
+    --> bin/reth/src/narwhal_bullshark.rs:2095:42
+     |
+2095 |     async fn authenticate_aws_iam(&self, role: &str) -> eyre::Result<Value> {
+     |                                          ^^^^ help: if this is intentional, prefix it with an underscore: `_role`
+     |
+     = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `keypair`
+    --> bin/reth/src/narwhal_bullshark.rs:2356:13
+     |
+2356 |         let keypair = vault_config_to_keypair(&mut vault_client, &vault_validator).await?;
+     |             ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_keypair`
+
+warning: unused variable: `consensus_key_hex`
+    --> bin/reth/src/narwhal_bullshark.rs:1476:35
+     |
+1476 |     let keypair = if let Some(ref consensus_key_hex) = validator_file.consensus_private_key {
+     |                                   ^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_consensus_key_hex`
+
+warning: unused variable: `config`
+    --> bin/reth/src/narwhal_bullshark.rs:2378:23
+     |
+2378 | fn parse_vault_config(config: &ValidatorKeyConfig) -> eyre::Result<VaultClientConfig> {
+     |                       ^^^^^^ help: if this is intentional, prefix it with an underscore: `_config`
+
+warning: unused variable: `validator_registry`
+  --> bin/reth/src/main.rs:58:44
+   |
+58 |                 let (mut consensus_bridge, validator_registry, storage) = install_narwhal_bullshark_consensus(
+   |                                            ^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_validator_registry`
+
+warning: unused variable: `storage`
+  --> bin/reth/src/main.rs:58:64
+   |
+58 |                 let (mut consensus_bridge, validator_registry, storage) = install_narwhal_bullshark_consensus(
+   |                                                                ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_storage`
+
+warning: field `network_address` is never read
+   --> bin/reth/src/narwhal_bullshark.rs:611:9
+    |
+608 | struct CommitteeMember {
+    |        --------------- field in this struct
+...
+611 |     pub network_address: std::net::SocketAddr,
+    |         ^^^^^^^^^^^^^^^
+    |
+    = note: `CommitteeMember` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` on by default
+
+warning: function `consensus_mode_description` is never used
+   --> bin/reth/src/narwhal_bullshark.rs:748:8
+    |
+748 | pub fn consensus_mode_description(args: &NarwhalBullsharkArgs) -> &'static str {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `install_consensus_rpc` is never used
+   --> bin/reth/src/narwhal_bullshark.rs:760:8
+    |
+760 | pub fn install_consensus_rpc(
+    |        ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `start_consensus_rpc_server` is never used
+   --> bin/reth/src/narwhal_bullshark.rs:790:14
+    |
+790 | pub async fn start_consensus_rpc_server(
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `example_consensus_rpc_usage` is never used
+   --> bin/reth/src/narwhal_bullshark.rs:842:8
+    |
+842 | pub fn example_consensus_rpc_usage() {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `RethProviderConsensusDatabase` is never constructed
+   --> bin/reth/src/narwhal_bullshark.rs:873:8
+    |
+873 | struct RethProviderConsensusDatabase<P> {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: associated function `new` is never used
+   --> bin/reth/src/narwhal_bullshark.rs:881:8
+    |
+877 | / impl<P> RethProviderConsensusDatabase<P> 
+878 | | where
+879 | |     P: reth_provider::DatabaseProviderFactory + Send + Sync + std::fmt::Debug,
+    | |______________________________________________________________________________- associated function in this implementation
+880 |   {
+881 |       fn new(provider: Arc<P>) -> Self {
+    |          ^^^
+
+warning: struct `RethProviderDbTx` is never constructed
+   --> bin/reth/src/narwhal_bullshark.rs:915:8
+    |
+915 | struct RethProviderDbTx<P> {
+    |        ^^^^^^^^^^^^^^^^
+
+warning: function `load_validators_from_filesystem` is never used
+    --> bin/reth/src/narwhal_bullshark.rs:1311:8
+     |
+1311 | pub fn load_validators_from_filesystem(
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `load_validators_from_config_file` is never used
+    --> bin/reth/src/narwhal_bullshark.rs:1331:4
+     |
+1331 | fn load_validators_from_config_file(config_path: &Path) -> eyre::Result<Vec<ValidatorKeyFile>> {
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `create_validator_identity_from_file` is never used
+    --> bin/reth/src/narwhal_bullshark.rs:1491:4
+     |
+1491 | fn create_validator_identity_from_file(
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `VaultValidatorClient` is never constructed
+    --> bin/reth/src/narwhal_bullshark.rs:1765:12
+     |
+1765 | pub struct VaultValidatorClient {
+     |            ^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `VaultValidatorClient` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: struct `VaultClientConfig` is never constructed
+    --> bin/reth/src/narwhal_bullshark.rs:1777:12
+     |
+1777 | pub struct VaultClientConfig {
+     |            ^^^^^^^^^^^^^^^^^
+     |
+     = note: `VaultClientConfig` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: enum `VaultAuthMethod` is never used
+    --> bin/reth/src/narwhal_bullshark.rs:1791:10
+     |
+1791 | pub enum VaultAuthMethod {
+     |          ^^^^^^^^^^^^^^^
+     |
+     = note: `VaultAuthMethod` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: associated functions `consensus_kv`, `high_security_transit`, and `production_hybrid` are never used
+    --> bin/reth/src/narwhal_bullshark.rs:1910:12
+     |
+1908 | impl VaultKeyAccessStrategy {
+     | --------------------------- associated functions in this implementation
+1909 |     /// Create a standard KV-based strategy for consensus (recommended)
+1910 |     pub fn consensus_kv(kv_mount: impl Into<String>) -> Self {
+     |            ^^^^^^^^^^^^
+...
+1918 |     pub fn high_security_transit(transit_mount: impl Into<String>, key_name: impl Into<String>) -> Self {
+     |            ^^^^^^^^^^^^^^^^^^^^^
+...
+1926 |     pub fn production_hybrid(
+     |            ^^^^^^^^^^^^^^^^^
+
+warning: associated functions `development_example`, `high_security_example`, and `production_example` are never used
+    --> bin/reth/src/narwhal_bullshark.rs:1948:12
+     |
+1945 | impl VaultValidatorConfig {
+     | ------------------------- associated functions in this implementation
+...
+1948 |     pub fn development_example() -> Self {
+     |            ^^^^^^^^^^^^^^^^^^^
+...
+1966 |     pub fn high_security_example() -> Self {
+     |            ^^^^^^^^^^^^^^^^^^^^^
+...
+1984 |     pub fn production_example() -> Self {
+     |            ^^^^^^^^^^^^^^^^^^
+
+warning: multiple associated items are never used
+    --> bin/reth/src/narwhal_bullshark.rs:2003:12
+     |
+2001 | impl VaultValidatorClient {
+     | ------------------------- associated items in this implementation
+2002 |     /// Create a new Vault client
+2003 |     pub fn new(config: VaultClientConfig) -> eyre::Result<Self> {
+     |            ^^^
+...
+2018 |     pub async fn authenticate(&mut self) -> eyre::Result<()> {
+     |                  ^^^^^^^^^^^^
+...
+2056 |     async fn authenticate_jwt(&self, role: &str, jwt_path: &Path) -> eyre::Result<Value> {
+     |              ^^^^^^^^^^^^^^^^
+...
+2069 |     async fn authenticate_approle(&self, role_id: &str, secret_id_path: &Path) -> eyre::Result<Value> {
+     |              ^^^^^^^^^^^^^^^^^^^^
+...
+2082 |     async fn authenticate_kubernetes(&self, role: &str, service_account_path: &Path) -> eyre::Result<Value> {
+     |              ^^^^^^^^^^^^^^^^^^^^^^^
+...
+2095 |     async fn authenticate_aws_iam(&self, role: &str) -> eyre::Result<Value> {
+     |              ^^^^^^^^^^^^^^^^^^^^
+...
+2102 |     async fn authenticate_token(&self, token_path: &Path) -> eyre::Result<Value> {
+     |              ^^^^^^^^^^^^^^^^^^
+...
+2118 |     pub async fn load_validators(&mut self) -> eyre::Result<Vec<VaultValidatorConfig>> {
+     |                  ^^^^^^^^^^^^^^^
+...
+2153 |     async fn load_single_validator(&mut self, key_name: &str) -> eyre::Result<VaultValidatorConfig> {
+     |              ^^^^^^^^^^^^^^^^^^^^^
+...
+2168 |     pub async fn get_evm_private_key(&mut self, validator_config: &VaultValidatorConfig) -> eyre::Result<secp256k1::SecretKey> {
+     |                  ^^^^^^^^^^^^^^^^^^^
+...
+2186 |     async fn retrieve_private_key_from_kv(
+     |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+2236 |     pub async fn sign_with_vault(&mut self, key_path: &str, data: &[u8]) -> eyre::Result<Vec<u8>> {
+     |                  ^^^^^^^^^^^^^^^
+...
+2263 |     async fn ensure_authenticated(&mut self) -> eyre::Result<()> {
+     |              ^^^^^^^^^^^^^^^^^^^^
+...
+2283 |     async fn vault_request(&self, method: &str, path: &str, payload: Option<Value>) -> eyre::Result<Value> {
+     |              ^^^^^^^^^^^^^
+
+warning: function `vault_config_to_keypair` is never used
+    --> bin/reth/src/narwhal_bullshark.rs:2327:10
+     |
+2327 | async fn vault_config_to_keypair(
+     |          ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `load_validators_from_external` is never used
+    --> bin/reth/src/narwhal_bullshark.rs:2341:10
+     |
+2341 | async fn load_validators_from_external(config: &ValidatorKeyConfig) -> eyre::Result<Vec<ExternalValidatorInfo>> {
+     |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `parse_vault_config` is never used
+    --> bin/reth/src/narwhal_bullshark.rs:2378:4
+     |
+2378 | fn parse_vault_config(config: &ValidatorKeyConfig) -> eyre::Result<VaultClientConfig> {
+     |    ^^^^^^^^^^^^^^^^^^
+
+warning: struct `ExternalValidatorInfo` is never constructed
+    --> bin/reth/src/narwhal_bullshark.rs:2438:8
+     |
+2438 | struct ExternalValidatorInfo {
+     |        ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unreachable `pub` item
+  --> bin/reth/src/narwhal_bullshark.rs:54:5
+   |
+54 |     pub fn new(pool: Arc<Pool>) -> Self {
+   |     ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |     |
+   |     help: consider restricting its visibility: `pub(crate)`
+   |
+   = note: requested on the command line with `-W unreachable-pub`
+
+warning: unreachable `pub` item
+   --> bin/reth/src/narwhal_bullshark.rs:142:1
+    |
+142 |   pub fn install_narwhal_bullshark_consensus<P, E, N>(
+    |   ^--
+    |   |
+    |  _help: consider restricting its visibility: `pub(crate)`
+    | |
+143 | |     args: NarwhalBullsharkArgs,
+144 | |     provider: BlockchainProvider<P>,
+145 | |     _evm_config: E,
+...   |
+152 | |     E: ConfigureEvm<Primitives = EthPrimitives> + Clone + 'static,
+153 | |     N: FullNetwork + NetworkProtocols,
+    | |______________________________________^
+    |
+    = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+   --> bin/reth/src/narwhal_bullshark.rs:276:1
+    |
+276 |   pub fn setup_mempool_integration<Pool, Provider, EvmConfig>(
+    |   ^--
+    |   |
+    |  _help: consider restricting its visibility: `pub(crate)`
+    | |
+277 | |     mut bridge: NarwhalRethBridge,
+278 | |     transaction_pool: Arc<Pool>,
+279 | |     provider: Provider,
+...   |
+285 | |     Provider: DatabaseProviderFactory + Clone + Send + Sync + 'static,
+286 | |     EvmConfig: ConfigureEvm + Clone + Send + Sync + 'static,
+    | |____________________________________________________________^
+    |
+    = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+   --> bin/reth/src/narwhal_bullshark.rs:743:1
+    |
+743 | pub fn should_use_narwhal_consensus(args: &NarwhalBullsharkArgs) -> bool {
+    | ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    | |
+    | help: consider restricting its visibility: `pub(crate)`
+    |
+    = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+   --> bin/reth/src/narwhal_bullshark.rs:748:1
+    |
+748 | pub fn consensus_mode_description(args: &NarwhalBullsharkArgs) -> &'static str {
+    | ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    | |
+    | help: consider restricting its visibility: `pub(crate)`
+    |
+    = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+   --> bin/reth/src/narwhal_bullshark.rs:760:1
+    |
+760 |   pub fn install_consensus_rpc(
+    |   ^--
+    |   |
+    |  _help: consider restricting its visibility: `pub(crate)`
+    | |
+761 | |     consensus_bridge: Arc<RwLock<NarwhalRethBridge>>,
+762 | |     validator_registry: Arc<RwLock<ValidatorRegistry>>, 
+763 | |     storage: Arc<RwLock<MdbxConsensusStorage>>,
+764 | | ) -> (ConsensusRpcImpl, ConsensusAdminRpcImpl) {
+    | |______________________________________________^
+    |
+    = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+   --> bin/reth/src/narwhal_bullshark.rs:790:1
+    |
+790 |   pub async fn start_consensus_rpc_server(
+    |   ^--
+    |   |
+    |  _help: consider restricting its visibility: `pub(crate)`
+    | |
+791 | |     consensus_bridge: Arc<RwLock<NarwhalRethBridge>>,
+792 | |     validator_registry: Arc<RwLock<ValidatorRegistry>>,
+793 | |     storage: Arc<RwLock<MdbxConsensusStorage>>,
+794 | |     port: u16,
+795 | | ) -> eyre::Result<jsonrpsee::server::ServerHandle> {
+    | |__________________________________________________^
+    |
+    = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+   --> bin/reth/src/narwhal_bullshark.rs:842:1
+    |
+842 | pub fn example_consensus_rpc_usage() {
+    | ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    | |
+    | help: consider restricting its visibility: `pub(crate)`
+    |
+    = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1260:1
+     |
+1260 | pub struct ValidatorKeyFile {
+     | ---^^^^^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1275:1
+     |
+1275 | pub struct ValidatorDirectory {
+     | ---^^^^^^^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1286:1
+     |
+1286 | pub struct ProductionValidatorConfig {
+     | ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1301:1
+     |
+1301 | pub enum ValidatorSource {
+     | ---^^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1311:1
+     |
+1311 |   pub fn load_validators_from_filesystem(
+     |   ^--
+     |   |
+     |  _help: consider restricting its visibility: `pub(crate)`
+     | |
+1312 | |     config: &ValidatorKeyConfig,
+1313 | | ) -> eyre::Result<Vec<ValidatorKeyFile>> {
+     | |________________________________________^
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1508:1
+     |
+1508 | pub struct HSMConfig {
+     | ---^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1520:1
+     |
+1520 | pub enum HSMProvider {
+     | ---^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1534:1
+     |
+1534 | pub struct HSMConnection {
+     | ---^^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1544:1
+     |
+1544 | pub struct HSMAuth {
+     | ---^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1554:1
+     |
+1554 | pub enum HSMAuthMethod {
+     | ---^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1566:1
+     |
+1566 | pub struct HSMKeyMapping {
+     | ---^^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1574:1
+     |
+1574 | pub enum HSMKeyMappingStrategy {
+     | ---^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1584:1
+     |
+1584 | pub struct HSMKeyDerivation {
+     | ---^^^^^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1597:1
+     |
+1597 | pub struct ExternalKeyConfig {
+     | ---^^^^^^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1609:1
+     |
+1609 | pub enum ExternalKeyProvider {
+     | ---^^^^^^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1625:1
+     |
+1625 | pub struct ExternalKeyAPI {
+     | ---^^^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1635:1
+     |
+1635 | pub struct ExternalKeyEndpoints {
+     | ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1647:1
+     |
+1647 | pub struct HTTPConfig {
+     | ---^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1657:1
+     |
+1657 | pub struct RateLimitConfig {
+     | ---^^^^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1665:1
+     |
+1665 | pub struct ExternalKeyAuth {
+     | ---^^^^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1675:1
+     |
+1675 | pub enum ExternalAuthMethod {
+     | ---^^^^^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1689:1
+     |
+1689 | pub struct ExternalCredentials {
+     | ---^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1699:1
+     |
+1699 | pub struct TokenRefreshConfig {
+     | ---^^^^^^^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1709:1
+     |
+1709 | pub struct ExternalKeyOperations {
+     | ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1719:1
+     |
+1719 | pub struct CachingConfig {
+     | ---^^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1729:1
+     |
+1729 | pub struct RetryConfig {
+     | ---^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1739:1
+     |
+1739 | pub enum BackoffStrategy {
+     | ---^^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1749:1
+     |
+1749 | pub struct BatchConfig {
+     | ---^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1765:1
+     |
+1765 | pub struct VaultValidatorClient {
+     | ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1777:1
+     |
+1777 | pub struct VaultClientConfig {
+     | ---^^^^^^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1791:1
+     |
+1791 | pub enum VaultAuthMethod {
+     | ---^^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1819:1
+     |
+1819 | pub struct VaultValidatorConfig {
+     | ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1838:1
+     |
+1838 | pub enum VaultKeyAccessStrategy {
+     | ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1887:1
+     |
+1887 | pub struct VaultKVConfig {
+     | ---^^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1893:1
+     |
+1893 | pub struct VaultTransitConfig {
+     | ---^^^^^^^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1899:1
+     |
+1899 | pub enum VaultKeyFormat {
+     | ---^^^^^^^^^^^^^^^^^^^^
+     | |
+     | help: consider restricting its visibility: `pub(crate)`
+     |
+     = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1910:5
+     |
+1910 |     pub fn consensus_kv(kv_mount: impl Into<String>) -> Self {
+     |     ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |     |
+     |     help: consider restricting its visibility: `pub(crate)`
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1918:5
+     |
+1918 |     pub fn high_security_transit(transit_mount: impl Into<String>, key_name: impl Into<String>) -> Self {
+     |     ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |     |
+     |     help: consider restricting its visibility: `pub(crate)`
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1926:5
+     |
+1926 |       pub fn production_hybrid(
+     |       ^--
+     |       |
+     |  _____help: consider restricting its visibility: `pub(crate)`
+     | |
+1927 | |         consensus_mount: impl Into<String>,
+1928 | |         transit_mount: impl Into<String>,
+1929 | |         key_name: impl Into<String>
+1930 | |     ) -> Self {
+     | |_____________^
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1948:5
+     |
+1948 |     pub fn development_example() -> Self {
+     |     ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |     |
+     |     help: consider restricting its visibility: `pub(crate)`
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1966:5
+     |
+1966 |     pub fn high_security_example() -> Self {
+     |     ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |     |
+     |     help: consider restricting its visibility: `pub(crate)`
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:1984:5
+     |
+1984 |     pub fn production_example() -> Self {
+     |     ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |     |
+     |     help: consider restricting its visibility: `pub(crate)`
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:2003:5
+     |
+2003 |     pub fn new(config: VaultClientConfig) -> eyre::Result<Self> {
+     |     ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |     |
+     |     help: consider restricting its visibility: `pub(crate)`
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:2018:5
+     |
+2018 |     pub async fn authenticate(&mut self) -> eyre::Result<()> {
+     |     ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |     |
+     |     help: consider restricting its visibility: `pub(crate)`
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:2118:5
+     |
+2118 |     pub async fn load_validators(&mut self) -> eyre::Result<Vec<VaultValidatorConfig>> {
+     |     ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |     |
+     |     help: consider restricting its visibility: `pub(crate)`
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:2168:5
+     |
+2168 |     pub async fn get_evm_private_key(&mut self, validator_config: &VaultValidatorConfig) -> eyre::Result<secp256k1::SecretKey> {
+     |     ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |     |
+     |     help: consider restricting its visibility: `pub(crate)`
+
+warning: unreachable `pub` item
+    --> bin/reth/src/narwhal_bullshark.rs:2236:5
+     |
+2236 |     pub async fn sign_with_vault(&mut self, key_path: &str, data: &[u8]) -> eyre::Result<Vec<u8>> {
+     |     ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |     |
+     |     help: consider restricting its visibility: `pub(crate)`
+
+warning: `reth` (bin "reth") generated 90 warnings (run `cargo fix --bin "reth"` to apply 63 suggestions)
+    Finished `release` profile [optimized] target(s) in 0.53s
+✅ Build completed successfully
+
+Cleaning up previous blockchain data...
+Cleaning node 1...
+Cleaning node 2...
+Cleaning node 3...
+Cleaning node 4...
+
+Starting validator nodes with REAL key management...
+Starting Node 1 (Validator-001) on ports: P2P=30303, HTTP=8545, Auth=8551, Narwhal=9001, ConsensusRPC=10001
+  🔑 Using validator key file: test_validators/validator-0.json
+  🏛️ Loading committee from: test_validators/
+  Binding to: 127.0.0.1:9001
+  Connecting to peers: 127.0.0.1:9002, 127.0.0.1:9003, 127.0.0.1:9004
+  📡 Consensus RPC on port 10001
+Node 1 started with PID: 3447250
+Starting Node 2 (Validator-002) on ports: P2P=30304, HTTP=8546, Auth=8552, Narwhal=9002, ConsensusRPC=10002
+  🔑 Using validator key file: test_validators/validator-1.json
+  🏛️ Loading committee from: test_validators/
+  Binding to: 127.0.0.1:9002
+  Connecting to peers: 127.0.0.1:9001, 127.0.0.1:9003, 127.0.0.1:9004
+  📡 Consensus RPC on port 10002
+Node 2 started with PID: 3447341
+Starting Node 3 (Validator-003) on ports: P2P=30305, HTTP=8547, Auth=8553, Narwhal=9003, ConsensusRPC=10003
+  🔑 Using validator key file: test_validators/validator-2.json
+  🏛️ Loading committee from: test_validators/
+  Binding to: 127.0.0.1:9003
+  Connecting to peers: 127.0.0.1:9001, 127.0.0.1:9002, 127.0.0.1:9004
+  📡 Consensus RPC on port 10003
+Node 3 started with PID: 3447430
+Starting Node 4 (Validator-004) on ports: P2P=30306, HTTP=8548, Auth=8554, Narwhal=9004, ConsensusRPC=10004
+  🔑 Using validator key file: test_validators/validator-3.json
+  🏛️ Loading committee from: test_validators/
+  Binding to: 127.0.0.1:9004
+  Connecting to peers: 127.0.0.1:9001, 127.0.0.1:9002, 127.0.0.1:9003
+  📡 Consensus RPC on port 10004
+Node 4 started with PID: 3447519
+
+✅ All 4 Neura validator nodes started with REAL validator key management!
+=========================================================================
+📊 Network: Neura (Chain ID: 266, Coin: ANKR)
+🔗 Consensus: Narwhal + Bullshark BFT with REAL distributed consensus
+💾 Storage: Independent MDBX per node
+🔑 Keys: Each validator uses its own private key from JSON file
+🏛️ Committee: Shared configuration derived from test_validators/ directory
+
+📍 Node Configuration:
+  Node 1 PID: 3447250 - Key: validator-0.json - Bind: 9001 - HTTP: 8545 - ConsensusRPC: 10001 - Logs: /home/peastew/.neura/node1/node.log
+  Node 2 PID: 3447341 - Key: validator-1.json - Bind: 9002 - HTTP: 8546 - ConsensusRPC: 10002 - Logs: /home/peastew/.neura/node2/node.log
+  Node 3 PID: 3447430 - Key: validator-2.json - Bind: 9003 - HTTP: 8547 - ConsensusRPC: 10003 - Logs: /home/peastew/.neura/node3/node.log
+  Node 4 PID: 3447519 - Key: validator-3.json - Bind: 9004 - HTTP: 8548 - ConsensusRPC: 10004 - Logs: /home/peastew/.neura/node4/node.log
+
+🔧 New Validator Key Management Features:
+  --validator.key-file: Load private key from JSON file
+  --validator.config-dir: Load committee from directory containing all validator files
+  --validator.deterministic-consensus-key: Derive consensus key from EVM private key
+  --validator.index: Specify which validator position this node represents
+  --consensus-rpc-port: Enable standalone consensus RPC server
+
+🔧 Monitoring Commands:
+  Monitor all logs: tail -f /home/peastew/.neura/node*/node.log
+  Monitor node 1: tail -f /home/peastew/.neura/node1/node.log
+  Stop all nodes: pkill -f 'reth.*node.*narwhal'
+  Check processes: ps aux | grep reth
+
+🌐 Standard RPC Test Commands:
+  Node 1 version: curl -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"web3_clientVersion","params":[],"id":1}' http://localhost:8545
+  Node 2 block#:  curl -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' http://localhost:8546
+  Node 3 peers:   curl -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"net_peerCount","params":[],"id":1}' http://localhost:8547
+  Node 4 syncing: curl -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"eth_syncing","params":[],"id":1}' http://localhost:8548
+
+📡 Consensus RPC Test Commands:
+  Node 1 consensus status: curl -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"consensus_getStatus","params":[],"id":1}' http://localhost:10001
+  Node 2 committee info:   curl -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"consensus_getCommittee","params":[],"id":1}' http://localhost:10002
+  Node 3 validators list:  curl -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"consensus_listValidators","params":[{"active_only":true}],"id":1}' http://localhost:10003
+  Node 4 consensus metrics: curl -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"consensus_getMetrics","params":[],"id":1}' http://localhost:10004
+
+🎯 Expected Behavior with REAL Key Management:
+  • Each node loads its own unique private key from JSON file
+  • Committee built from ALL validator files in test_validators/ directory
+  • Consensus keys derived deterministically from EVM private keys
+  • Nodes should recognize and validate each other's signatures
+  • No more 'Unknown authority' errors - validators know each other's public keys
+  • Headers and votes should flow between nodes and be accepted
+
+🔍 Quick Verification:
+  Check all nodes started: ps aux | grep 'reth.*node.*narwhal' | wc -l  # Should show 4
+  Check for port conflicts: netstat -tlnp | grep -E ':(9001|9002|9003|9004)' | wc -l  # Should show 4
+  Check consensus RPC ports: netstat -tlnp | grep -E ':(10001|10002|10003|10004)' | wc -l  # Should show 4
+  Check consensus working: grep -l 'Creating.*header.*heartbeat' /home/peastew/.neura/node*/node.log | wc -l  # Should show 4
+  Check NO 'Unknown authority' errors: grep -c 'Unknown authority' /home/peastew/.neura/node*/node.log  # Should show 0
+  Check validator key loading: grep -c 'Loading validator key from file' /home/peastew/.neura/node*/node.log  # Should show 4
+  Check consensus RPC started: grep -c 'Consensus RPC server started successfully' /home/peastew/.neura/node*/node.log  # Should show 4
+
+💡 If nodes fail to start, check for:
+  • Missing validator key files in test_validators/ directory
+  • Invalid JSON format in validator key files
+  • Port conflicts (netstat -tlnp | grep 900[1-4])
+  • Build issues (cargo build --release --bin reth)
+
+🔍 Validator Key Files:
+  • test_validators/validator-0.json -> Node 1 (EVM key: 0x1111...)
+  • test_validators/validator-1.json -> Node 2 (EVM key: 0x2222...)
+  • test_validators/validator-2.json -> Node 3 (EVM key: 0x3333...)
+  • test_validators/validator-3.json -> Node 4 (EVM key: 0x4444...)
+
+🛠️ Helper Scripts:
+  • Test consensus RPC: ./test_consensus_rpc.sh [PORT]
+    Example: ./test_consensus_rpc.sh 10001
+
+📊 All Consensus RPC Endpoints:
+  • consensus_getStatus - Get consensus health and status
+  • consensus_getCommittee - Get current validator committee
+  • consensus_getValidator - Get specific validator details
+  • consensus_listValidators - List all validators
+  • consensus_getMetrics - Get consensus performance metrics
+  • consensus_getConfig - Get consensus configuration
+  • consensus_admin_getDagInfo - Get DAG structure info (admin)
+  • consensus_admin_getStorageStats - Get storage statistics (admin)

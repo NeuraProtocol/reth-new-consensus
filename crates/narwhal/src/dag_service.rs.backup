@@ -53,11 +53,10 @@ pub struct DagService {
     current_round: Round,
     /// The set of headers we are currently processing
     processing: HashMap<Round, HashSet<HeaderDigest>>,
-    /// The last header we proposed
+    /// The last header we proposed (for which we are waiting votes)
     current_header: Option<Header>,
-    /// Vote aggregators for ALL headers we've seen (not just our own)
-    /// Maps HeaderDigest -> VotesAggregator
-    vote_aggregators: HashMap<HeaderDigest, VotesAggregator>,
+    /// Vote aggregator for our current header (following reference implementation)
+    votes_aggregator: VotesAggregator,
     /// Certificate storage for parent tracking
     certificates: HashMap<CertificateDigest, Certificate>,
     /// Latest certificates by author for parent tracking (for DAG parents)
@@ -105,7 +104,7 @@ impl DagService {
             current_round: 1,
             processing: HashMap::new(),
             current_header: None,
-            vote_aggregators: HashMap::new(),
+            votes_aggregator: VotesAggregator::new(),
             certificates: HashMap::new(),
             latest_certificates: HashMap::new(),
             current_batch: Vec::new(),
@@ -144,17 +143,13 @@ impl DagService {
     /// Spawn the DAG service
     pub fn spawn(self) -> JoinHandle<DagResult<()>> {
         tokio::spawn(async move {
-            info!("DAG service task started");
-            let result = self.run().await;
-            warn!("DAG service task completed with result: {:?}", result);
-            result
+            self.run().await
         })
     }
 
     /// Main run loop for the DAG service (adapted from reference implementation)
     pub async fn run(mut self) -> DagResult<()> {
         info!("DAG service started for node {}", self.name);
-        info!("Certificate output channel is ready: {}", !self.certificate_output_sender.is_closed());
         
         // Timer for active block production
         let max_header_delay = self.config.max_batch_delay;
@@ -208,22 +203,7 @@ impl DagService {
                     let timer_expired = timer.is_elapsed();
                     
                     if (enough_transactions || timer_expired) && !self.current_batch.is_empty() {
-                        // Also check quorum before creating header
-                        let prev_round = self.current_round.saturating_sub(1);
-                        let mut total_stake = 0u64;
-                        
-                        for (author, cert) in &self.latest_certificates {
-                            if cert.round() == prev_round {
-                                total_stake += self.committee.stake(author);
-                            }
-                        }
-                        
-                        if total_stake >= self.committee.quorum_threshold() {
-                            self.create_and_propose_header().await?;
-                        } else {
-                            debug!("Have {} transactions but only {} stake, waiting for quorum", 
-                                   self.current_batch.len(), total_stake);
-                        }
+                        self.create_and_propose_header().await?;
                         
                         // Reset timer
                         let deadline = tokio::time::Instant::now() + max_header_delay;
@@ -235,32 +215,10 @@ impl DagService {
 
                 // Timer for active block production (heartbeat)
                 () = &mut timer => {
-                    // Check if we have quorum of certificates from previous round before advancing
-                    let prev_round = self.current_round.saturating_sub(1);
-                    let mut total_stake = 0u64;
-                    let mut cert_count = 0;
-                    
-                    if prev_round == 0 {
-                        // Genesis case - we can always proceed from round 1
-                        total_stake = self.committee.total_stake();
-                        cert_count = self.committee.authorities.len();
-                    } else {
-                        for (author, cert) in &self.latest_certificates {
-                            if cert.round() == prev_round {
-                                total_stake += self.committee.stake(author);
-                                cert_count += 1;
-                            }
-                        }
-                    }
-                    
-                    if total_stake >= self.committee.quorum_threshold() {
-                        info!("Timer expired for round {}, have quorum ({} certs, {} stake), creating header", 
-                              self.current_round, cert_count, total_stake);
-                        self.create_and_propose_header().await?;
-                    } else {
-                        debug!("Timer expired for round {} but only have {} stake (need {}), waiting for more certificates", 
-                               self.current_round, total_stake, self.committee.quorum_threshold());
-                    }
+                    // Create header even if batch is empty (heartbeat mechanism)
+                    // This ensures consensus keeps running even without transactions
+                    info!("Timer expired for round {}, creating header (heartbeat)", self.current_round);
+                    self.create_and_propose_header().await?;
                     
                     // Reset timer for next round
                     let deadline = tokio::time::Instant::now() + max_header_delay;
@@ -298,24 +256,12 @@ impl DagService {
      async fn create_and_propose_header(&mut self) -> DagResult<()> {
          info!("Creating header with {} transactions", self.current_batch.len());
          
-         // Get ALL certificates from previous round as parents
-         // This is critical for Bullshark consensus - we need to include ALL certificates
-         // from round r-1, not just the latest per validator
-         let prev_round = self.current_round.saturating_sub(1);
-         let parents: BTreeSet<CertificateDigest> = if prev_round == 0 {
-             // Genesis case - use genesis certificates from committee
-             self.committee.authorities.keys()
-                 .map(|_| CertificateDigest::default()) // Genesis certificates
-                 .collect()
-         } else {
-             self.certificates
-                 .values()
-                 .filter(|cert| cert.round() == prev_round)
-                 .map(|cert| cert.digest())
-                 .collect()
-         };
-             
-         info!("Including {} certificates from round {} as parents", parents.len(), prev_round);
+         // Get parent certificates from previous round
+         let parents: BTreeSet<CertificateDigest> = self.latest_certificates
+             .values()
+             .filter(|cert| cert.round() == self.current_round.saturating_sub(1))
+             .map(|cert| cert.digest())
+             .collect();
 
          // Create batch and payload
          let batch = Batch(self.current_batch.clone());
@@ -346,7 +292,7 @@ impl DagService {
          self.current_header = Some(header.clone());
         
         // Create vote aggregator for this header
-        self.vote_aggregators.insert(header.id, VotesAggregator::with_header(header.clone()));
+        self.votes_aggregator = VotesAggregator::with_header(header.clone());
          
          // Mark as processing
          self.processing
@@ -414,9 +360,14 @@ impl DagService {
              });
          }
 
-         // In Narwhal, votes are for ANY header, not just our own
-         // The vote's validity is checked by its signature, not by matching our current header
-         // We'll validate that we have seen the header the vote is for in process_vote
+         // Verify we have a current header to vote on
+         let current_header = self.current_header.as_ref()
+             .ok_or_else(|| DagError::Consensus("No current header to vote on".to_string()))?;
+
+         // Ensure vote is for expected header
+         if vote.id != current_header.id || vote.round != current_header.round {
+             return Err(DagError::Consensus("Vote not for current header".to_string()));
+         }
 
          // Verify vote signature
          vote.verify(&self.committee)?;
@@ -451,11 +402,6 @@ impl DagService {
              .entry(header.round)
              .or_insert_with(HashSet::new)
              .insert(header.id);
-             
-         // Create vote aggregator for this header if we don't have one
-         if !self.vote_aggregators.contains_key(&header.id) {
-             self.vote_aggregators.insert(header.id, VotesAggregator::with_header(header.clone()));
-         }
 
          // Create and send vote for this header
          self.send_vote(header).await
@@ -485,25 +431,31 @@ impl DagService {
          self.process_vote(vote).await
      }
 
+     /// Process vote (adapted from reference implementation)  
+     async fn process_vote(&mut self, vote: Vote) -> DagResult<()> {
+         debug!("Processing vote from {} for header {}", vote.author, vote.id);
+         
+         let header_id = vote.id;
+         
+         // Get or create vote aggregator for this header
     /// Process vote (adapted from reference implementation)  
     async fn process_vote(&mut self, vote: Vote) -> DagResult<()> {
-        info!("Processing vote from {} for header {}", vote.author, vote.id);
+        debug!("Processing vote from {} for header {}", vote.author, vote.id);
         
-        // Find the vote aggregator for this header
-        let aggregator = self.vote_aggregators.get_mut(&vote.id)
-            .ok_or_else(|| DagError::Consensus(format!("No header found for vote: {}", vote.id)))?;
+        // Following reference: votes have already been validated by sanitize_vote
+        // to ensure they are for our current header
         
         // Store vote in persistent storage
         self.storage.store_vote(vote.id, vote.clone()).await?;
         
         // Add vote to aggregator
-        aggregator.add_vote(vote.clone(), &self.committee)?;
+        self.votes_aggregator.add_vote(vote, &self.committee)?;
         
         // Check if we can form a certificate
-        if let Some(certificate) = aggregator.try_form_certificate(&self.committee)? {
+        if let Some(certificate) = self.votes_aggregator.try_form_certificate(&self.committee)? {
             let header_id = certificate.header.id;
             info!("Created certificate for header {} with {} votes", 
-                  header_id, aggregator.vote_count());
+                  header_id, self.votes_aggregator.vote_count());
             
             // Send certificate for network broadcast
             if let Some(ref sender) = self.network_sender {
@@ -517,16 +469,19 @@ impl DagService {
             // Process the certificate
             self.process_certificate(certificate).await?;
             
-            // Remove the aggregator for this header since we have a certificate
-            self.vote_aggregators.remove(&vote.id);
+            // Reset aggregator after forming certificate (ready for next header)
+            self.votes_aggregator = VotesAggregator::new();
         }
 
         Ok(())
-    }
+    }         }
+
+         Ok(())
+     }
 
      /// Process certificate (adapted from reference implementation)
      async fn process_certificate(&mut self, certificate: Certificate) -> DagResult<()> {
-         info!("Processing certificate from {} for round {}", certificate.origin(), certificate.round());
+         debug!("Processing certificate for round {}", certificate.round());
 
          let cert_digest = certificate.digest();
          let author = certificate.origin();
@@ -539,19 +494,10 @@ impl DagService {
          // Also keep in memory for fast access
          self.certificates.insert(cert_digest, certificate.clone());
          self.latest_certificates.insert(author.clone(), certificate.clone());
-         
-         // Log certificate tracking
-         let certs_in_round = self.certificates.values()
-             .filter(|c| c.round() == cert_round)
-             .count();
-         info!("Now tracking {} certificates for round {} (total: {})", 
-               certs_in_round, cert_round, self.certificates.len());
 
          // Send to Bullshark consensus
          if let Err(e) = self.certificate_output_sender.send(certificate.clone()) {
              warn!("Failed to send certificate to Bullshark: {}", e);
-         } else {
-             debug!("Sent certificate for round {} to Bullshark consensus", cert_round);
          }
 
          // Check if we should advance rounds based on certificates collected
@@ -608,11 +554,10 @@ impl DagService {
              // Clean up old certificates (but keep latest certificates for parent tracking)
              self.certificates.retain(|_, cert| cert.round() > self.gc_round);
              
-             // Clean up vote aggregators for old headers
-             self.vote_aggregators.retain(|header_id, _| {
-                 // Keep aggregators for headers we're still processing
-                 self.processing.values()
-                     .any(|headers| headers.contains(header_id))
+             // Clean up old vote aggregators
+             self.votes_aggregator.retain(|_, _aggregator| {
+                 // Keep aggregators that might still be active
+                 true // TODO: Add round tracking to aggregators
              });
              
              debug!("Garbage collected state up to round {}", self.gc_round);
@@ -630,7 +575,7 @@ impl DagService {
          self.current_round = 1;
          self.current_batch.clear();
          self.processing.clear();
-         self.vote_aggregators.clear();
+         self.votes_aggregator.clear();
          self.current_header = None;
          self.gc_round = 0;
          // Keep certificates for parent tracking

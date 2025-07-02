@@ -13,7 +13,7 @@ use alloy_primitives::{B256, U256, Address, Bloom};
 use reth_execution_types::{ExecutionOutcome, BlockExecutionOutput};
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
-use tracing::{info, warn};
+use tracing::{info, warn, debug};
 use anyhow::Result;
 use fastcrypto::traits::ToFromBytes;
 
@@ -281,8 +281,11 @@ impl NarwhalRethBridge {
     pub async fn start(&mut self) -> Result<()> {
         if let Some(mut service) = self.service.take() {
             let spawn_result = service.spawn().await;
-            let _handles = spawn_result?;
+            spawn_result?;
             info!("Narwhal + Bullshark consensus service started");
+            
+            // Put the service back so it doesn't get dropped!
+            self.service = Some(service);
             
             // Connect to peers if we have addresses and networking is enabled
             if let Some(ref mut network) = self.network {
@@ -292,27 +295,54 @@ impl NarwhalRethBridge {
                     // Create address mapping from committee members to network addresses
                     let mut peer_address_map = std::collections::HashMap::new();
                     
-                    // Assuming peer addresses are provided in same order as committee members
-                    // (excluding ourselves)
-                    let committee_keys: Vec<_> = self.committee.authorities.keys()
-                        .filter(|&key| key != &self.node_public_key)
-                        .cloned()
-                        .collect();
+                    // Get sorted list of all committee members for consistent ordering
+                    let mut all_validators: Vec<_> = self.committee.authorities.keys().cloned().collect();
+                    all_validators.sort_by_key(|k| k.as_ref().to_vec()); // Sort by public key bytes for deterministic order
                     
-                    for (i, &addr) in self.peer_addresses.iter().enumerate() {
-                        if i < committee_keys.len() {
-                            peer_address_map.insert(committee_keys[i].clone(), addr);
-                            info!("Will connect to committee member {} at {}", committee_keys[i], addr);
+                    // Find our index in the sorted list
+                    let our_index = all_validators.iter().position(|k| k == &self.node_public_key)
+                        .expect("Our key should be in committee");
+                    
+                    // Map peer addresses based on validator order
+                    // The peer addresses are expected to be provided in order of validator indices
+                    // excluding ourselves
+                    let mut peer_addr_index = 0;
+                    for (validator_index, validator_key) in all_validators.iter().enumerate() {
+                        if validator_index != our_index && peer_addr_index < self.peer_addresses.len() {
+                            let addr = self.peer_addresses[peer_addr_index];
+                            peer_address_map.insert(validator_key.clone(), addr);
+                            info!("Validator {} (index {}) -> {} at {}", 
+                                  validator_key, validator_index, 
+                                  if validator_index < our_index { "peer before us" } else { "peer after us" },
+                                  addr);
+                            peer_addr_index += 1;
                         }
                     }
                     
                     // Attempt connections
-                    if let Err(e) = network.connect_to_committee(peer_address_map).await {
+                    if let Err(e) = network.connect_to_committee(peer_address_map.clone()).await {
                         warn!("Failed to connect to some committee members: {}", e);
                         // Continue anyway - partial connectivity is better than none
                     } else {
                         info!("Successfully initiated connections to committee members");
                     }
+                    
+                    // Spawn a connection maintenance task with the proper peer mapping
+                    let network_clone = network.clone();
+                    let peer_map_for_task = peer_address_map.clone();
+                    let _connection_task = tokio::spawn(async move {
+                        let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
+                        loop {
+                            interval.tick().await;
+                            
+                            // Check and reconnect to any disconnected peers
+                            for (pubkey, addr) in &peer_map_for_task {
+                                if let Err(e) = network_clone.add_peer(pubkey.clone(), *addr).await {
+                                    debug!("Failed to reconnect to {}: {}", pubkey, e);
+                                }
+                            }
+                        }
+                    });
                 }
             }
             
@@ -501,8 +531,15 @@ impl Default for RethIntegrationConfig {
 
 /// Helper function to create test configuration
 pub fn create_test_config(node_key: PublicKey, committee: Committee) -> ServiceConfig {
+    use fastcrypto::traits::{KeyPair, ToFromBytes};
+    
+    // Generate test keypair for this node
+    let keypair = fastcrypto::bls12381::BLS12381KeyPair::generate(&mut rand_08::thread_rng());
+    let consensus_private_key_bytes = keypair.private().as_bytes().to_vec();
+    
     let node_config = crate::narwhal_bullshark::types::NarwhalBullsharkConfig {
         node_public_key: node_key,
+        consensus_private_key_bytes,
         narwhal: narwhal::NarwhalConfig::default(),
         bullshark: bullshark::BftConfig::default(),
         network: crate::narwhal_bullshark::types::NetworkConfig::default(),
@@ -518,10 +555,17 @@ pub fn create_test_config_with_network(
     bind_port: u16,
     peer_addresses: std::collections::HashMap<String, std::net::SocketAddr>
 ) -> ServiceConfig {
+    use fastcrypto::traits::{KeyPair, ToFromBytes};
+    
     let bind_address = format!("127.0.0.1:{}", bind_port).parse().expect("Valid address");
+    
+    // Generate test keypair for this node
+    let keypair = fastcrypto::bls12381::BLS12381KeyPair::generate(&mut rand_08::thread_rng());
+    let consensus_private_key_bytes = keypair.private().as_bytes().to_vec();
     
     let node_config = crate::narwhal_bullshark::types::NarwhalBullsharkConfig {
         node_public_key: node_key,
+        consensus_private_key_bytes,
         narwhal: narwhal::NarwhalConfig::default(),
         bullshark: bullshark::BftConfig::default(),
         network: crate::narwhal_bullshark::types::NetworkConfig {

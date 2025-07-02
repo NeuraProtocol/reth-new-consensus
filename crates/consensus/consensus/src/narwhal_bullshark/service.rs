@@ -74,8 +74,13 @@ pub struct NarwhalBullsharkService {
 
 impl std::fmt::Debug for NarwhalBullsharkService {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Use try_read to avoid blocking in async context
+        let is_running = self.is_running.try_read()
+            .map(|guard| *guard)
+            .unwrap_or_else(|_| false);
+            
         f.debug_struct("NarwhalBullsharkService")
-            .field("is_running", &*self.is_running.blocking_read())
+            .field("is_running", &is_running)
             .field("has_dag_service", &self.dag_service.is_some())
             .field("has_bft_service", &self.bft_service.is_some())
             .finish()
@@ -134,10 +139,23 @@ impl NarwhalBullsharkService {
         let (dag_outbound_sender, dag_outbound_receiver) = mpsc::unbounded_channel();
         let (committee_sender, dag_committee_receiver) = watch::channel(self.committee_receiver.borrow().clone());
 
-        // Generate keypair for consensus (in production: load from secure storage)
-        let keypair = BLS12381KeyPair::generate(&mut rand_08::thread_rng());
-        let node_key = keypair.public().clone();
+        // Use the actual consensus keypair from node configuration
+        let node_key = self.node_config.node_public_key.clone();
+        
+        // Reconstruct keypair from private key bytes
+        use fastcrypto::traits::{KeyPair, ToFromBytes};
+        use fastcrypto::bls12381::{BLS12381PrivateKey, BLS12381KeyPair};
+        
+        let private_key = BLS12381PrivateKey::from_bytes(&self.node_config.consensus_private_key_bytes)
+            .expect("Valid private key bytes from config");
+        let keypair = BLS12381KeyPair::from(private_key);
+        
+        // Verify the public key matches
+        assert_eq!(keypair.public(), &node_key, "Consensus keypair public key mismatch");
+        
         let signature_service = SignatureService::new(keypair);
+        
+        info!("Using node consensus key: {}", node_key.encode_base64());
 
         // Create storage adapter for DAG service
         // Using the real MDBX storage implementation
@@ -150,9 +168,27 @@ impl NarwhalBullsharkService {
         };
 
         // Create REAL Narwhal DAG service with storage and network sender
+        let committee_for_dag = self.committee_receiver.borrow().clone();
+        info!("📋 Creating DAG service with committee: epoch {}, {} members", 
+              committee_for_dag.epoch, committee_for_dag.authorities.len());
+        
+        // Log committee members for debugging (in consistent order)
+        let sorted_authorities: Vec<_> = committee_for_dag.authorities.iter()
+            .map(|(k, v)| (k.encode_base64(), k, v))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|(encoded, k, v)| (encoded, k, v))
+            .collect();
+        let mut sorted_authorities = sorted_authorities;
+        sorted_authorities.sort_by(|a, b| a.0.cmp(&b.0));
+        
+        for (i, (encoded, _pubkey, stake)) in sorted_authorities.iter().enumerate() {
+            info!("  Committee member {}: {} (stake: {})", i, encoded, stake);
+        }
+        
         let dag_service = DagService::with_network_sender(
             node_key.clone(),
-            self.committee_receiver.borrow().clone(),
+            committee_for_dag,
             NarwhalConfig::default(),
             signature_service,
             dag_tx_receiver,
@@ -180,6 +216,7 @@ impl NarwhalBullsharkService {
         let storage = Arc::new(InMemoryConsensusStorage::new());
         let (bft_output_sender, bft_output_receiver) = mpsc::unbounded_channel();
 
+        info!("Creating BFT service with certificate receiver channel");
         let bft_service = BftService::with_storage(
             bft_config,
             self.committee_receiver.borrow().clone(),
@@ -191,8 +228,10 @@ impl NarwhalBullsharkService {
         info!("✅ Created real Bullshark BFT service");
 
         // Spawn BFT service
+        info!("Spawning BFT service task...");
         let bft_handle = bft_service.spawn();
         self.bft_service = Some(bft_handle);
+        info!("✅ BFT service task spawned");
 
         // Spawn transaction bridge
         let tx_bridge_handle = self.spawn_transaction_bridge(dag_tx_sender).await?;
@@ -429,36 +468,60 @@ impl NarwhalBullsharkService {
             info!("📡 OUTBOUND network bridge active: broadcasting DAG messages to peers");
             info!("🔍 Network handle available: {}", has_network);
 
-            while let Some(dag_message) = outbound_receiver.recv().await {
-                if let Some(network) = &network {
-                    match dag_message {
-                        DagMessage::Header(header) => {
-                            info!("📤 Broadcasting header {} for round {}", header.id, header.round);
-                            if let Err(e) = network.broadcast_header(header).await {
-                                warn!("Failed to broadcast header: {:?}", e);
+            let mut message_count = 0;
+            loop {
+                match outbound_receiver.recv().await {
+                    Some(dag_message) => {
+                        message_count += 1;
+                        debug!("Outbound bridge received message #{}", message_count);
+                        
+                        if let Some(network) = &network {
+                            match dag_message {
+                                DagMessage::Header(header) => {
+                                    info!("📤 Broadcasting header {} for round {}", header.id, header.round);
+                                    match network.broadcast_header(header).await {
+                                        Ok(()) => debug!("Header broadcast successful"),
+                                        Err(e) => {
+                                            warn!("Failed to broadcast header: {:?}", e);
+                                            // Continue processing even if broadcast fails
+                                        }
+                                    }
+                                }
+                                DagMessage::Vote(vote) => {
+                                    info!("📤 Broadcasting vote for round {}", vote.round);
+                                    match network.broadcast_vote(vote).await {
+                                        Ok(()) => debug!("Vote broadcast successful"),
+                                        Err(e) => {
+                                            warn!("Failed to broadcast vote: {:?}", e);
+                                            // Continue processing even if broadcast fails
+                                        }
+                                    }
+                                }
+                                DagMessage::Certificate(certificate) => {
+                                    info!("📤 Broadcasting certificate for round {}", certificate.header.round);
+                                    match network.broadcast_certificate(certificate).await {
+                                        Ok(()) => debug!("Certificate broadcast successful"),
+                                        Err(e) => {
+                                            warn!("Failed to broadcast certificate: {:?}", e);
+                                            // Continue processing even if broadcast fails
+                                        }
+                                    }
+                                }
                             }
-                        }
-                        DagMessage::Vote(vote) => {
-                            info!("📤 Broadcasting vote for round {}", vote.round);
-                            if let Err(e) = network.broadcast_vote(vote).await {
-                                warn!("Failed to broadcast vote: {:?}", e);
-                            }
-                        }
-                        DagMessage::Certificate(certificate) => {
-                            info!("📤 Broadcasting certificate for round {}", certificate.header.round);
-                            if let Err(e) = network.broadcast_certificate(certificate).await {
-                                warn!("Failed to broadcast certificate: {:?}", e);
-                            }
+                        } else {
+                            // ✅ FIX: Don't break - just skip broadcasting and continue processing
+                            debug!("No network handle available for broadcasting, skipping message");
+                            // Continue to next message instead of breaking
                         }
                     }
-                } else {
-                    // ✅ FIX: Don't break - just skip broadcasting and continue processing
-                    debug!("No network handle available for broadcasting, skipping message");
-                    // Continue to next message instead of breaking
+                    None => {
+                        warn!("Outbound channel closed after {} messages - DAG service may have stopped", message_count);
+                        break;
+                    }
                 }
             }
 
-            info!("🔚 Outbound network bridge stopped");
+            info!("🔚 Outbound network bridge stopped after processing {} messages", message_count);
         });
 
         Ok(handle)
@@ -493,7 +556,10 @@ impl NarwhalBullsharkService {
 
     /// Check if running
     pub fn is_running(&self) -> bool {
-        *self.is_running.blocking_read()
+        // Use try_read to avoid blocking in async context
+        self.is_running.try_read()
+            .map(|guard| *guard)
+            .unwrap_or(false)
     }
 
     /// Configure RPC server (must be called before spawn)
@@ -551,7 +617,12 @@ impl NarwhalBullsharkService {
 
 impl Drop for NarwhalBullsharkService {
     fn drop(&mut self) {
-        if *self.is_running.blocking_read() {
+        // Use try_read to avoid blocking in async context
+        let is_running = self.is_running.try_read()
+            .map(|guard| *guard)
+            .unwrap_or(false);
+            
+        if is_running {
             // Best effort cleanup
             if let Some(bft_handle) = self.bft_service.take() {
                 bft_handle.abort();

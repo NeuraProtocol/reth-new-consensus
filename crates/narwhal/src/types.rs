@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use base64;
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap, BTreeMap},
     fmt,
 };
 use derive_builder::Builder;
@@ -69,15 +69,26 @@ impl Committee {
         self.total_stake / 3 + 1
     }
     
-    /// Select the leader for a given round
-    pub fn leader(&self, round: Round) -> &PublicKey {
-        let leader_index = (round as usize) % self.authorities.len();
-        self.authorities.keys().nth(leader_index).expect("Committee is not empty")
+    /// Get the total stake of all authorities
+    pub fn total_stake(&self) -> Stake {
+        self.total_stake
     }
     
-    /// Get all authority keys
+    /// Select the leader for a given round
+    pub fn leader(&self, round: Round) -> &PublicKey {
+        // Sort keys by their base64 encoding for consistent ordering
+        let mut sorted_keys: Vec<_> = self.authorities.keys().collect();
+        sorted_keys.sort_by_key(|k| k.encode_base64());
+        
+        let leader_index = (round as usize) % sorted_keys.len();
+        sorted_keys[leader_index]
+    }
+    
+    /// Get all authority keys in consistent order
     pub fn keys(&self) -> Vec<&PublicKey> {
-        self.authorities.keys().collect()
+        let mut keys: Vec<_> = self.authorities.keys().collect();
+        keys.sort_by_key(|k| k.encode_base64());
+        keys
     }
 }
 

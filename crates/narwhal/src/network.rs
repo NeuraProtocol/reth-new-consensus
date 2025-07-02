@@ -430,7 +430,15 @@ impl NarwhalNetwork {
         let results = futures::future::join_all(tasks).await;
         let successful_sends = results.iter().filter(|r| r.is_ok()).count();
 
-        debug!("Header broadcast: {}/{} successful", successful_sends, results.len());
+        let total_peers = results.len();
+        if successful_sends == 0 && total_peers > 0 {
+            warn!("Header broadcast FAILED: 0/{} peers received the header", total_peers);
+        } else if successful_sends < total_peers {
+            info!("Header broadcast partial: {}/{} peers received the header", successful_sends, total_peers);
+        } else if total_peers > 0 {
+            info!("Header broadcast complete: {}/{} peers received the header", successful_sends, total_peers);
+        }
+        
         Ok(())
     }
 
@@ -438,6 +446,11 @@ impl NarwhalNetwork {
     pub async fn broadcast_vote(&self, vote: Vote) -> DagResult<()> {
         debug!("Broadcasting vote: {:?}", vote);
         let peer_map = self.peer_map.read().await;
+        
+        if peer_map.is_empty() {
+            warn!("Cannot broadcast vote - no peers in peer map!");
+            return Ok(());
+        }
 
         let mut tasks = Vec::new();
         for (consensus_key, &peer_id) in peer_map.iter() {
@@ -470,7 +483,15 @@ impl NarwhalNetwork {
         let results = futures::future::join_all(tasks).await;
         let successful_sends = results.iter().filter(|r| r.is_ok()).count();
 
-        debug!("Vote broadcast: {}/{} successful", successful_sends, results.len());
+        let total_peers = results.len();
+        if successful_sends == 0 && total_peers > 0 {
+            warn!("Vote broadcast FAILED: 0/{} peers received the vote", total_peers);
+        } else if successful_sends < total_peers {
+            info!("Vote broadcast partial: {}/{} peers received the vote", successful_sends, total_peers);
+        } else if total_peers > 0 {
+            info!("Vote broadcast complete: {}/{} peers received the vote", successful_sends, total_peers);
+        }
+        
         Ok(())
     }
 
@@ -510,7 +531,15 @@ impl NarwhalNetwork {
         let results = futures::future::join_all(tasks).await;
         let successful_sends = results.iter().filter(|r| r.is_ok()).count();
 
-        debug!("Certificate broadcast: {}/{} successful", successful_sends, results.len());
+        let total_peers = results.len();
+        if successful_sends == 0 && total_peers > 0 {
+            warn!("Certificate broadcast FAILED: 0/{} peers received the certificate", total_peers);
+        } else if successful_sends < total_peers {
+            info!("Certificate broadcast partial: {}/{} peers received the certificate", successful_sends, total_peers);
+        } else if total_peers > 0 {
+            info!("Certificate broadcast complete: {}/{} peers received the certificate", successful_sends, total_peers);
+        }
+        
         Ok(())
     }
 

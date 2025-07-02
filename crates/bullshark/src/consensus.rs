@@ -99,8 +99,9 @@ impl ConsensusProtocol for BullsharkConsensus {
         consensus_index: SequenceNumber,
         certificate: Certificate,
     ) -> BullsharkResult<Vec<ConsensusOutput>> {
-        debug!("Processing certificate: {:?}", certificate);
         let round = certificate.round();
+        let cert_author = certificate.origin();
+        debug!("Processing certificate from {} at round {}", cert_author, round);
         let mut consensus_index = consensus_index;
 
         // Add the certificate to the DAG
@@ -112,8 +113,11 @@ impl ConsensusProtocol for BullsharkConsensus {
 
         // Only process even rounds for leader election
         if commit_round % 2 != 0 || commit_round < 2 {
+            debug!("Skipping round {} - not an even round >= 2", commit_round);
             return Ok(Vec::new());
         }
+        
+        info!("Checking for leader in round {} (certificate from round {})", commit_round, round);
 
         // Check if we already committed this round
         let dag_stats = dag.stats();
@@ -135,13 +139,15 @@ impl ConsensusProtocol for BullsharkConsensus {
         };
 
         // Check if the leader has f+1 support from its children (round r+1)
-        let _support_round = commit_round + 1;
+        let support_round = commit_round + 1;
+        info!("Checking support for leader {} in round {} from certificates in round {}", 
+              leader.origin(), commit_round, support_round);
         if !dag.leader_has_support(&leader_digest, commit_round, &self.committee) {
-            debug!("Leader {:?} does not have sufficient support", leader);
+            info!("Leader {} in round {} does not have sufficient support", leader.origin(), commit_round);
             return Ok(Vec::new());
         }
 
-        info!("Leader {:?} has sufficient support, committing sequence", leader);
+        info!("Leader {} in round {} has sufficient support, committing sequence", leader.origin(), commit_round);
 
         // Get the sequence of leaders to commit
         let leader_sequence = order_leaders(

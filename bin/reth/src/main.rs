@@ -84,11 +84,14 @@ fn main() {
                 }
 
                 // Step 3: Set up real mempool integration (needs ownership of bridge)
-                setup_mempool_integration(
+                let _consensus_handle = setup_mempool_integration(
                     consensus_bridge,
                     Arc::new(node.pool.clone()),
+                    node.provider.clone(),
+                    node.evm_config.clone(),
                     node.task_executor.clone(),
                 )?;
+                // Keep the handle alive to prevent the bridge from being dropped
 
                 info!(target: "reth::cli", "Narwhal + Bullshark consensus with mempool integration is now handling block production");
             }

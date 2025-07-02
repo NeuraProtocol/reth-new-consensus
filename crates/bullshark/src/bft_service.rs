@@ -113,17 +113,25 @@ impl BftService {
 
     /// Spawn the BFT service
     pub fn spawn(mut self) -> JoinHandle<BullsharkResult<()>> {
+        info!("Spawning BFT service task");
         tokio::spawn(async move {
-            self.run().await
+            info!("BFT service task started, calling run()");
+            let result = self.run().await;
+            warn!("BFT service task completed with result: {:?}", result);
+            result
         })
     }
 
     /// Main run loop for the BFT service
     async fn run(&mut self) -> BullsharkResult<()> {
         info!("Starting Bullshark BFT service");
+        info!("BFT service waiting for certificates...");
 
-        while let Some(certificate) = self.certificate_receiver.recv().await {
-            debug!("Received certificate from Narwhal: {:?}", certificate);
+        loop {
+            match self.certificate_receiver.recv().await {
+                Some(certificate) => {
+                    info!("BFT: Received certificate from Narwhal for round {}", certificate.round());
+                    debug!("Received certificate from Narwhal: {:?}", certificate);
 
             match self.process_certificate(certificate).await {
                 Ok(finalized_count) => {
@@ -141,9 +149,15 @@ impl BftService {
             // Update metrics
             self.metrics.update_dag_size(self.dag.stats().total_certificates);
             
-            // Log metrics periodically
-            if self.consensus_index % 100 == 0 {
-                debug!("Consensus metrics: {:?}", self.metrics);
+                    // Log metrics periodically
+                    if self.consensus_index % 100 == 0 {
+                        debug!("Consensus metrics: {:?}", self.metrics);
+                    }
+                }
+                None => {
+                    warn!("Certificate receiver channel closed, shutting down BFT service");
+                    break;
+                }
             }
         }
 
@@ -163,11 +177,14 @@ impl BftService {
         );
 
         // Run the consensus algorithm
+        let cert_round = certificate.round();
         let consensus_outputs = self.consensus.process_certificate(
             &mut self.dag,
             self.consensus_index,
             certificate,
         )?;
+
+        info!("Consensus produced {} outputs for certificate round {}", consensus_outputs.len(), cert_round);
 
         let mut finalized_count = 0;
 
@@ -179,6 +196,7 @@ impl BftService {
             let cert_transactions = self.extract_transactions_from_certificate(&output.certificate).await?;
             
             if !cert_transactions.is_empty() {
+                info!("Creating finalized batch with {} transactions from certificate", cert_transactions.len());
                 let finalized_batch = self.create_finalized_batch(
                     cert_transactions,
                     output.certificate.round(),
@@ -186,6 +204,7 @@ impl BftService {
                 ).await?;
 
                 // Send to Reth integration
+                info!("Sending finalized batch {} to Reth integration", finalized_batch.block_number);
                 if self.finalized_batch_sender.send(finalized_batch).is_err() {
                     warn!("Failed to send finalized batch to Reth - channel closed");
                     return Err(BullsharkError::Network("Reth channel closed".to_string()));
@@ -193,6 +212,8 @@ impl BftService {
 
                 finalized_count += 1;
                 self.current_block_number += 1;
+            } else {
+                debug!("No transactions in certificate, skipping batch creation");
             }
         }
 

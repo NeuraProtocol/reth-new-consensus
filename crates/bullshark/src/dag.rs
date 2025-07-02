@@ -6,7 +6,7 @@ use narwhal::{
     types::{Certificate, CertificateDigest, PublicKey, Committee},
 };
 use std::collections::HashMap;
-use tracing::debug;
+use tracing::{debug, info};
 use fastcrypto::Hash;
 
 /// Type alias for the DAG structure
@@ -121,14 +121,28 @@ impl BullsharkDag {
         let child_round = round + 1;
         
         if let Some(child_certs) = self.dag.get(&child_round) {
-            let support_stake: u64 = child_certs
+            // Debug: list all certificates in child round
+            info!("Checking support for leader in round {} (digest: {:?})", round, leader_digest);
+            info!("Found {} certificates in child round {}", child_certs.len(), child_round);
+            
+            let supporting_certs: Vec<_> = child_certs
                 .values()
                 .filter(|(_, cert)| cert.header.parents.contains(leader_digest))
+                .collect();
+                
+            info!("Certificates with leader as parent: {}", supporting_certs.len());
+            
+            let support_stake: u64 = supporting_certs
+                .iter()
                 .map(|(_, cert)| committee.stake(&cert.origin()))
                 .sum();
 
-            support_stake >= committee.validity_threshold()
+            let threshold = committee.validity_threshold();
+            info!("Support stake: {} / {} (threshold)", support_stake, threshold);
+            
+            support_stake >= threshold
         } else {
+            info!("No certificates found in child round {} for leader in round {}", child_round, round);
             false
         }
     }

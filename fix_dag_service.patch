@@ -1,0 +1,85 @@
+--- a/crates/narwhal/src/dag_service.rs
++++ b/crates/narwhal/src/dag_service.rs
+@@ -434,28 +434,12 @@
+     /// Process vote (adapted from reference implementation)  
+     async fn process_vote(&mut self, vote: Vote) -> DagResult<()> {
+         debug!("Processing vote from {} for header {}", vote.author, vote.id);
+         
+-        let header_id = vote.id;
+-        
+-        // Get or create vote aggregator for this header
+-        let aggregator = match self.votes_aggregators.get_mut(&header_id) {
+-            Some(agg) => agg,
+-            None => {
+-                // If we don't have an aggregator, this might be a vote for someone else's header
+-                // We need to check if we know about this header
+-                if let Some(header) = self.current_header.as_ref().filter(|h| h.id == header_id) {
+-                    self.votes_aggregators.entry(header_id)
+-                        .or_insert_with(|| VotesAggregator::with_header(header.clone()))
+-                } else {
+-                    debug!("Vote for unknown header {}, ignoring", header_id);
+-                    return Ok(());
+-                }
+-            }
+-        };
++        // Following reference: votes have already been validated by sanitize_vote
+         
+         // Store vote in persistent storage
+         self.storage.store_vote(vote.id, vote.clone()).await?;
+         
+         // Add vote to aggregator
+-        aggregator.add_vote(vote, &self.committee)?;
++        self.votes_aggregator.add_vote(vote, &self.committee)?;
+         
+         // Check if we can form a certificate
+-        if let Some(certificate) = aggregator.try_form_certificate(&self.committee)? {
++        if let Some(certificate) = self.votes_aggregator.try_form_certificate(&self.committee)? {
+             info!("Created certificate for header {} with {} votes", 
+-                  header_id, aggregator.vote_count());
++                  certificate.header.id, self.votes_aggregator.vote_count());
+             
+             // Send certificate for network broadcast if we formed it
+             if let Some(ref sender) = self.network_sender {
+                 if sender.send(DagMessage::Certificate(certificate.clone())).is_err() {
+                     warn!("Failed to send certificate for broadcast - channel closed");
+                 } else {
+-                    debug!("Sent certificate for header {} for network broadcast", header_id);
++                    debug!("Sent certificate for network broadcast");
+                 }
+-            } else {
+-                debug!("No network sender configured, skipping certificate broadcast");
+             }
+             
+             // Process the certificate
+             self.process_certificate(certificate).await?;
+             
+-            // Remove the aggregator as we've formed the certificate
+-            self.votes_aggregators.remove(&header_id);
++            // Reset aggregator after forming certificate
++            self.votes_aggregator = VotesAggregator::new();
+         }
+ 
+         Ok(())
+@@ -560,11 +544,8 @@
+             // Clean up old certificates (but keep latest certificates for parent tracking)
+             self.certificates.retain(|_, cert| cert.round() > self.gc_round);
+             
+-            // Clean up old vote aggregators
+-            self.votes_aggregators.retain(|_, _aggregator| {
+-                // Keep aggregators that might still be active
+-                true // TODO: Add round tracking to aggregators
+-            });
++            // Note: In reference implementation, there's only one vote aggregator
++            // for the current header, so no cleanup needed here
+             
+             debug!("Garbage collected state up to round {}", self.gc_round);
+         }
+@@ -580,7 +561,7 @@
+         self.current_round = 1;
+         self.current_batch.clear();
+         self.processing.clear();
+-        self.votes_aggregators.clear();
++        self.votes_aggregator = VotesAggregator::new();
+         self.current_header = None;
+         self.gc_round = 0;
+         // Keep certificates for parent tracking

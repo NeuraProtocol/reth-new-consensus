@@ -1,0 +1,7 @@
+error: unexpected argument '--consensus.algo' found
+
+  tip: a similar argument exists: '--consensus-rpc-port'
+
+Usage: reth node --chain <CHAIN_OR_PATH> --consensus-rpc-port <CONSENSUS_RPC_PORT>
+
+For more information, try '--help'.

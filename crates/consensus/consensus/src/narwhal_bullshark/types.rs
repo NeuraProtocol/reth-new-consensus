@@ -49,10 +49,12 @@ pub struct FinalizedBatch {
 }
 
 /// Configuration for Narwhal + Bullshark consensus
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct NarwhalBullsharkConfig {
     /// This node's public key
     pub node_public_key: PublicKey,
+    /// This node's consensus private key bytes (BLS12-381)
+    pub consensus_private_key_bytes: Vec<u8>,
     /// Narwhal DAG configuration
     pub narwhal: NarwhalConfig,
     /// Bullshark BFT configuration  
@@ -72,11 +74,16 @@ pub struct NetworkConfig {
 
 impl Default for NarwhalBullsharkConfig {
     fn default() -> Self {
+        use fastcrypto::traits::{KeyPair, ToFromBytes};
+        
         // Generate a dummy key for testing
         let keypair = fastcrypto::bls12381::BLS12381KeyPair::generate(&mut rand_08::thread_rng());
+        let public_key = keypair.public().clone();
+        let consensus_private_key_bytes = keypair.private().as_bytes().to_vec();
         
         Self {
-            node_public_key: keypair.public().clone(),
+            node_public_key: public_key,
+            consensus_private_key_bytes,
             narwhal: NarwhalConfig::default(),
             bullshark: BftConfig::default(),
             network: NetworkConfig::default(),
