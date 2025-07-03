@@ -6,6 +6,7 @@
 use std::{future::Future, time::Duration};
 use backoff::ExponentialBackoff;
 use tracing::{debug, warn};
+use std::sync::Arc;
 
 /// Retry configurations for establishing connections and sending messages.
 /// Determines the retry behaviour of requests by setting the backoff strategy used.
