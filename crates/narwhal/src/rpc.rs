@@ -62,6 +62,52 @@ pub struct GetBatchResponse {
     pub error: Option<String>,
 }
 
+/// Message sent between workers
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum WorkerMessage {
+    /// A batch to replicate
+    Batch(Batch),
+}
+
+/// Request for multiple batches from a worker
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkerBatchRequest {
+    pub digests: Vec<BatchDigest>,
+}
+
+/// Response with requested batches
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkerBatchResponse {
+    pub batches: Vec<Batch>,
+}
+
+/// Message from primary to worker
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PrimaryWorkerMessage {
+    /// The primary indicates that a batch has been processed
+    /// and can be deleted from storage
+    DeleteBatches(Vec<BatchDigest>),
+}
+
+/// Synchronization request from primary to worker
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkerSynchronizeMessage {
+    pub digests: Vec<BatchDigest>,
+    pub target: crate::types::PublicKey,
+}
+
+/// Request a specific batch from worker
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RequestBatchRequest {
+    pub digest: BatchDigest,
+}
+
+/// Response with requested batch
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RequestBatchResponse {
+    pub batch: Option<Batch>,
+}
+
 // Include the generated RPC services
 pub mod consensus {
     include!(concat!(env!("OUT_DIR"), "/narwhal.NarwhalConsensus.rs"));
@@ -69,4 +115,12 @@ pub mod consensus {
 
 pub mod dag {
     include!(concat!(env!("OUT_DIR"), "/narwhal.dag.NarwhalDag.rs"));
+}
+
+pub mod worker {
+    include!(concat!(env!("OUT_DIR"), "/narwhal.worker.WorkerToWorker.rs"));
+}
+
+pub mod primary {
+    include!(concat!(env!("OUT_DIR"), "/narwhal.primary.PrimaryToWorker.rs"));
 } 

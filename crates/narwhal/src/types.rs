@@ -1,11 +1,13 @@
 //! Core types for Narwhal DAG consensus
 
-use crate::{DagError, DagResult, Round, WorkerId, BatchDigest};
-use blake2::{digest::Update, VarBlake2b};
+use crate::{DagError, DagResult, Round, BatchDigest};
+use crate::WorkerId;
+// Blake2 functionality is provided by fastcrypto
 use fastcrypto::{
     traits::{AggregateAuthenticator, EncodeDecodeBase64, Signer},
     Hash, Digest, Verifier,
 };
+use blake2::{digest::Update, VarBlake2b};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use base64;
@@ -32,21 +34,101 @@ pub type AggregateSignature = fastcrypto::bls12381::BLS12381AggregateSignature;
 /// Validator stake
 pub type Stake = u64;
 
+/// Information about an authority in the committee
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Authority {
+    /// The voting power of this authority
+    pub stake: Stake,
+    /// The network address of the primary
+    pub primary_address: String,
+    /// Network key of the primary
+    pub network_key: PublicKey,
+    /// Worker configuration
+    pub workers: WorkerConfiguration,
+}
+
+/// Worker configuration for an authority
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WorkerConfiguration {
+    /// Number of workers
+    pub num_workers: u32,
+    /// Base port for worker addresses (workers use sequential ports)
+    pub base_port: u16,
+    /// Base address for workers (e.g., "127.0.0.1")
+    pub base_address: String,
+}
+
+impl WorkerConfiguration {
+    /// Get the address for a specific worker
+    pub fn get_worker_address(&self, worker_id: WorkerId) -> Option<String> {
+        if worker_id < self.num_workers {
+            Some(format!("{}:{}", self.base_address, self.base_port + worker_id as u16))
+        } else {
+            None
+        }
+    }
+    
+    /// Get all worker addresses
+    pub fn get_all_worker_addresses(&self) -> HashMap<WorkerId, String> {
+        (0..self.num_workers)
+            .map(|id| (id, self.get_worker_address(id).unwrap()))
+            .collect()
+    }
+}
+
 /// Committee information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Committee {
     /// Current epoch
     pub epoch: Epoch,
-    /// Mapping of authority to stake
-    pub authorities: HashMap<PublicKey, Stake>,
+    /// Mapping of authority to its information
+    pub authorities: HashMap<PublicKey, Authority>,
     /// Total stake
     pub total_stake: Stake,
 }
 
 impl Committee {
+    /// Create a committee with proper worker configuration
+    pub fn new_for_test(
+        epoch: Epoch, 
+        authorities: HashMap<PublicKey, Stake>,
+        num_workers_per_authority: u32,
+        base_port: u16,
+    ) -> Self {
+        let mut port_offset = 0u16;
+        let authorities = authorities.into_iter().enumerate().map(|(idx, (key, stake))| {
+            // Each authority gets a unique primary port
+            let primary_port = 8000 + idx as u16;
+            
+            // Workers for this authority start at base_port + offset
+            let worker_base_port = base_port + port_offset;
+            port_offset += num_workers_per_authority as u16;
+            
+            let authority = Authority {
+                stake,
+                primary_address: format!("127.0.0.1:{}", primary_port),
+                network_key: key.clone(),
+                workers: WorkerConfiguration {
+                    num_workers: num_workers_per_authority,
+                    base_port: worker_base_port,
+                    base_address: "127.0.0.1".to_string(),
+                },
+            };
+            (key, authority)
+        }).collect();
+        
+        Self::new(epoch, authorities)
+    }
+    
+    /// Create a simple committee for backward compatibility
+    pub fn new_simple(epoch: Epoch, authorities: HashMap<PublicKey, Stake>) -> Self {
+        // Default to 4 workers per authority, starting at port 9000
+        Self::new_for_test(epoch, authorities, 4, 9000)
+    }
+    
     /// Create a new committee
-    pub fn new(epoch: Epoch, authorities: HashMap<PublicKey, Stake>) -> Self {
-        let total_stake = authorities.values().sum();
+    pub fn new(epoch: Epoch, authorities: HashMap<PublicKey, Authority>) -> Self {
+        let total_stake = authorities.values().map(|a| a.stake).sum();
         Self {
             epoch,
             authorities,
@@ -56,7 +138,12 @@ impl Committee {
     
     /// Get the stake of an authority
     pub fn stake(&self, authority: &PublicKey) -> Stake {
-        self.authorities.get(authority).copied().unwrap_or(0)
+        self.authorities.get(authority).map(|a| a.stake).unwrap_or(0)
+    }
+    
+    /// Get authority information
+    pub fn authority(&self, name: &PublicKey) -> Option<&Authority> {
+        self.authorities.get(name)
     }
     
     /// Get the quorum threshold (2/3 + 1)
@@ -230,7 +317,7 @@ impl Hash for Header {
     type TypedDigest = HeaderDigest;
 
     fn digest(&self) -> HeaderDigest {
-        let hasher_update = |hasher: &mut VarBlake2b| {
+        let hasher_update = |hasher: &mut blake2::VarBlake2b| {
             hasher.update(&self.author);
             hasher.update(self.round.to_le_bytes());
             hasher.update(self.epoch.to_le_bytes());
@@ -387,7 +474,7 @@ impl Hash for Vote {
     type TypedDigest = VoteDigest;
 
     fn digest(&self) -> VoteDigest {
-        let hasher_update = |hasher: &mut VarBlake2b| {
+        let hasher_update = |hasher: &mut blake2::VarBlake2b| {
             hasher.update(Digest::from(self.id));
             hasher.update(self.round.to_le_bytes());
             hasher.update(self.epoch.to_le_bytes());
@@ -551,7 +638,7 @@ impl Hash for Certificate {
     type TypedDigest = CertificateDigest;
 
     fn digest(&self) -> CertificateDigest {
-        CertificateDigest(fastcrypto::blake2b_256(|hasher| {
+        CertificateDigest(fastcrypto::blake2b_256(|hasher: &mut blake2::VarBlake2b| {
             hasher.update(Digest::from(self.header.digest()));
         }))
     }

@@ -119,6 +119,11 @@ pub struct NarwhalBullsharkArgs {
     #[arg(long = "bullshark.leader-rotation-frequency", default_value_t = 2)]
     pub leader_rotation_frequency: u64,
 
+    /// Minimum round for leader election (must be even)
+    /// Default is 2 for production, but can be set to 0 for testing
+    #[arg(long = "bullshark.min-leader-round", default_value_t = 0)]
+    pub min_leader_round: u64,
+
     /// Disable metrics collection
     #[arg(long = "narwhal.disable-metrics", action = ArgAction::SetTrue)]
     pub disable_metrics: bool,
@@ -162,6 +167,7 @@ impl Default for NarwhalBullsharkArgs {
             finalization_timeout_secs: 5,
             max_certificates_per_round: 1000,
             leader_rotation_frequency: 2,
+            min_leader_round: 0,
             disable_metrics: false,
             peer_addresses: Vec::new(),
             bootstrap_mode: false,
@@ -234,6 +240,7 @@ impl NarwhalBullsharkArgs {
             num_workers: self.num_workers,
             gc_depth: self.gc_depth,
             committee_size: self.committee_size,
+            batch_storage_memory: false, // Use persistent storage in production
         }
     }
 
@@ -246,6 +253,7 @@ impl NarwhalBullsharkArgs {
             finalization_timeout: std::time::Duration::from_secs(self.finalization_timeout_secs),
             max_certificates_per_round: self.max_certificates_per_round,
             leader_rotation_frequency: self.leader_rotation_frequency,
+            min_leader_round: self.min_leader_round,
         }
     }
 

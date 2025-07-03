@@ -12,6 +12,7 @@ pub mod dag;
 pub mod utils;
 pub mod config;
 pub mod storage;
+pub mod chain_state;
 
 // Re-export key types
 pub use bft_service::BftService;
@@ -19,6 +20,7 @@ pub use consensus::BullsharkConsensus;
 pub use finality::FinalityEngine;
 pub use config::BftConfig;
 pub use storage::{ConsensusStorage, InMemoryConsensusStorage, Certificate as BullsharkCertificate, ConsensusBatch};
+pub use chain_state::{ChainStateProvider, DefaultChainState};
 
 use serde::{Deserialize, Serialize};
 use alloy_primitives::{B256};

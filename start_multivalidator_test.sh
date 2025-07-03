@@ -61,6 +61,7 @@ $RETH_BINARY node \
   --validator.deterministic-consensus-key \
   --validator.index 0 \
   --consensus-rpc-port 10001 \
+  --bullshark.min-leader-round 0 \
   > /home/peastew/.neura/node1/node.log 2>&1 &
 
 NODE1_PID=$!
@@ -93,6 +94,7 @@ $RETH_BINARY node \
   --validator.deterministic-consensus-key \
   --validator.index 1 \
   --consensus-rpc-port 10002 \
+  --bullshark.min-leader-round 0 \
   > /home/peastew/.neura/node2/node.log 2>&1 &
 
 NODE2_PID=$!
@@ -125,6 +127,7 @@ $RETH_BINARY node \
   --validator.deterministic-consensus-key \
   --validator.index 2 \
   --consensus-rpc-port 10003 \
+  --bullshark.min-leader-round 0 \
   > /home/peastew/.neura/node3/node.log 2>&1 &
 
 NODE3_PID=$!
@@ -157,6 +160,7 @@ $RETH_BINARY node \
   --validator.deterministic-consensus-key \
   --validator.index 3 \
   --consensus-rpc-port 10004 \
+  --bullshark.min-leader-round 0 \
   > /home/peastew/.neura/node4/node.log 2>&1 &
 
 NODE4_PID=$!

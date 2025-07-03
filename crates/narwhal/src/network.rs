@@ -612,6 +612,51 @@ impl NarwhalNetwork {
         self.network.local_addr()
     }
 
+    /// Wait for initial peer connections to be established
+    /// This helps avoid the race condition where services start broadcasting before connections are ready
+    pub async fn wait_for_initial_connections(&mut self, peer_addresses: &HashMap<PublicKey, SocketAddr>, timeout: Duration) -> DagResult<()> {
+        use tokio::time::{sleep, timeout as tokio_timeout};
+        
+        if peer_addresses.is_empty() {
+            return Ok(());
+        }
+        
+        info!("Waiting for initial peer connections (up to {:?})...", timeout);
+        
+        let start = std::time::Instant::now();
+        let check_interval = Duration::from_millis(100);
+        
+        // Try connecting to peers first
+        self.connect_to_committee(peer_addresses.clone()).await?;
+        
+        // Then wait for connections to be established
+        let result = tokio_timeout(timeout, async {
+            loop {
+                let connected_count = self.peer_map.read().await.len();
+                if connected_count > 0 {
+                    info!("✅ Connected to {}/{} peers", connected_count, peer_addresses.len());
+                    return Ok(());
+                }
+                
+                sleep(check_interval).await;
+            }
+        }).await;
+        
+        match result {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(e)) => Err(e),
+            Err(_) => {
+                let connected_count = self.peer_map.read().await.len();
+                if connected_count > 0 {
+                    info!("⚠️ Timeout waiting for all connections, but have {}/{} peers", connected_count, peer_addresses.len());
+                    Ok(()) // Partial connectivity is better than none
+                } else {
+                    Err(DagError::Network(format!("Timeout after {:?} - no peers connected", timeout)))
+                }
+            }
+        }
+    }
+
     /// Update the committee configuration
     pub async fn update_committee(&mut self, new_committee: Committee) -> DagResult<()> {
         info!("Updating network committee configuration");

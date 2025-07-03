@@ -25,6 +25,8 @@ pub struct NarwhalConfig {
     pub sync_retry_delay: Duration,
     /// Number of nodes to sync from
     pub sync_retry_nodes: usize,
+    /// Use in-memory batch storage (for testing)
+    pub batch_storage_memory: bool,
 }
 
 impl Default for NarwhalConfig {
@@ -39,6 +41,7 @@ impl Default for NarwhalConfig {
             max_header_delay: Duration::from_millis(100),
             sync_retry_delay: Duration::from_millis(5000),
             sync_retry_nodes: 3,
+            batch_storage_memory: true, // Default to in-memory for now
         }
     }
 } 

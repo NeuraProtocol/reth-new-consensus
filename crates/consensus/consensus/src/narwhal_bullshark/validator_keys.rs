@@ -249,7 +249,7 @@ impl ValidatorRegistry {
             return Err(anyhow!("No registered validators found for committee creation"));
         }
         
-        Ok(Committee::new(epoch, authorities))
+        Ok(Committee::new_simple(epoch, authorities))
     }
     
     /// Get all registered validators

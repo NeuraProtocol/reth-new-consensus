@@ -8,7 +8,7 @@
 //! It does NOT reimplement consensus - it uses the existing crates.
 
 use crate::{
-    narwhal_bullshark::{FinalizedBatch, NarwhalBullsharkConfig, ConsensusRpcConfig},
+    narwhal_bullshark::{FinalizedBatch, NarwhalBullsharkConfig, ConsensusRpcConfig, ChainStateTracker},
     consensus_storage::MdbxConsensusStorage,
     rpc::{ConsensusRpcImpl, ConsensusAdminRpcImpl, ConsensusApiServer, ConsensusAdminApiServer},
 };
@@ -70,6 +70,10 @@ pub struct NarwhalBullsharkService {
     node_config: NarwhalBullsharkConfig,
     /// Current committee for RPC
     current_committee: Arc<RwLock<Committee>>,
+    /// Channel to send batch digests from workers to primary
+    tx_primary: Option<mpsc::UnboundedSender<(narwhal::BatchDigest, narwhal::WorkerId)>>,
+    /// Chain state tracker for parent hash and block number
+    chain_state: ChainStateTracker,
 }
 
 impl std::fmt::Debug for NarwhalBullsharkService {
@@ -121,6 +125,8 @@ impl NarwhalBullsharkService {
             rpc_server_handle: None,
             node_config: config,
             current_committee,
+            tx_primary: None,
+            chain_state: ChainStateTracker::new(),
         })
     }
 
@@ -138,6 +144,10 @@ impl NarwhalBullsharkService {
         let (dag_network_sender, dag_network_receiver) = mpsc::unbounded_channel();
         let (dag_outbound_sender, dag_outbound_receiver) = mpsc::unbounded_channel();
         let (committee_sender, dag_committee_receiver) = watch::channel(self.committee_receiver.borrow().clone());
+        
+        // Create channel for worker batch digests to primary
+        let (tx_primary_sender, mut rx_primary) = mpsc::unbounded_channel::<(narwhal::BatchDigest, narwhal::WorkerId)>();
+        self.tx_primary = Some(tx_primary_sender);
 
         // Use the actual consensus keypair from node configuration
         let node_key = self.node_config.node_public_key.clone();
@@ -182,8 +192,8 @@ impl NarwhalBullsharkService {
         let mut sorted_authorities = sorted_authorities;
         sorted_authorities.sort_by(|a, b| a.0.cmp(&b.0));
         
-        for (i, (encoded, _pubkey, stake)) in sorted_authorities.iter().enumerate() {
-            info!("  Committee member {}: {} (stake: {})", i, encoded, stake);
+        for (i, (encoded, _pubkey, authority)) in sorted_authorities.iter().enumerate() {
+            info!("  Committee member {}: {} (stake: {})", i, encoded, authority.stake);
         }
         
         let dag_service = DagService::with_network_sender(
@@ -217,13 +227,27 @@ impl NarwhalBullsharkService {
         let (bft_output_sender, bft_output_receiver) = mpsc::unbounded_channel();
 
         info!("Creating BFT service with certificate receiver channel");
-        let bft_service = BftService::with_storage(
+        let mut bft_service = BftService::with_storage(
             bft_config,
             self.committee_receiver.borrow().clone(),
             certificate_receiver,
             bft_output_sender,
             storage,
         );
+        
+        // Create batch store for BFT service if we have storage
+        if let Some(ref mdbx_storage) = self.storage {
+            let batch_store = super::batch_storage_adapter::create_mdbx_batch_store(mdbx_storage.clone());
+            bft_service.set_batch_store(batch_store);
+            info!("✅ BFT service configured with MDBX batch store");
+        } else {
+            info!("⚠️ BFT service using dummy transactions (no batch store)");
+        }
+        
+        // Set chain state provider
+        let chain_state_adapter = super::chain_state_adapter::ChainStateAdapter::new(self.chain_state.clone());
+        bft_service.set_chain_state(Arc::new(chain_state_adapter));
+        info!("✅ BFT service configured with chain state provider");
 
         info!("✅ Created real Bullshark BFT service");
 
@@ -233,9 +257,28 @@ impl NarwhalBullsharkService {
         self.bft_service = Some(bft_handle);
         info!("✅ BFT service task spawned");
 
-        // Spawn transaction bridge
-        let tx_bridge_handle = self.spawn_transaction_bridge(dag_tx_sender).await?;
+        // Spawn workers and transaction adapter
+        let (worker_channels, worker_handles) = self.spawn_workers(&committee_sender).await?;
+        for handle in worker_handles {
+            self.task_handles.push(handle);
+        }
+        
+        // Spawn transaction bridge that sends to workers via adapter
+        let tx_bridge_handle = self.spawn_transaction_bridge_with_workers(worker_channels).await?;
         self.task_handles.push(tx_bridge_handle);
+        
+        // TODO: Implement proper batch digest collection from workers
+        // For now, the DAG service will only include its own batches in headers
+        // The rx_primary channel receives batch digests from workers but we need
+        // to properly integrate this with the DAG service's header creation
+        
+        // Drop the receiver to avoid resource leak
+        drop(rx_primary);
+        
+        // Note: In the full implementation, worker batch digests should be:
+        // 1. Collected by the primary
+        // 2. Included in the header payload when creating new headers
+        // 3. Verified during certificate formation
 
         // Spawn finalized batch processor  
         let batch_processor_handle = self.spawn_batch_processor(bft_output_receiver).await?;
@@ -473,7 +516,7 @@ impl NarwhalBullsharkService {
                 match outbound_receiver.recv().await {
                     Some(dag_message) => {
                         message_count += 1;
-                        debug!("Outbound bridge received message #{}", message_count);
+                        info!("📨 Outbound bridge received message #{}", message_count);
                         
                         if let Some(network) = &network {
                             match dag_message {
@@ -524,6 +567,148 @@ impl NarwhalBullsharkService {
             info!("🔚 Outbound network bridge stopped after processing {} messages", message_count);
         });
 
+        Ok(handle)
+    }
+    
+    /// Spawn workers for transaction batching
+    async fn spawn_workers(
+        &self,
+        committee_sender: &watch::Sender<Committee>,
+    ) -> Result<(Vec<mpsc::UnboundedSender<NarwhalTransaction>>, Vec<JoinHandle<()>>)> {
+        use narwhal::{Worker, crypto::KeyPair};
+        
+        let committee = committee_sender.borrow().clone();
+        
+        // Find our authority info to get worker configuration
+        let our_authority = committee.authority(&self.node_config.node_public_key)
+            .ok_or_else(|| anyhow::anyhow!("Our node not in committee"))?;
+        
+        let num_workers = our_authority.workers.num_workers;
+        
+        info!("Spawning {} workers for transaction batching (base port: {})", 
+            num_workers, our_authority.workers.base_port);
+        
+        let mut worker_tx_channels = Vec::new();
+        let mut worker_handles = Vec::new();
+        
+        for worker_id in 0..num_workers {
+            // Get worker address from authority configuration
+            let worker_address_str = our_authority.workers.get_worker_address(worker_id)
+                .ok_or_else(|| anyhow::anyhow!("Invalid worker ID {}", worker_id))?;
+            
+            let worker_address = worker_address_str
+                .parse()
+                .map_err(|e| anyhow::anyhow!("Invalid worker address {}: {}", worker_address_str, e))?;
+            
+            // Derive worker keypair from primary key
+            let worker_keypair = KeyPair::derive_worker_keypair(
+                &self.node_config.node_public_key,
+                worker_id
+            );
+            
+            // Create batch store for worker
+            let batch_store: Arc<dyn narwhal::storage_trait::BatchStore> = if let Some(ref storage) = self.storage {
+                // Use MDBX batch store
+                super::batch_storage_adapter::create_mdbx_batch_store(storage.clone())
+            } else {
+                // Use in-memory batch store
+                Arc::new(narwhal::InMemoryBatchStore::new())
+            };
+            
+            // Create worker with batch store
+            let worker = Worker::with_store(
+                self.node_config.node_public_key.clone(),
+                worker_id,
+                committee.clone(),
+                NarwhalConfig::default(),
+                worker_keypair,
+                worker_address,
+                batch_store,
+            );
+            
+            // Spawn worker and get channels
+            let (channels, handles, network) = worker.create_and_spawn();
+            
+            // Store transaction sender channel
+            worker_tx_channels.push(channels.tx_transaction);
+            
+            // Connect worker batch digests to the primary
+            if let Some(tx_primary) = &self.tx_primary {
+                let tx_primary_clone = tx_primary.clone();
+                let mut rx_batch_digest = channels.rx_batch_digest;
+                
+                // Spawn task to forward batch digests from worker to primary
+                let forward_handle = tokio::spawn(async move {
+                    while let Some((digest, worker_id)) = rx_batch_digest.recv().await {
+                        if let Err(e) = tx_primary_clone.send((digest, worker_id)) {
+                            warn!("Failed to forward batch digest to primary: {}", e);
+                            break;
+                        }
+                    }
+                    debug!("Batch digest forwarder for worker {} stopped", worker_id);
+                });
+                worker_handles.push(forward_handle);
+            }
+            
+            // Convert DagResult handles to regular handles
+            for handle in handles {
+                let wrapped_handle = tokio::spawn(async move {
+                    if let Err(e) = handle.await {
+                        warn!("Worker task error: {:?}", e);
+                    }
+                });
+                worker_handles.push(wrapped_handle);
+            }
+            
+            // Store the worker network handle if needed
+            // The network is already integrated within the worker and running
+            
+            info!("✅ Spawned worker {} on {} with network active", worker_id, worker_address);
+        }
+        
+        Ok((worker_tx_channels, worker_handles))
+    }
+    
+    /// Spawn transaction bridge with worker adapter
+    async fn spawn_transaction_bridge_with_workers(
+        &mut self,
+        worker_channels: Vec<mpsc::UnboundedSender<NarwhalTransaction>>,
+    ) -> Result<JoinHandle<()>> {
+        use super::transaction_adapter::TransactionAdapter;
+        
+        let mut transaction_receiver = self.transaction_receiver
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("Transaction receiver already taken"))?;
+        
+        // Create transaction adapter
+        let (adapter, tx_to_adapter) = super::transaction_adapter::TransactionAdapterBuilder::new()
+            .add_workers(worker_channels)
+            .build();
+        
+        // Spawn adapter
+        let adapter_handle = adapter.spawn();
+        
+        // Spawn bridge that converts and forwards transactions
+        let handle = tokio::spawn(async move {
+            info!("🌉 Transaction bridge active: Reth → Workers");
+            
+            while let Some(reth_tx) = transaction_receiver.recv().await {
+                // Convert to RLP bytes
+                let tx_bytes = alloy_rlp::encode(&reth_tx);
+                
+                debug!("🔄 Bridging transaction: {} -> {} bytes", 
+                    reth_tx.hash(), tx_bytes.len());
+                
+                if tx_to_adapter.send(tx_bytes).is_err() {
+                    warn!("Failed to send transaction to adapter - channel closed");
+                    break;
+                }
+            }
+            
+            info!("🔚 Transaction bridge stopped");
+            adapter_handle.abort(); // Stop adapter when bridge stops
+        });
+        
         Ok(handle)
     }
 
@@ -612,6 +797,24 @@ impl NarwhalBullsharkService {
             handle.stop().ok();
             info!("Consensus RPC server stopped");
         }
+    }
+    
+    /// Get the chain state tracker
+    pub fn chain_state(&self) -> ChainStateTracker {
+        self.chain_state.clone()
+    }
+    
+    /// Update chain state from external source
+    pub async fn update_chain_state(&self, block_number: u64, parent_hash: alloy_primitives::B256) {
+        self.chain_state.update(block_number, parent_hash).await;
+    }
+    
+    /// Update chain state synchronously (for non-async contexts)
+    pub fn update_chain_state_sync(&self, block_number: u64, parent_hash: alloy_primitives::B256) {
+        let chain_state = self.chain_state.clone();
+        tokio::spawn(async move {
+            chain_state.update(block_number, parent_hash).await;
+        });
     }
 }
 

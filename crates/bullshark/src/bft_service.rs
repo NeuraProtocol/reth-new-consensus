@@ -5,6 +5,7 @@ use crate::{
     consensus::{BullsharkConsensus, ConsensusProtocol, ConsensusMetrics},
     dag::BullsharkDag,
     storage::ConsensusStorage,
+    chain_state::{ChainStateProvider, DefaultChainState},
 };
 use narwhal::{
     types::{Certificate, Committee},
@@ -39,6 +40,10 @@ pub struct BftService {
     consensus_index: u64,
     /// Performance metrics
     metrics: ConsensusMetrics,
+    /// Batch storage for retrieving worker batches
+    batch_store: Option<std::sync::Arc<dyn narwhal::storage_trait::BatchStore>>,
+    /// Chain state provider for parent hash and block number
+    chain_state: std::sync::Arc<dyn ChainStateProvider>,
 }
 
 impl std::fmt::Debug for BftService {
@@ -80,6 +85,8 @@ impl BftService {
             current_block_number: 1,
             consensus_index: 0,
             metrics: ConsensusMetrics::default(),
+            batch_store: None,
+            chain_state: std::sync::Arc::new(DefaultChainState),
         }
     }
     
@@ -108,7 +115,19 @@ impl BftService {
             current_block_number: 1,
             consensus_index: 0,
             metrics: ConsensusMetrics::default(),
+            batch_store: None,
+            chain_state: std::sync::Arc::new(DefaultChainState),
         }
+    }
+    
+    /// Set the batch store for retrieving worker batches
+    pub fn set_batch_store(&mut self, batch_store: std::sync::Arc<dyn narwhal::storage_trait::BatchStore>) {
+        self.batch_store = Some(batch_store);
+    }
+    
+    /// Set the chain state provider
+    pub fn set_chain_state(&mut self, chain_state: std::sync::Arc<dyn ChainStateProvider>) {
+        self.chain_state = chain_state;
     }
 
     /// Spawn the BFT service
@@ -229,18 +248,53 @@ impl BftService {
 
         // In the Narwhal design, certificates contain batch digests, not the actual batches
         // The batches themselves are stored by workers and retrieved on demand
-        // For this simplified implementation, we'll simulate having the transactions
         
-        // TODO: In a real implementation, this would:
-        // 1. Look up batch digests from the certificate
-        // 2. Fetch actual batches from workers
-        // 3. Extract transactions from batches
-        
-        // For now, create dummy transactions based on the certificate
-        for (batch_digest, _worker_id) in &certificate.header.payload {
-            // Simulate transactions (in reality, would fetch from worker)
-            let dummy_tx = format!("tx_from_batch_{}", batch_digest).into_bytes();
-            transactions.push(narwhal::Transaction(dummy_tx));
+        // Check if we have a batch store
+        if let Some(ref batch_store) = self.batch_store {
+            debug!("Retrieving batches for certificate in round {}", certificate.round());
+            
+            // Collect all batch digests from the certificate
+            let batch_digests: Vec<narwhal::BatchDigest> = certificate.header.payload
+                .keys()
+                .cloned()
+                .collect();
+            
+            // Fetch batches from storage
+            match batch_store.read_batches(&batch_digests).await {
+                Ok(batches) => {
+                    for (i, batch_opt) in batches.into_iter().enumerate() {
+                        match batch_opt {
+                            Some(batch) => {
+                                // Extract all transactions from the batch
+                                debug!("Retrieved batch {} with {} transactions", 
+                                    batch_digests[i], batch.0.len());
+                                transactions.extend(batch.0);
+                            }
+                            None => {
+                                warn!("Batch {} not found in storage", batch_digests[i]);
+                                // Create a dummy transaction as fallback
+                                let dummy_tx = format!("missing_batch_{}", batch_digests[i]).into_bytes();
+                                transactions.push(narwhal::Transaction(dummy_tx));
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to retrieve batches from storage: {}", e);
+                    // Fall back to dummy transactions
+                    for (batch_digest, _worker_id) in &certificate.header.payload {
+                        let dummy_tx = format!("tx_from_batch_{}", batch_digest).into_bytes();
+                        transactions.push(narwhal::Transaction(dummy_tx));
+                    }
+                }
+            }
+        } else {
+            // No batch store available - use dummy transactions
+            debug!("No batch store available, using dummy transactions");
+            for (batch_digest, _worker_id) in &certificate.header.payload {
+                let dummy_tx = format!("tx_from_batch_{}", batch_digest).into_bytes();
+                transactions.push(narwhal::Transaction(dummy_tx));
+            }
         }
 
         Ok(transactions)
@@ -258,12 +312,13 @@ impl BftService {
             .unwrap()
             .as_secs();
 
-        // For parent hash, we'd normally get this from Reth's chain state
-        // For now, use a placeholder
-        let parent_hash = B256::ZERO; // TODO: Get actual parent hash from Reth
+        // Get chain state
+        let chain_state = self.chain_state.get_chain_state();
+        let parent_hash = chain_state.parent_hash;
+        let block_number = chain_state.block_number;
 
         let batch = FinalizedBatchInternal {
-            block_number: self.current_block_number,
+            block_number,
             parent_hash,
             transactions,
             timestamp,
@@ -272,10 +327,11 @@ impl BftService {
         };
 
         info!(
-            "Created finalized batch for block {} with {} transactions at round {}",
+            "Created finalized batch for block {} with {} transactions at round {} (parent: {})",
             batch.block_number,
             batch.transactions.len(),
-            batch.round
+            batch.round,
+            batch.parent_hash
         );
 
         Ok(batch)

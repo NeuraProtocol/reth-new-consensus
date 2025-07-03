@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use tracing::{debug, info, warn, error};
 use alloy_primitives::B256;
 use fastcrypto::{Hash, blake2b_256};
+use blake2::{digest::Update, VarBlake2b};
 
 /// Trait for database operations that will be implemented by the consensus layer
 pub trait ConsensusDbOps: Send + Sync {
@@ -232,8 +233,7 @@ impl DagStorageInterface for MdbxDagStorage {
         
         // For latest certificates, we use a special key in the DAG vertices table
         let key = format!("latest_cert_{:?}", authority);
-        let key_hash = B256::from_slice(&blake2b_256(|hasher| {
-            use blake2::digest::Update;
+        let key_hash = B256::from_slice(&blake2b_256(|hasher: &mut blake2::VarBlake2b| {
             hasher.update(key.as_bytes());
         }));
         
@@ -249,8 +249,7 @@ impl DagStorageInterface for MdbxDagStorage {
 
     async fn get_latest_certificate(&self, authority: &PublicKey) -> Option<Certificate> {
         let key = format!("latest_cert_{:?}", authority);
-        let key_hash = B256::from_slice(&blake2b_256(|hasher| {
-            use blake2::digest::Update;
+        let key_hash = B256::from_slice(&blake2b_256(|hasher: &mut blake2::VarBlake2b| {
             hasher.update(key.as_bytes());
         }));
         

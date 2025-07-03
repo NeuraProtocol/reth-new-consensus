@@ -80,6 +80,18 @@ pub trait DatabaseOps: std::fmt::Debug {
     
     /// REAL: Remove certificates before a round
     fn remove_certificates_before_round(&self, round: u64) -> Result<u64>;
+    
+    /// REAL: Store worker batch by digest
+    fn put_worker_batch(&self, digest: B256, batch_data: Vec<u8>) -> Result<()>;
+    
+    /// REAL: Get worker batch by digest
+    fn get_worker_batch(&self, digest: B256) -> Result<Option<Vec<u8>>>;
+    
+    /// REAL: Delete worker batch by digest
+    fn delete_worker_batch(&self, digest: B256) -> Result<()>;
+    
+    /// REAL: Get multiple worker batches by digests
+    fn get_worker_batches(&self, digests: &[B256]) -> Result<Vec<Option<Vec<u8>>>>;
 }
 
 impl MdbxConsensusStorage {
@@ -378,6 +390,50 @@ impl MdbxConsensusStorage {
         } else {
             Ok(None)
         }
+    }
+    
+    /// REAL: Store worker batch by digest in MDBX
+    pub fn store_worker_batch(&self, digest: B256, batch_data: Vec<u8>) -> Result<()> {
+        let db_ops = self.db_ops.lock().unwrap();
+        let ops = db_ops.as_ref().ok_or_else(|| anyhow::anyhow!("Database operations not injected"))?;
+        
+        // REAL: Execute write operation using WorkerBatches table
+        ops.put_worker_batch(digest, batch_data)?;
+        debug!("✅ REAL: Stored worker batch {} in MDBX", digest);
+        Ok(())
+    }
+    
+    /// REAL: Get worker batch by digest from MDBX
+    pub fn get_worker_batch(&self, digest: B256) -> Result<Option<Vec<u8>>> {
+        let db_ops = self.db_ops.lock().unwrap();
+        let ops = db_ops.as_ref().ok_or_else(|| anyhow::anyhow!("Database operations not injected"))?;
+        
+        // REAL: Execute read operation using WorkerBatches table
+        let result = ops.get_worker_batch(digest)?;
+        debug!("✅ REAL: Queried worker batch {} from MDBX", digest);
+        Ok(result)
+    }
+    
+    /// REAL: Delete worker batch by digest from MDBX
+    pub fn delete_worker_batch(&self, digest: B256) -> Result<()> {
+        let db_ops = self.db_ops.lock().unwrap();
+        let ops = db_ops.as_ref().ok_or_else(|| anyhow::anyhow!("Database operations not injected"))?;
+        
+        // REAL: Execute delete operation using WorkerBatches table
+        ops.delete_worker_batch(digest)?;
+        debug!("✅ REAL: Deleted worker batch {} from MDBX", digest);
+        Ok(())
+    }
+    
+    /// REAL: Get multiple worker batches by digests from MDBX
+    pub fn get_worker_batches(&self, digests: &[B256]) -> Result<Vec<Option<Vec<u8>>>> {
+        let db_ops = self.db_ops.lock().unwrap();
+        let ops = db_ops.as_ref().ok_or_else(|| anyhow::anyhow!("Database operations not injected"))?;
+        
+        // REAL: Execute batch read operation using WorkerBatches table
+        let results = ops.get_worker_batches(digests)?;
+        debug!("✅ REAL: Queried {} worker batches from MDBX", digests.len());
+        Ok(results)
     }
 }
 

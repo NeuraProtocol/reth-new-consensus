@@ -13,7 +13,7 @@ use alloy_primitives::{B256, U256, Address, Bloom};
 use reth_execution_types::{ExecutionOutcome, BlockExecutionOutput};
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
-use tracing::{info, warn, debug};
+use tracing::{info, warn, debug, error};
 use anyhow::Result;
 use fastcrypto::traits::ToFromBytes;
 
@@ -42,6 +42,8 @@ pub struct NarwhalRethBridge {
     transaction_sender: mpsc::UnboundedSender<RethTransaction>,
     /// Channel for receiving finalized batches
     finalized_batch_receiver: mpsc::UnboundedReceiver<FinalizedBatch>,
+    /// Broadcast sender for finalized batches (to send to multiple receivers like mempool bridge)
+    finalized_batch_broadcast: tokio::sync::broadcast::Sender<FinalizedBatch>,
     /// Committee updates
     committee_sender: watch::Sender<Committee>,
     /// Current block number
@@ -107,6 +109,9 @@ impl NarwhalRethBridge {
         let (transaction_sender, transaction_receiver) = mpsc::unbounded_channel();
         let (finalized_batch_sender, finalized_batch_receiver) = mpsc::unbounded_channel();
         let (committee_sender, committee_receiver) = watch::channel(config.committee.clone());
+        
+        // Create broadcast channel for finalized batches (so mempool bridge can also listen)
+        let (finalized_batch_broadcast, _) = tokio::sync::broadcast::channel(100);
 
         // Clone values before moving them
         let committee_clone = config.committee.clone();
@@ -251,13 +256,14 @@ impl NarwhalRethBridge {
             network_event_receiver: None, // Network events are passed to the service
             transaction_sender,
             finalized_batch_receiver,
+            finalized_batch_broadcast,
             committee_sender,
             current_block_number: 1,
             current_parent_hash: B256::ZERO, // Genesis parent
             execution_outcomes: Vec::new(),
             block_executor: None,
             storage,
-            mempool_bridge: None, // TODO: Implement with_pool constructor
+            mempool_bridge: None, // Will be set via set_mempool_operations
             peer_addresses: peer_addresses_clone,
             committee: committee_clone,
             node_public_key: node_public_key_clone,
@@ -280,17 +286,11 @@ impl NarwhalRethBridge {
     /// Start the consensus service
     pub async fn start(&mut self) -> Result<()> {
         if let Some(mut service) = self.service.take() {
-            let spawn_result = service.spawn().await;
-            spawn_result?;
-            info!("Narwhal + Bullshark consensus service started");
-            
-            // Put the service back so it doesn't get dropped!
-            self.service = Some(service);
-            
-            // Connect to peers if we have addresses and networking is enabled
+            // IMPORTANT: Connect to peers BEFORE starting the consensus service
+            // This avoids the race condition where DAG service starts broadcasting before connections exist
             if let Some(ref mut network) = self.network {
                 if !self.peer_addresses.is_empty() {
-                    info!("Connecting to {} peer addresses...", self.peer_addresses.len());
+                    info!("🔗 Establishing peer connections BEFORE starting consensus service...");
                     
                     // Create address mapping from committee members to network addresses
                     let mut peer_address_map = std::collections::HashMap::new();
@@ -319,12 +319,14 @@ impl NarwhalRethBridge {
                         }
                     }
                     
-                    // Attempt connections
-                    if let Err(e) = network.connect_to_committee(peer_address_map.clone()).await {
-                        warn!("Failed to connect to some committee members: {}", e);
-                        // Continue anyway - partial connectivity is better than none
-                    } else {
-                        info!("Successfully initiated connections to committee members");
+                    // Wait for initial connections to be established
+                    let connection_timeout = std::time::Duration::from_secs(5);
+                    match network.wait_for_initial_connections(&peer_address_map, connection_timeout).await {
+                        Ok(()) => info!("✅ Initial peer connections established"),
+                        Err(e) => {
+                            warn!("⚠️ Failed to establish all peer connections: {}", e);
+                            // Continue anyway - partial connectivity is better than none
+                        }
                     }
                     
                     // Spawn a connection maintenance task with the proper peer mapping
@@ -343,12 +345,23 @@ impl NarwhalRethBridge {
                             }
                         }
                     });
+                    
+                    info!("🔄 Connection maintenance task started");
                 }
             }
             
-            // TODO: Start outbound bridge to handle broadcasting from service
-            // Since we can't clone the network, this would need to be implemented
-            // as a separate task that receives outbound messages and forwards them
+            // Initialize consensus service chain state
+            service.update_chain_state(self.current_block_number, self.current_parent_hash).await;
+            info!("Initialized consensus chain state: block {} parent {}", 
+                  self.current_block_number, self.current_parent_hash);
+            
+            // NOW start the consensus service after connections are ready
+            let spawn_result = service.spawn().await;
+            spawn_result?;
+            info!("✅ Narwhal + Bullshark consensus service started");
+            
+            // Put the service back so it doesn't get dropped!
+            self.service = Some(service);
             
             Ok(())
         } else {
@@ -366,6 +379,10 @@ impl NarwhalRethBridge {
     /// Get the next finalized batch and convert it to a Reth block
     pub async fn get_next_block(&mut self) -> Result<Option<SealedBlock>> {
         if let Some(batch) = self.finalized_batch_receiver.recv().await {
+            // Broadcast the batch to other listeners (e.g., mempool bridge)
+            // We ignore the error if there are no receivers
+            let _ = self.finalized_batch_broadcast.send(batch.clone());
+            
             let block = self.batch_to_block(batch)?;
             Ok(Some(block))
         } else {
@@ -424,6 +441,13 @@ impl NarwhalRethBridge {
         // Update our state
         self.current_block_number = batch.block_number + 1;
         self.current_parent_hash = sealed_block.hash();
+        
+        // Update consensus service chain state
+        if let Some(ref service) = self.service {
+            service.update_chain_state_sync(self.current_block_number, self.current_parent_hash);
+            debug!("Updated consensus service chain state to block {} parent {}", 
+                   self.current_block_number, self.current_parent_hash);
+        }
 
         Ok(sealed_block)
     }
@@ -440,32 +464,48 @@ impl NarwhalRethBridge {
 
     /// Set the mempool operations provider (dependency injection)
     pub fn set_mempool_operations(&mut self, mempool_ops: Box<dyn super::mempool_bridge::MempoolOperations>) -> Result<()> {
-        // Create mempool bridge if it doesn't exist
-        if self.mempool_bridge.is_none() {
-            let (consensus_tx_sender, consensus_tx_receiver) = mpsc::unbounded_channel();
-            let (_finalized_batch_sender, finalized_batch_receiver) = mpsc::unbounded_channel();
-            
-            // Store the sender for transaction submission
-            self.transaction_sender = consensus_tx_sender;
-            
-            // Create the bridge
-            let mut bridge = super::mempool_bridge::MempoolBridge::new(
-                self.transaction_sender.clone(),
-                finalized_batch_receiver,
-            );
-            
-            // Set the mempool operations
-            bridge.set_mempool_operations(mempool_ops);
-            
-            self.mempool_bridge = Some(bridge);
-        } else {
-            // Bridge already exists, just set the operations
-            if let Some(ref mut bridge) = self.mempool_bridge {
-                bridge.set_mempool_operations(mempool_ops);
+        // Create a new receiver for the mempool bridge to listen to finalized batches
+        let (mempool_finalized_sender, mempool_finalized_receiver) = mpsc::unbounded_channel();
+        
+        // Create mempool bridge with the existing transaction_sender that's connected to the DAG service
+        // and its own finalized batch receiver
+        let mut bridge = super::mempool_bridge::MempoolBridge::new(
+            self.transaction_sender.clone(),
+            mempool_finalized_receiver,
+        );
+        
+        // Set the mempool operations
+        bridge.set_mempool_operations(mempool_ops);
+        
+        // Spawn the mempool bridge tasks
+        let handles = bridge.spawn()
+            .map_err(|e| anyhow::anyhow!("Failed to spawn mempool bridge: {}", e))?;
+        
+        info!("Mempool bridge spawned with {} tasks", handles.len());
+        
+        // Spawn a task to forward finalized batches to the mempool bridge
+        let mut finalized_broadcast_receiver = self.finalized_batch_broadcast.subscribe();
+        tokio::spawn(async move {
+            // Subscribe to finalized batches and forward them to mempool bridge
+            while let Ok(batch) = finalized_broadcast_receiver.recv().await {
+                if mempool_finalized_sender.send(batch).is_err() {
+                    warn!("Mempool bridge stopped receiving finalized batches");
+                    break;
+                }
             }
+        });
+        
+        // Store the spawned tasks (we'll need to track these for shutdown)
+        // For now, just detach them
+        for handle in handles {
+            tokio::spawn(async move {
+                if let Err(e) = handle.await {
+                    error!("Mempool bridge task error: {:?}", e);
+                }
+            });
         }
         
-        info!("Mempool operations configured for consensus bridge");
+        info!("✅ Mempool operations configured and bridge running");
         Ok(())
     }
 
@@ -488,6 +528,19 @@ impl NarwhalRethBridge {
             Err(anyhow::anyhow!("Service already started"))
         }
     }
+    
+    /// Set block executor (dependency injection)
+    pub fn set_block_executor(&mut self, executor: Arc<dyn BlockExecutor + Send + Sync>) {
+        // Get chain tip from executor and update our state
+        if let Ok((block_number, parent_hash)) = executor.chain_tip() {
+            self.current_block_number = block_number + 1; // Next block number
+            self.current_parent_hash = parent_hash;
+            info!("Updated chain state from block executor: block {} parent {}", 
+                  self.current_block_number, self.current_parent_hash);
+        }
+        
+        self.block_executor = Some(executor);
+    }
 }
 
 /// Helper function to create a test committee
@@ -496,7 +549,7 @@ pub fn create_test_committee(authorities: Vec<PublicKey>) -> Committee {
     for (_i, authority) in authorities.into_iter().enumerate() {
         authority_map.insert(authority, 100); // Equal stake of 100 for all authorities
     }
-    Committee::new(0, authority_map)
+    Committee::new_simple(0, authority_map)
 }
 
 /// Configuration for Reth integration with Narwhal + Bullshark

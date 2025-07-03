@@ -359,10 +359,10 @@ impl DagService {
              if sender.send(DagMessage::Header(header.clone())).is_err() {
                  warn!("Failed to send header for broadcast - channel closed");
              } else {
-                 debug!("Sent header {} for network broadcast", header.id);
+                 info!("✅ Sent header {} to network sender for broadcast", header.id);
              }
          } else {
-             debug!("No network sender configured, skipping header broadcast");
+             warn!("❌ No network sender configured, skipping header broadcast");
          }
          
          info!("Created header {} for round {}", header.id, header.round);

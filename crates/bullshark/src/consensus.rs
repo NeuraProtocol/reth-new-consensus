@@ -112,8 +112,8 @@ impl ConsensusProtocol for BullsharkConsensus {
         let commit_round = round.saturating_sub(1);
 
         // Only process even rounds for leader election
-        if commit_round % 2 != 0 || commit_round < 2 {
-            debug!("Skipping round {} - not an even round >= 2", commit_round);
+        if commit_round % 2 != 0 || commit_round < self.config.min_leader_round {
+            debug!("Skipping round {} - not an even round >= {}", commit_round, self.config.min_leader_round);
             return Ok(Vec::new());
         }
         

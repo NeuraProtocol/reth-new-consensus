@@ -7,6 +7,13 @@
 
 // Note: moved test-only crate declarations to test modules to avoid issues
 
+// These are used by parent crates but not directly in this crate
+use reth_primitives as _;
+use reth_execution_types as _;
+use revm as _;
+use url as _;
+use uuid as _;
+
 pub mod dag_service;
 pub mod gossip;
 pub mod storage;
@@ -24,6 +31,11 @@ pub mod rpc;
 pub mod aggregators;
 pub mod batch_maker;
 pub mod quorum_waiter;
+pub mod crypto;
+pub mod worker_handlers;
+pub mod worker_network;
+pub mod batch_store;
+pub mod worker_cache;
 
 // Re-export key types
 pub use dag_service::{DagService, DagMessage};
@@ -35,13 +47,16 @@ pub use types::*;
 pub use primary::Primary;
 pub use worker::Worker;
 pub use error::{DagError, DagResult};
+pub use batch_store::{InMemoryBatchStore, MdbxBatchStore};
 // pub use config::NarwhalConfig; // Using local definition instead
 
 use serde::{Deserialize, Serialize};
 use alloy_primitives::B256;
 use alloy_consensus::TxEnvelope;
+use alloy_rlp::Decodable;
+use alloy_eips::eip2718::Decodable2718;
 use fastcrypto::Hash;
-use blake2::digest::Update;
+use blake2::{digest::Update, VarBlake2b};
 
 /// A transaction in the Narwhal DAG - bridging to Reth transactions
 #[derive(Clone, Serialize, Deserialize, Default, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -53,11 +68,13 @@ impl Transaction {
         Transaction(bytes)
     }
     
-    /// Convert to alloy transaction envelope (placeholder implementation)
+    /// Convert to alloy transaction envelope
     pub fn to_alloy_transaction(&self) -> Result<TxEnvelope, DagError> {
-        // For now, return an error - this would require proper RLP decoding
-        // TODO: Implement proper RLP decoding for alloy transaction types
-        Err(DagError::InvalidTransaction("Transaction decoding not yet implemented".to_string()))
+        // The transaction bytes are already RLP encoded from Reth
+        // We can decode them directly using decode_2718 for EIP-2718 transactions
+        let mut slice = self.0.as_slice();
+        TxEnvelope::decode_2718(&mut slice)
+            .map_err(|e| DagError::InvalidTransaction(format!("Failed to decode transaction: {}", e)))
     }
     
     /// Get the raw bytes
@@ -98,7 +115,7 @@ impl Hash for Batch {
     type TypedDigest = BatchDigest;
 
     fn digest(&self) -> Self::TypedDigest {
-        BatchDigest(fastcrypto::blake2b_256(|hasher| {
+        BatchDigest(fastcrypto::blake2b_256(|hasher: &mut blake2::VarBlake2b| {
             self.0.iter().for_each(|tx| hasher.update(tx.as_bytes()))
         }))
     }
@@ -136,6 +153,8 @@ pub struct NarwhalConfig {
     pub gc_depth: Round,
     /// Committee size
     pub committee_size: usize,
+    /// Use in-memory batch storage (for testing)
+    pub batch_storage_memory: bool,
 }
 
 impl Default for NarwhalConfig {
@@ -146,6 +165,7 @@ impl Default for NarwhalConfig {
             num_workers: 4,
             gc_depth: 50,
             committee_size: 4,
+            batch_storage_memory: true,
         }
     }
 }

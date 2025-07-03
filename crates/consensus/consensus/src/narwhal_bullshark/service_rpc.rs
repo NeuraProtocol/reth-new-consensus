@@ -144,10 +144,10 @@ impl ConsensusApiServer for ServiceConsensusRpcImpl {
             // No registry - use committee directly
             committee.authorities
                 .iter()
-                .map(|(pub_key, &stake)| ValidatorSummary {
+                .map(|(pub_key, authority)| ValidatorSummary {
                     evm_address: Address::ZERO, // Unknown without registry
                     consensus_key: pub_key.encode_base64(),
-                    stake,
+                    stake: authority.stake,
                     active: true,
                     name: None,
                 })
@@ -428,7 +428,7 @@ impl ConsensusApiServer for ServiceConsensusRpcImpl {
 
     async fn get_config(&self) -> RpcResult<ConsensusConfig> {
         let committee = self.committee.read().await;
-        let total_stake: u64 = committee.authorities.values().sum();
+        let total_stake: u64 = committee.authorities.values().map(|a| a.stake).sum();
         let quorum_threshold = committee.quorum_threshold() as f32 / total_stake as f32;
         
         Ok(ConsensusConfig {

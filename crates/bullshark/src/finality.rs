@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{info, warn, debug};
 use fastcrypto::Hash;
-use blake2::digest::Update;
+use blake2::{digest::Update, VarBlake2b};
 use rand_08;
 use fastcrypto::traits::KeyPair;
 
@@ -177,7 +177,7 @@ impl FinalityEngine {
 
         // Update chain tip hash (would be set by actual block execution)
         // For now, use a deterministic hash based on the round
-        self.chain_tip_hash = B256::from_slice(&fastcrypto::blake2b_256(|hasher| {
+        self.chain_tip_hash = B256::from_slice(&fastcrypto::blake2b_256(|hasher: &mut blake2::VarBlake2b| {
             hasher.update(round.to_le_bytes());
             hasher.update(self.current_block_number.to_le_bytes());
         }));

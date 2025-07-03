@@ -6,6 +6,7 @@
 use crate::{
     DagError, DagResult, Batch, BatchDigest, WorkerId,
     types::{Committee, PublicKey},
+    worker_network::{WorkerNetwork, WorkerInfo},
 };
 use tokio::{
     sync::{mpsc, watch},
@@ -14,6 +15,7 @@ use tokio::{
 };
 use tracing::{debug, info, warn};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use fastcrypto::Hash;
 
 /// Message from other workers acknowledging a batch
@@ -47,6 +49,10 @@ pub struct QuorumWaiter {
     pending_batches: HashMap<BatchDigest, PendingBatch>,
     /// Timeout for batch acknowledgment
     batch_timeout: Duration,
+    /// Worker network for batch replication
+    worker_network: Option<WorkerNetwork>,
+    /// Batch store for persistence
+    store: Arc<dyn crate::storage_trait::BatchStore>,
 }
 
 struct PendingBatch {
@@ -69,6 +75,7 @@ impl QuorumWaiter {
         rx_batch_ack: mpsc::UnboundedReceiver<BatchAck>,
         rx_reconfigure: watch::Receiver<Committee>,
         batch_timeout: Duration,
+        store: Arc<dyn crate::storage_trait::BatchStore>,
     ) -> Self {
         Self {
             worker_id,
@@ -80,7 +87,14 @@ impl QuorumWaiter {
             rx_reconfigure,
             pending_batches: HashMap::new(),
             batch_timeout,
+            worker_network: None,
+            store,
         }
+    }
+    
+    /// Set the worker network for batch replication
+    pub fn set_worker_network(&mut self, network: WorkerNetwork) {
+        self.worker_network = Some(network);
     }
 
     /// Spawn the quorum waiter task
@@ -137,6 +151,12 @@ impl QuorumWaiter {
             batch.0.len()
         );
         
+        // Store the batch in persistent storage
+        if let Err(e) = self.store.write_batch(&digest, &batch).await {
+            warn!("Failed to store batch {}: {}", digest, e);
+            return Err(e);
+        }
+        
         // Create pending batch entry
         let pending = PendingBatch {
             batch: batch.clone(),
@@ -146,8 +166,54 @@ impl QuorumWaiter {
         
         self.pending_batches.insert(digest, pending);
         
-        // TODO: Broadcast batch to other workers
-        // For now, we'll simulate immediate local acknowledgment
+        // Replicate batch to other workers
+        if let Some(ref network) = self.worker_network {
+            // Get all other workers we need to replicate to
+            let mut replication_targets = Vec::new();
+            
+            for (authority_name, authority_info) in &self.committee.authorities {
+                // Skip our own primary's workers
+                if authority_name == &self.primary_name {
+                    continue;
+                }
+                
+                // Add all workers of this authority based on configuration
+                for worker_id in 0..authority_info.workers.num_workers {
+                    replication_targets.push((authority_name.clone(), worker_id));
+                }
+            }
+            
+            let num_targets = replication_targets.len();
+            debug!(
+                "Worker {} replicating batch {} to {} workers",
+                self.worker_id,
+                digest,
+                num_targets
+            );
+            
+            // Broadcast batch to all target workers
+            let results = network.broadcast_batch(replication_targets, batch.clone()).await;
+            
+            let mut success_count = 0;
+            for result in results {
+                match result {
+                    Ok(_) => success_count += 1,
+                    Err(e) => debug!("Failed to replicate batch: {:?}", e),
+                }
+            }
+            
+            debug!(
+                "Worker {} successfully replicated batch {} to {}/{} workers",
+                self.worker_id,
+                digest,
+                success_count,
+                num_targets
+            );
+        } else {
+            warn!("Worker {} has no network configured for batch replication", self.worker_id);
+        }
+        
+        // Always include local acknowledgment
         let local_ack = BatchAck {
             digest,
             from_worker: self.worker_id,

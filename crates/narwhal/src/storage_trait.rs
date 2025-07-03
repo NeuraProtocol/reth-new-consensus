@@ -1,7 +1,7 @@
 //! Storage trait for Narwhal DAG
 //! This allows us to have different implementations (in-memory, MDBX, etc.)
 
-use crate::{DagError, DagResult, types::*, Round};
+use crate::{DagError, DagResult, types::*, Round, Batch, BatchDigest};
 use async_trait::async_trait;
 use std::sync::Arc;
 
@@ -41,3 +41,19 @@ pub trait DagStorageInterface: Send + Sync {
 
 /// Type alias for storage instances
 pub type DagStorageRef = Arc<dyn DagStorageInterface>;
+
+/// Batch storage interface for workers
+#[async_trait]
+pub trait BatchStore: Send + Sync {
+    /// Write a batch to storage
+    async fn write_batch(&self, digest: &BatchDigest, batch: &Batch) -> DagResult<()>;
+    
+    /// Read a batch from storage
+    async fn read_batch(&self, digest: &BatchDigest) -> DagResult<Option<Batch>>;
+    
+    /// Delete a batch from storage
+    async fn delete_batch(&self, digest: &BatchDigest) -> DagResult<()>;
+    
+    /// Read multiple batches
+    async fn read_batches(&self, digests: &[BatchDigest]) -> DagResult<Vec<Option<Batch>>>;
+}

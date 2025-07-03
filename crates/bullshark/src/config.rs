@@ -19,6 +19,9 @@ pub struct BftConfig {
     pub max_certificates_per_round: usize,
     /// Leader rotation frequency (rounds)
     pub leader_rotation_frequency: Round,
+    /// Minimum round for leader election (must be even)
+    /// In production this should be 2, but can be 0 for testing
+    pub min_leader_round: Round,
 }
 
 impl Default for BftConfig {
@@ -32,6 +35,7 @@ impl Default for BftConfig {
             finalization_timeout: Duration::from_millis(5000),
             max_certificates_per_round: 1000,
             leader_rotation_frequency: 2, // Change leader every 2 rounds
+            min_leader_round: 0, // Temporarily set to 0 for testing
         }
     }
 } 

@@ -10,6 +10,8 @@ reth-execution-types.workspace = true
 revm.workspace = true
 alloy-primitives.workspace = true
 alloy-consensus.workspace = true
+alloy-rlp.workspace = true
+alloy-eips.workspace = true
 
 # Consensus dependencies - using existing version
 fastcrypto = "=0.1.2"
@@ -43,6 +45,7 @@ indexmap = { version = "2.0", features = ["serde"] }
 roaring = "0.10"
 derive_builder = "0.12"
 prometheus = "0.13"
+arc-swap = "1.6"
 
 [build-dependencies]
 anemo-build = { path = "../../anemo-reference/crates/anemo-build" }

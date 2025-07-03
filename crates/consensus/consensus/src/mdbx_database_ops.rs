@@ -38,6 +38,8 @@ pub trait ConsensusDbTx: Send + Sync {
     fn get_votes(&self, header_digest: B256) -> Result<Vec<Vec<u8>>>;
     /// Get certificate digests by round from ConsensusCertificatesByRound table
     fn get_certificates_by_round(&self, round: u64) -> Result<Vec<Vec<u8>>>;
+    /// Get worker batch by digest from WorkerBatches table
+    fn get_worker_batch(&self, digest: B256) -> Result<Option<Vec<u8>>>;
 }
 
 /// Trait for read-write database transactions
@@ -60,6 +62,10 @@ pub trait ConsensusDbTxMut: ConsensusDbTx {
     fn index_certificate_by_round(&mut self, round: u64, cert_digest: Vec<u8>) -> Result<()>;
     /// Remove certificates before a round from all tables
     fn remove_certificates_before_round(&mut self, round: u64) -> Result<u64>;
+    /// Put worker batch by digest to WorkerBatches table
+    fn put_worker_batch(&mut self, digest: B256, batch_data: Vec<u8>) -> Result<()>;
+    /// Delete worker batch by digest from WorkerBatches table
+    fn delete_worker_batch(&mut self, digest: B256) -> Result<()>;
     /// Commit the transaction
     fn commit(self: Box<Self>) -> Result<()>;
 }
@@ -248,5 +254,45 @@ impl DatabaseOps for RethMdbxDatabaseOps {
         tx.commit()?;
         debug!("✅ REAL: Removed {} certificates before round {} from MDBX", removed_count, round);
         Ok(removed_count)
+    }
+    
+    /// REAL: Store worker batch by digest
+    fn put_worker_batch(&self, digest: B256, batch_data: Vec<u8>) -> Result<()> {
+        let mut tx = self.database.tx_rw()?;
+        tx.put_worker_batch(digest, batch_data)?;
+        tx.commit()?;
+        debug!("✅ REAL: Put worker batch {} to MDBX", digest);
+        Ok(())
+    }
+    
+    /// REAL: Get worker batch by digest
+    fn get_worker_batch(&self, digest: B256) -> Result<Option<Vec<u8>>> {
+        let tx = self.database.tx_ro()?;
+        let result = tx.get_worker_batch(digest)?;
+        debug!("✅ REAL: Read worker batch {} from MDBX", digest);
+        Ok(result)
+    }
+    
+    /// REAL: Delete worker batch by digest
+    fn delete_worker_batch(&self, digest: B256) -> Result<()> {
+        let mut tx = self.database.tx_rw()?;
+        tx.delete_worker_batch(digest)?;
+        tx.commit()?;
+        debug!("✅ REAL: Deleted worker batch {} from MDBX", digest);
+        Ok(())
+    }
+    
+    /// REAL: Get multiple worker batches by digests
+    fn get_worker_batches(&self, digests: &[B256]) -> Result<Vec<Option<Vec<u8>>>> {
+        let tx = self.database.tx_ro()?;
+        let mut results = Vec::with_capacity(digests.len());
+        
+        for digest in digests {
+            let result = tx.get_worker_batch(*digest)?;
+            results.push(result);
+        }
+        
+        debug!("✅ REAL: Read {} worker batches from MDBX", digests.len());
+        Ok(results)
     }
 } 

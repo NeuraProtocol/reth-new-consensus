@@ -903,7 +903,7 @@ impl ConsensusApiServer for ConsensusRpcImpl {
         let committee = bridge.get_current_committee();
         
         // Calculate actual quorum threshold
-        let total_stake: u64 = committee.authorities.values().sum();
+        let total_stake: u64 = committee.authorities.values().map(|a| a.stake).sum();
         let quorum_threshold = committee.quorum_threshold() as f32 / total_stake as f32;
         
         Ok(ConsensusConfig {

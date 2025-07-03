@@ -65,6 +65,63 @@ fn main() {
         )
         .build();
 
+    // Define the Worker-to-Worker service for batch replication
+    let worker_service = anemo_build::manual::Service::builder()
+        .name("WorkerToWorker")
+        .package("narwhal.worker")
+        .method(
+            anemo_build::manual::Method::builder()
+                .name("send_message")
+                .route_name("SendMessage")
+                .request_type("crate::rpc::WorkerMessage")
+                .response_type("()")
+                .codec_path("anemo::rpc::codec::BincodeCodec")
+                .build(),
+        )
+        .method(
+            anemo_build::manual::Method::builder()
+                .name("request_batches")
+                .route_name("RequestBatches")
+                .request_type("crate::rpc::WorkerBatchRequest")
+                .response_type("crate::rpc::WorkerBatchResponse")
+                .codec_path("anemo::rpc::codec::BincodeCodec")
+                .build(),
+        )
+        .build();
+    
+    // Define the Primary-to-Worker service
+    let primary_worker_service = anemo_build::manual::Service::builder()
+        .name("PrimaryToWorker")
+        .package("narwhal.primary")
+        .method(
+            anemo_build::manual::Method::builder()
+                .name("send_message")
+                .route_name("SendMessage")
+                .request_type("crate::rpc::PrimaryWorkerMessage")
+                .response_type("()")
+                .codec_path("anemo::rpc::codec::BincodeCodec")
+                .build(),
+        )
+        .method(
+            anemo_build::manual::Method::builder()
+                .name("synchronize")
+                .route_name("Synchronize")
+                .request_type("crate::rpc::WorkerSynchronizeMessage")
+                .response_type("()")
+                .codec_path("anemo::rpc::codec::BincodeCodec")
+                .build(),
+        )
+        .method(
+            anemo_build::manual::Method::builder()
+                .name("request_batch")
+                .route_name("RequestBatch")
+                .request_type("crate::rpc::RequestBatchRequest")
+                .response_type("crate::rpc::RequestBatchResponse")
+                .codec_path("anemo::rpc::codec::BincodeCodec")
+                .build(),
+        )
+        .build();
+
     anemo_build::manual::Builder::new()
-        .compile(&[consensus_service, dag_service]);
+        .compile(&[consensus_service, dag_service, worker_service, primary_worker_service]);
 } 
