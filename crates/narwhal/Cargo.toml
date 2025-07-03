@@ -46,6 +46,7 @@ roaring = "0.10"
 derive_builder = "0.12"
 prometheus = "0.13"
 arc-swap = "1.6"
+backoff = { version = "0.4", features = ["tokio"] }
 
 [build-dependencies]
 anemo-build = { path = "../../anemo-reference/crates/anemo-build" }

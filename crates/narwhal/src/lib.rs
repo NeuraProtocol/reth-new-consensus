@@ -36,6 +36,8 @@ pub mod worker_handlers;
 pub mod worker_network;
 pub mod batch_store;
 pub mod worker_cache;
+pub mod retry;
+pub mod bounded_executor;
 
 // Re-export key types
 pub use dag_service::{DagService, DagMessage};

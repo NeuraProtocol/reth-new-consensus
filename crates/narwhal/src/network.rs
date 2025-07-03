@@ -8,9 +8,12 @@ use crate::{
     },
     types::{Certificate, Header, Vote, Committee, PublicKey, CertificateDigest, Authority, WorkerConfiguration},
     Batch, BatchDigest, DagError, DagResult,
+    retry::{RetryConfig, classify_error},
+    bounded_executor::{BoundedExecutor, CancelOnDropHandle},
 };
 use anemo::{Network, Request, Response, Router, PeerId};
 use anemo_tower::trace::TraceLayer;
+use anyhow::anyhow;
 use bytes::Bytes;
 use fastcrypto::{traits::{KeyPair, ToFromBytes}, Hash};
 use std::{
@@ -207,6 +210,12 @@ impl NarwhalDag for NarwhalDagService {
     }
 }
 
+/// Maximum concurrent tasks per peer connection
+const MAX_CONCURRENT_TASKS_PER_PEER: usize = 100;
+
+/// Maximum total concurrent network tasks
+const MAX_TOTAL_CONCURRENT_TASKS: usize = 1000;
+
 /// Main Narwhal network implementation using anemo
 pub struct NarwhalNetwork {
     /// Our node's consensus public key
@@ -223,6 +232,12 @@ pub struct NarwhalNetwork {
     certificate_store: Arc<RwLock<HashMap<CertificateDigest, Certificate>>>,
     /// Batch storage
     batch_store: Arc<RwLock<HashMap<BatchDigest, Batch>>>,
+    /// Retry configuration for network operations
+    retry_config: RetryConfig,
+    /// Bounded executors for each peer to limit concurrent operations
+    peer_executors: Arc<RwLock<HashMap<PublicKey, BoundedExecutor>>>,
+    /// Global bounded executor for all network operations
+    global_executor: BoundedExecutor,
 }
 
 impl std::fmt::Debug for NarwhalNetwork {
@@ -246,6 +261,9 @@ impl Clone for NarwhalNetwork {
             event_sender: self.event_sender.clone(),
             certificate_store: self.certificate_store.clone(),
             batch_store: self.batch_store.clone(),
+            retry_config: self.retry_config.clone(),
+            peer_executors: self.peer_executors.clone(),
+            global_executor: self.global_executor.clone(),
         }
     }
 }
@@ -292,6 +310,19 @@ impl NarwhalNetwork {
             network.peer_id()
         );
 
+        // Create retry configuration for network operations
+        let retry_config = RetryConfig {
+            // Retry forever for critical consensus messages
+            retrying_max_elapsed_time: None,
+            ..Default::default()
+        };
+
+        // Create global bounded executor
+        let global_executor = BoundedExecutor::new_current(
+            MAX_TOTAL_CONCURRENT_TASKS,
+            "narwhal-global"
+        );
+
         let narwhal_network = Self {
             node_key,
             committee,
@@ -300,24 +331,41 @@ impl NarwhalNetwork {
             event_sender,
             certificate_store,
             batch_store,
+            retry_config,
+            peer_executors: Arc::new(RwLock::new(HashMap::new())),
+            global_executor,
         };
 
         Ok((narwhal_network, event_receiver))
     }
 
-    /// Add a peer with its network address
+    /// Add a peer with its network address using retry logic
     pub async fn add_peer(
         &self,
         consensus_key: PublicKey,
         network_address: SocketAddr,
     ) -> DagResult<()> {
         debug!("Connecting to peer {} at {}", consensus_key, network_address);
-
-        // Connect to peer using anemo
-        let peer_id = self
-            .network
-            .connect(network_address)
-            .await
+        
+        let network = self.network.clone();
+        let operation = format!("connect-to-{}", consensus_key);
+        
+        // Use global executor for connection attempts
+        let handle = self.global_executor.spawn_with_retries(
+            self.retry_config.clone(),
+            operation,
+            move || {
+                let network = network.clone();
+                async move {
+                    network.connect(network_address)
+                        .await
+                        .map_err(|e| classify_error(e))
+                }
+            }
+        );
+        
+        let peer_id = handle.await
+            .map_err(|e| DagError::Network(format!("Task join error: {}", e)))?
             .map_err(|e| DagError::Network(format!("Failed to connect to peer: {}", e)))?;
 
         // Store the mapping
@@ -350,23 +398,10 @@ impl NarwhalNetwork {
                     let peer_map_clone = self.peer_map.clone();
                     let event_sender_clone = self.event_sender.clone();
 
+                    // Create a future that uses add_peer with retry logic
+                    let self_clone = self.clone();
                     let task = async move {
-                        match network_clone.connect(address_clone).await {
-                            Ok(peer_id) => {
-                                peer_map_clone
-                                    .write()
-                                    .await
-                                    .insert(authority_clone.clone(), peer_id);
-                                let _ = event_sender_clone
-                                    .send(NetworkEvent::PeerConnected(authority_clone.clone()));
-                                info!("Connected to committee member: {} ({})", authority_clone, peer_id);
-                                Ok(())
-                            }
-                            Err(e) => {
-                                warn!("Failed to connect to {}: {}", authority_clone, e);
-                                Err(DagError::Network(format!("Connection failed: {}", e)))
-                            }
-                        }
+                        self_clone.add_peer(authority_clone, address_clone).await
                     };
                     connection_tasks.push(task);
                 } else {
@@ -396,151 +431,38 @@ impl NarwhalNetwork {
 
     /// Broadcast a header to all connected peers
     pub async fn broadcast_header(&self, header: Header) -> DagResult<()> {
-        debug!("Broadcasting header: {:?}", header);
-        let peer_map = self.peer_map.read().await;
-
-        let mut tasks = Vec::new();
-        for (consensus_key, &peer_id) in peer_map.iter() {
-            if consensus_key != &self.node_key {
-                let network = self.network.clone();
-                let header_clone = header.clone();
-
-                let task = async move {
-                    if let Some(peer) = network.peer(peer_id) {
-                        let mut client = NarwhalConsensusClient::new(peer);
-                        match client.submit_header(header_clone).await {
-                            Ok(_) => {
-                                debug!("Successfully sent header to peer {}", consensus_key);
-                                Ok(())
-                            }
-                            Err(e) => {
-                                warn!("Failed to send header to {}: {:?}", consensus_key, e);
-                                Err(DagError::Network(format!("RPC failed: {:?}", e)))
-                            }
-                        }
-                    } else {
-                        Err(DagError::Network("Peer not found".to_string()))
-                    }
-                };
-                tasks.push(task);
+        self.broadcast_with_retry(
+            header,
+            "header",
+            |peer, header| async move {
+                let mut client = NarwhalConsensusClient::new(peer);
+                client.submit_header(header).await.map(|_| ())
             }
-        }
-
-        // Execute all broadcasts concurrently
-        let results = futures::future::join_all(tasks).await;
-        let successful_sends = results.iter().filter(|r| r.is_ok()).count();
-
-        let total_peers = results.len();
-        if successful_sends == 0 && total_peers > 0 {
-            warn!("Header broadcast FAILED: 0/{} peers received the header", total_peers);
-        } else if successful_sends < total_peers {
-            info!("Header broadcast partial: {}/{} peers received the header", successful_sends, total_peers);
-        } else if total_peers > 0 {
-            info!("Header broadcast complete: {}/{} peers received the header", successful_sends, total_peers);
-        }
-        
-        Ok(())
+        ).await.map(|_| ())
     }
 
     /// Broadcast a vote to all connected peers
     pub async fn broadcast_vote(&self, vote: Vote) -> DagResult<()> {
-        debug!("Broadcasting vote: {:?}", vote);
-        let peer_map = self.peer_map.read().await;
-        
-        if peer_map.is_empty() {
-            warn!("Cannot broadcast vote - no peers in peer map!");
-            return Ok(());
-        }
-
-        let mut tasks = Vec::new();
-        for (consensus_key, &peer_id) in peer_map.iter() {
-            if consensus_key != &self.node_key {
-                let network = self.network.clone();
-                let vote_clone = vote.clone();
-
-                let task = async move {
-                    if let Some(peer) = network.peer(peer_id) {
-                        let mut client = NarwhalConsensusClient::new(peer);
-                        match client.submit_vote(vote_clone).await {
-                            Ok(_) => {
-                                debug!("Successfully sent vote to peer {}", consensus_key);
-                                Ok(())
-                            }
-                            Err(e) => {
-                                warn!("Failed to send vote to {}: {:?}", consensus_key, e);
-                                Err(DagError::Network(format!("RPC failed: {:?}", e)))
-                            }
-                        }
-                    } else {
-                        Err(DagError::Network("Peer not found".to_string()))
-                    }
-                };
-                tasks.push(task);
+        self.broadcast_with_retry(
+            vote,
+            "vote",
+            |peer, vote| async move {
+                let mut client = NarwhalConsensusClient::new(peer);
+                client.submit_vote(vote).await.map(|_| ())
             }
-        }
-
-        // Execute all broadcasts concurrently
-        let results = futures::future::join_all(tasks).await;
-        let successful_sends = results.iter().filter(|r| r.is_ok()).count();
-
-        let total_peers = results.len();
-        if successful_sends == 0 && total_peers > 0 {
-            warn!("Vote broadcast FAILED: 0/{} peers received the vote", total_peers);
-        } else if successful_sends < total_peers {
-            info!("Vote broadcast partial: {}/{} peers received the vote", successful_sends, total_peers);
-        } else if total_peers > 0 {
-            info!("Vote broadcast complete: {}/{} peers received the vote", successful_sends, total_peers);
-        }
-        
-        Ok(())
+        ).await.map(|_| ())
     }
 
     /// Broadcast a certificate to all connected peers
     pub async fn broadcast_certificate(&self, certificate: Certificate) -> DagResult<()> {
-        debug!("Broadcasting certificate: {:?}", certificate);
-        let peer_map = self.peer_map.read().await;
-
-        let mut tasks = Vec::new();
-        for (consensus_key, &peer_id) in peer_map.iter() {
-            if consensus_key != &self.node_key {
-                let network = self.network.clone();
-                let cert_clone = certificate.clone();
-
-                let task = async move {
-                    if let Some(peer) = network.peer(peer_id) {
-                        let mut client = NarwhalConsensusClient::new(peer);
-                        match client.submit_certificate(cert_clone).await {
-                            Ok(_) => {
-                                debug!("Successfully sent certificate to peer {}", consensus_key);
-                                Ok(())
-                            }
-                            Err(e) => {
-                                warn!("Failed to send certificate to {}: {:?}", consensus_key, e);
-                                Err(DagError::Network(format!("RPC failed: {:?}", e)))
-                            }
-                        }
-                    } else {
-                        Err(DagError::Network("Peer not found".to_string()))
-                    }
-                };
-                tasks.push(task);
+        self.broadcast_with_retry(
+            certificate,
+            "certificate",
+            |peer, certificate| async move {
+                let mut client = NarwhalConsensusClient::new(peer);
+                client.submit_certificate(certificate).await.map(|_| ())
             }
-        }
-
-        // Execute all broadcasts concurrently
-        let results = futures::future::join_all(tasks).await;
-        let successful_sends = results.iter().filter(|r| r.is_ok()).count();
-
-        let total_peers = results.len();
-        if successful_sends == 0 && total_peers > 0 {
-            warn!("Certificate broadcast FAILED: 0/{} peers received the certificate", total_peers);
-        } else if successful_sends < total_peers {
-            info!("Certificate broadcast partial: {}/{} peers received the certificate", successful_sends, total_peers);
-        } else if total_peers > 0 {
-            info!("Certificate broadcast complete: {}/{} peers received the certificate", successful_sends, total_peers);
-        }
-        
-        Ok(())
+        ).await.map(|_| ())
     }
 
     /// Request certificates from a specific peer
@@ -549,37 +471,30 @@ impl NarwhalNetwork {
         peer_key: &PublicKey,
         certificate_digests: Vec<CertificateDigest>,
     ) -> DagResult<Vec<Certificate>> {
-        let peer_map = self.peer_map.read().await;
-
-        if let Some(&peer_id) = peer_map.get(peer_key) {
-            if let Some(peer) = self.network.peer(peer_id) {
-                let mut client = NarwhalConsensusClient::new(peer);
-                let request = GetCertificatesRequest {
-                    digests: certificate_digests,
-                };
-
-                match client.get_certificates(request).await {
-                    Ok(response) => {
-                        let response = response.into_inner();
-                        debug!(
-                            "Received {} certificates from peer {}, {} missing",
-                            response.certificates.len(),
-                            peer_key,
-                            response.missing.len()
-                        );
-                        Ok(response.certificates)
-                    }
-                    Err(e) => {
-                        warn!("Failed to request certificates from peer {}: {:?}", peer_key, e);
-                        Err(DagError::Network(format!("RPC failed: {:?}", e)))
-                    }
+        let operation = format!("request-certificates-from-{}", peer_key);
+        
+        self.send_with_retry(
+            peer_key.clone(),
+            operation,
+            move |peer| {
+                let digests = certificate_digests.clone();
+                async move {
+                    let mut client = NarwhalConsensusClient::new(peer);
+                    let request = GetCertificatesRequest { digests };
+                    
+                    client.get_certificates(request).await
+                        .map(|response| {
+                            let response = response.into_inner();
+                            debug!(
+                                "Received {} certificates, {} missing",
+                                response.certificates.len(),
+                                response.missing.len()
+                            );
+                            response.certificates
+                        })
                 }
-            } else {
-                Err(DagError::Network("Peer not connected".to_string()))
             }
-        } else {
-            Err(DagError::Network(format!("Peer {} not found", peer_key)))
-        }
+        ).await
     }
 
     /// Submit a batch to the DAG
@@ -666,6 +581,129 @@ impl NarwhalNetwork {
         self.peer_map.write().await.clear();
 
         Ok(())
+    }
+
+    /// Get or create a bounded executor for a specific peer
+    async fn get_peer_executor(&self, peer_key: &PublicKey) -> BoundedExecutor {
+        let mut executors = self.peer_executors.write().await;
+        executors.entry(peer_key.clone())
+            .or_insert_with(|| {
+                BoundedExecutor::new_current(
+                    MAX_CONCURRENT_TASKS_PER_PEER,
+                    format!("peer-{}", peer_key)
+                )
+            })
+            .clone()
+    }
+
+    /// Send a message to a peer with retry logic
+    async fn send_with_retry<F, Fut, T>(
+        &self,
+        peer_key: PublicKey,
+        operation_name: String,
+        f: F,
+    ) -> Result<T, DagError>
+    where
+        F: Fn(anemo::Peer) -> Fut + Send + Sync + 'static + Clone,
+        Fut: std::future::Future<Output = Result<T, anemo::rpc::Status>> + Send,
+        T: Send + 'static,
+    {
+        let network = self.network.clone();
+        let peer_map = self.peer_map.read().await;
+        
+        let peer_id = peer_map.get(&peer_key)
+            .ok_or_else(|| DagError::Network(format!("Peer {} not in peer map", peer_key)))?;
+        
+        let peer_id = *peer_id;
+        let executor = self.get_peer_executor(&peer_key).await;
+        
+        // Create the retry operation
+        let handle = executor.spawn_with_retries(
+            self.retry_config.clone(),
+            operation_name,
+            move || {
+                let network = network.clone();
+                let f = f.clone();
+                async move {
+                    if let Some(peer) = network.peer(peer_id) {
+                        f(peer).await
+                            .map_err(|e| backoff::Error::transient(anemo::Error::msg(format!("RPC error: {:?}", e))))
+                    } else {
+                        Err(backoff::Error::transient(anemo::Error::msg(format!(
+                            "Peer {} not connected", peer_id
+                        ))))
+                    }
+                }
+            }
+        );
+        
+        // Wait for the result
+        handle.await
+            .map_err(|e| DagError::Network(format!("Task join error: {}", e)))?
+            .map_err(|e| DagError::Network(format!("Network error: {}", e)))
+    }
+
+    /// Broadcast a message to all peers with retry logic
+    async fn broadcast_with_retry<M, F, Fut>(
+        &self,
+        message: M,
+        operation_name: &str,
+        make_client_fn: F,
+    ) -> DagResult<usize>
+    where
+        M: Clone + Send + Sync + 'static + std::fmt::Debug,
+        F: Fn(anemo::Peer, M) -> Fut + Send + Sync + 'static + Clone,
+        Fut: std::future::Future<Output = Result<(), anemo::rpc::Status>> + Send,
+    {
+        debug!("Broadcasting {} to all peers", operation_name);
+        let peer_map = self.peer_map.read().await;
+        
+        if peer_map.is_empty() {
+            warn!("Cannot broadcast {} - no peers in peer map!", operation_name);
+            return Ok(0);
+        }
+
+        let mut handles = Vec::new();
+        
+        for (consensus_key, _) in peer_map.iter() {
+            if consensus_key == &self.node_key {
+                continue; // Skip self
+            }
+            
+            let consensus_key = consensus_key.clone();
+            let message_clone = message.clone();
+            let operation = format!("{}-to-{}", operation_name, consensus_key);
+            
+            let make_client_fn = make_client_fn.clone();
+            let future = self.send_with_retry(
+                consensus_key,
+                operation,
+                move |peer| {
+                    let message = message_clone.clone();
+                    let make_client_fn = make_client_fn.clone();
+                    async move {
+                        make_client_fn(peer, message).await
+                    }
+                }
+            );
+            
+            handles.push(future);
+        }
+        
+        // Execute all broadcasts concurrently
+        let results = futures::future::join_all(handles).await;
+        let successful_sends = results.iter().filter(|r| r.is_ok()).count();
+        let total_peers = results.len();
+        
+        if successful_sends == 0 && total_peers > 0 {
+            warn!("{} broadcast FAILED: 0/{} peers received the message", operation_name, total_peers);
+        } else if successful_sends < total_peers {
+            info!("{} broadcast partial: {}/{} peers received the message", operation_name, successful_sends, total_peers);
+        } else if total_peers > 0 {
+            info!("{} broadcast complete: {}/{} peers received the message", operation_name, successful_sends, total_peers);
+        }
+        
+        Ok(successful_sends)
     }
 }
 
