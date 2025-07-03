@@ -330,10 +330,21 @@ mod tests {
     use std::collections::HashMap;
 
     fn create_test_committee() -> Committee {
+        use narwhal::types::{Authority, WorkerConfiguration};
         let mut authorities = HashMap::new();
         for i in 0..4 {
             let keypair = fastcrypto::bls12381::BLS12381KeyPair::generate(&mut rand_08::thread_rng());
-            authorities.insert(keypair.public().clone(), 100);
+            let authority = Authority {
+                stake: 100,
+                primary_address: format!("127.0.0.1:{}", 8000 + i),
+                network_key: keypair.public().clone(),
+                workers: WorkerConfiguration {
+                    num_workers: 1,
+                    base_port: 10000 + (i * 100) as u16,
+                    base_address: "127.0.0.1".to_string(),
+                },
+            };
+            authorities.insert(keypair.public().clone(), authority);
         }
         Committee::new(0, authorities)
     }

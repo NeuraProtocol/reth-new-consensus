@@ -20,7 +20,7 @@ use reth_consensus::{
     consensus_storage::{MdbxConsensusStorage, DatabaseOps},
     rpc::{ConsensusRpcImpl, ConsensusAdminRpcImpl, ConsensusApiServer, ConsensusAdminApiServer},
 };
-use fastcrypto::traits::KeyPair;
+use fastcrypto::traits::{KeyPair, ToFromBytes};
 use narwhal::types::Committee;
 
 /// Mock database operations for testing
@@ -33,6 +33,7 @@ struct MockDatabaseOps {
     latest_finalized: Arc<Mutex<Option<u64>>>,
     votes: Arc<Mutex<HashMap<B256, Vec<Vec<u8>>>>>,
     certificates_by_round: Arc<Mutex<HashMap<u64, Vec<Vec<u8>>>>>,
+    worker_batches: Arc<Mutex<HashMap<B256, Vec<u8>>>>,
 }
 
 impl MockDatabaseOps {
@@ -154,6 +155,31 @@ impl DatabaseOps for MockDatabaseOps {
         
         Ok(removed)
     }
+    
+    fn put_worker_batch(&self, digest: B256, batch_data: Vec<u8>) -> anyhow::Result<()> {
+        let mut batches = self.worker_batches.lock().unwrap();
+        batches.insert(digest, batch_data);
+        Ok(())
+    }
+
+    fn get_worker_batch(&self, digest: B256) -> anyhow::Result<Option<Vec<u8>>> {
+        let batches = self.worker_batches.lock().unwrap();
+        Ok(batches.get(&digest).cloned())
+    }
+
+    fn delete_worker_batch(&self, digest: B256) -> anyhow::Result<()> {
+        let mut batches = self.worker_batches.lock().unwrap();
+        batches.remove(&digest);
+        Ok(())
+    }
+
+    fn get_worker_batches(&self, digests: &[B256]) -> anyhow::Result<Vec<Option<Vec<u8>>>> {
+        let batches = self.worker_batches.lock().unwrap();
+        let results = digests.iter()
+            .map(|digest| batches.get(digest).cloned())
+            .collect();
+        Ok(results)
+    }
 }
 
 /// RPC test harness for consensus API testing
@@ -178,16 +204,23 @@ impl ConsensusRpcTestHarness {
         let consensus_storage = Arc::new(consensus_storage);
 
         // Create validator committee
-        let (validator_registry, committee) = create_test_committee(4)?;
+        let (validator_registry, committee, our_pubkey, our_privkey) = create_test_committee(4)?;
         let validator_registry = Arc::new(RwLock::new(validator_registry));
 
         // Create consensus bridge using proper ServiceConfig constructor (no networking for tests)
-        let node_config = NarwhalBullsharkConfig::default();
+        let mut node_config = NarwhalBullsharkConfig::default();
+        node_config.node_public_key = our_pubkey;
+        node_config.consensus_private_key_bytes = our_privkey;
         let service_config = ServiceConfig::new(node_config, committee);
-        let consensus_bridge = Arc::new(RwLock::new(NarwhalRethBridge::new_for_testing(
+        let mut bridge = NarwhalRethBridge::new_for_testing(
             service_config,
             Some(consensus_storage.clone()),
-        )?));
+        )?;
+        
+        // Start the consensus service so healthy status is true
+        bridge.start().await?;
+        
+        let consensus_bridge = Arc::new(RwLock::new(bridge));
 
         // Create RPC implementations with new storage instance
         let mut rpc_storage = MdbxConsensusStorage::new();
@@ -208,16 +241,26 @@ impl ConsensusRpcTestHarness {
     }
 }
 
-/// Create a test validator committee
-fn create_test_committee(count: usize) -> anyhow::Result<(ValidatorRegistry, Committee)> {
+/// Create a test validator committee, returning the first validator's consensus keys for use as our node
+fn create_test_committee(count: usize) -> anyhow::Result<(ValidatorRegistry, Committee, narwhal::types::PublicKey, Vec<u8>)> {
     let mut validator_registry = ValidatorRegistry::new();
     let mut stakes = HashMap::new();
+    let mut first_consensus_pubkey = None;
+    let mut first_consensus_privkey = None;
 
     for i in 0..count {
         // Generate proper validator with both EVM and consensus keys
         let keypair = ValidatorKeyPair::generate()
             .map_err(|e| anyhow::anyhow!("Failed to generate validator keypair: {}", e))?;
         let evm_address = keypair.evm_address;
+        
+        let consensus_public_key = keypair.consensus_keypair.public().clone();
+        
+        // Store the first validator's consensus keys for our node
+        if i == 0 {
+            first_consensus_pubkey = Some(consensus_public_key.clone());
+            first_consensus_privkey = Some(keypair.consensus_keypair.private().as_bytes().to_vec());
+        }
         
         let metadata = ValidatorMetadata {
             name: Some(format!("RPC Test Validator {}", i + 1)),
@@ -227,7 +270,7 @@ fn create_test_committee(count: usize) -> anyhow::Result<(ValidatorRegistry, Com
         
         let identity = ValidatorIdentity {
             evm_address,
-            consensus_public_key: keypair.consensus_keypair.public().clone(),
+            consensus_public_key,
             metadata,
         };
 
@@ -242,7 +285,7 @@ fn create_test_committee(count: usize) -> anyhow::Result<(ValidatorRegistry, Com
     let committee = validator_registry.create_committee(0, &stakes)
         .map_err(|e| anyhow::anyhow!("Failed to create committee: {}", e))?;
 
-    Ok((validator_registry, committee))
+    Ok((validator_registry, committee, first_consensus_pubkey.unwrap(), first_consensus_privkey.unwrap()))
 }
 
 #[tokio::test]

@@ -51,6 +51,7 @@ struct MockDatabaseOps {
     latest_finalized: std::sync::Arc<std::sync::Mutex<Option<u64>>>,
     votes: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<B256, Vec<Vec<u8>>>>>,
     certificates_by_round: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<u64, Vec<Vec<u8>>>>>,
+    worker_batches: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<B256, Vec<u8>>>>,
 }
 
 impl MockDatabaseOps {
@@ -178,6 +179,31 @@ impl DatabaseOps for MockDatabaseOps {
         }
         
         Ok(removed)
+    }
+    
+    fn put_worker_batch(&self, digest: B256, batch_data: Vec<u8>) -> anyhow::Result<()> {
+        let mut batches = self.worker_batches.lock().unwrap();
+        batches.insert(digest, batch_data);
+        Ok(())
+    }
+    
+    fn get_worker_batch(&self, digest: B256) -> anyhow::Result<Option<Vec<u8>>> {
+        let batches = self.worker_batches.lock().unwrap();
+        Ok(batches.get(&digest).cloned())
+    }
+    
+    fn delete_worker_batch(&self, digest: B256) -> anyhow::Result<()> {
+        let mut batches = self.worker_batches.lock().unwrap();
+        batches.remove(&digest);
+        Ok(())
+    }
+    
+    fn get_worker_batches(&self, digests: &[B256]) -> anyhow::Result<Vec<Option<Vec<u8>>>> {
+        let batches = self.worker_batches.lock().unwrap();
+        let results = digests.iter()
+            .map(|digest| batches.get(digest).cloned())
+            .collect();
+        Ok(results)
     }
 }
 

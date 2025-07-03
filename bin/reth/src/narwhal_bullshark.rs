@@ -1033,6 +1033,11 @@ where
         }
         Ok(certificates)
     }
+    
+    fn get_worker_batch(&self, digest: B256) -> Result<Option<Vec<u8>>> {
+        use reth_consensus::WorkerBatches;
+        Ok(self.provider.tx_ref().get::<WorkerBatches>(digest)?)
+    }
 }
 
 // Read-write transaction implementation  
@@ -1157,6 +1162,11 @@ where
         }
         Ok(certificates)
     }
+    
+    fn get_worker_batch(&self, digest: B256) -> Result<Option<Vec<u8>>> {
+        use reth_consensus::WorkerBatches;
+        Ok(self.provider.tx_ref().get::<WorkerBatches>(digest)?)
+    }
 }
 
 impl<P> reth_consensus::ConsensusDbTxMut for RethProviderDbTxMut<P>
@@ -1241,6 +1251,18 @@ where
         }
         
         Ok(removed_count)
+    }
+    
+    fn put_worker_batch(&mut self, digest: B256, batch_data: Vec<u8>) -> Result<()> {
+        use reth_consensus::WorkerBatches;
+        self.provider.put::<WorkerBatches>(digest, batch_data)?;
+        Ok(())
+    }
+    
+    fn delete_worker_batch(&mut self, digest: B256) -> Result<()> {
+        use reth_consensus::WorkerBatches;
+        self.provider.delete::<WorkerBatches>(digest, None)?;
+        Ok(())
     }
     
     fn commit(self: Box<Self>) -> Result<()> {
@@ -2701,6 +2723,39 @@ where
         
         provider.commit()?;
         Ok(removed_count)
+    }
+    
+    fn put_worker_batch(&self, digest: alloy_primitives::B256, batch_data: Vec<u8>) -> anyhow::Result<()> {
+        let provider = self.provider.database_provider_rw()?;
+        use reth_consensus::WorkerBatches;
+        provider.tx_ref().put::<WorkerBatches>(digest, batch_data)?;
+        provider.commit()?;
+        Ok(())
+    }
+    
+    fn get_worker_batch(&self, digest: alloy_primitives::B256) -> anyhow::Result<Option<Vec<u8>>> {
+        let provider = self.provider.database_provider_ro()?;
+        use reth_consensus::WorkerBatches;
+        Ok(provider.tx_ref().get::<WorkerBatches>(digest)?)
+    }
+    
+    fn delete_worker_batch(&self, digest: alloy_primitives::B256) -> anyhow::Result<()> {
+        let provider = self.provider.database_provider_rw()?;
+        use reth_consensus::WorkerBatches;
+        provider.tx_ref().delete::<WorkerBatches>(digest, None)?;
+        provider.commit()?;
+        Ok(())
+    }
+    
+    fn get_worker_batches(&self, digests: &[alloy_primitives::B256]) -> anyhow::Result<Vec<Option<Vec<u8>>>> {
+        let provider = self.provider.database_provider_ro()?;
+        use reth_consensus::WorkerBatches;
+        
+        let mut results = Vec::with_capacity(digests.len());
+        for digest in digests {
+            results.push(provider.tx_ref().get::<WorkerBatches>(*digest)?);
+        }
+        Ok(results)
     }
 }
 
