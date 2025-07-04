@@ -137,9 +137,14 @@ impl NarwhalBullsharkService {
         }
 
         info!("🚀 Starting Narwhal + Bullshark consensus coordination");
+        
+        // Initialize metrics collection
+        let metrics = narwhal::init_metrics(prometheus::default_registry());
+        info!("📊 Initialized metrics collection with Prometheus");
 
         // Create channels for DAG ↔ BFT communication
-        let (certificate_sender, certificate_receiver) = mpsc::unbounded_channel();
+        // Use bounded channel for certificates to prevent unbounded backlog
+        let (certificate_sender, certificate_receiver) = mpsc::channel(1000); // Limit certificate buffer
         let (dag_tx_sender, dag_tx_receiver) = mpsc::unbounded_channel();
         let (dag_network_sender, dag_network_receiver) = mpsc::unbounded_channel();
         let (dag_outbound_sender, dag_outbound_receiver) = mpsc::unbounded_channel();

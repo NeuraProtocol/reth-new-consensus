@@ -72,7 +72,7 @@ fn main() {
                     let rpc_config = reth_consensus::narwhal_bullshark::ConsensusRpcConfig {
                         port: consensus_rpc_port,
                         host: "127.0.0.1".to_string(),
-                        enable_admin: true, // Enable admin endpoints
+                        enable_admin: combined_args.narwhal_bullshark.consensus_rpc_enable_admin,
                     };
                     
                     // Configure the bridge with RPC before starting

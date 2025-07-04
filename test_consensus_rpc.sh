@@ -1,43 +1,75 @@
 #!/bin/bash
-# Test script to verify consensus RPC functionality
 
-echo "Testing consensus RPC server..."
+# Test script for Consensus RPC endpoints
+# Usage: ./test_consensus_rpc.sh [PORT]
+# Default port: 10001
 
-# Function to test RPC endpoint
-test_rpc() {
-    local port=$1
-    local method=$2
-    echo -n "Testing $method on port $port... "
+PORT=${1:-10001}
+echo "🔍 Testing Consensus RPC on port $PORT"
+echo "========================================="
+
+# Function to make RPC call and pretty print
+rpc_call() {
+    local method=$1
+    local params=$2
+    local desc=$3
     
-    response=$(curl -s -X POST -H "Content-Type: application/json" \
-        -d "{\"jsonrpc\":\"2.0\",\"method\":\"$method\",\"params\":[],\"id\":1}" \
-        http://127.0.0.1:$port)
+    echo -e "\n📡 $desc"
+    echo "Method: $method"
+    echo "Request:"
+    local request="{\"jsonrpc\":\"2.0\",\"method\":\"$method\",\"params\":$params,\"id\":1}"
+    echo "$request" | jq .
     
-    if [[ $? -eq 0 && $response == *"result"* ]]; then
-        echo "✅ Success"
-        echo "Response: $response"
-    else
-        echo "❌ Failed"
-        echo "Error: $response"
-    fi
+    echo -e "\nResponse:"
+    curl -s -X POST -H 'Content-Type: application/json' \
+        --data "$request" \
+        http://localhost:$PORT | jq . || echo "Failed to connect to port $PORT"
 }
 
-# Test consensus endpoints
-echo "Available consensus RPC endpoints:"
-echo "  - consensus_getStatus"
-echo "  - consensus_getCommittee"
-echo "  - consensus_listValidators"
-echo "  - consensus_getMetrics"
-echo "  - consensus_getConfig"
-echo ""
+# Test consensus API endpoints
+echo -e "\n=== CONSENSUS API ENDPOINTS ==="
 
-# Example: Test on port 9999 (default consensus RPC port)
-PORT=${1:-9999}
-echo "Testing consensus RPC on port $PORT..."
-echo ""
+rpc_call "consensus_getStatus" "[]" "Get consensus status"
+sleep 1
 
-test_rpc $PORT "consensus_getStatus"
-echo ""
-test_rpc $PORT "consensus_getCommittee"
-echo ""
-test_rpc $PORT "consensus_getMetrics"
+rpc_call "consensus_getCommittee" "[]" "Get committee information"
+sleep 1
+
+rpc_call "consensus_listValidators" "[{\"active_only\": true, \"limit\": 10}]" "List active validators"
+sleep 1
+
+rpc_call "consensus_getValidator" "[\"0x70997970C51812dc3A010C7d01b50e0d17dc79C8\"]" "Get specific validator (example address)"
+sleep 1
+
+rpc_call "consensus_getValidatorMetrics" "[\"0x70997970C51812dc3A010C7d01b50e0d17dc79C8\"]" "Get validator metrics"
+sleep 1
+
+rpc_call "consensus_getMetrics" "[]" "Get consensus metrics"
+sleep 1
+
+rpc_call "consensus_getConfig" "[]" "Get consensus configuration"
+sleep 1
+
+rpc_call "consensus_getRecentBatches" "[5]" "Get recent finalized batches"
+sleep 1
+
+# Test admin API endpoints
+echo -e "\n\n=== CONSENSUS ADMIN API ENDPOINTS ==="
+echo "(These require --consensus-rpc-enable-admin flag)"
+
+rpc_call "consensus_admin_getDagInfo" "[]" "Get DAG information"
+sleep 1
+
+rpc_call "consensus_admin_getStorageStats" "[]" "Get storage statistics"
+sleep 1
+
+rpc_call "consensus_admin_getInternalState" "[]" "Get internal consensus state"
+sleep 1
+
+echo -e "\n\n✅ RPC test completed!"
+echo "========================================="
+echo "💡 Tips:"
+echo "  - If you see connection errors, check that the node is running"
+echo "  - Admin endpoints return errors if --consensus-rpc-enable-admin is not set"
+echo "  - Use different ports for different nodes (10001, 10002, 10003, 10004)"
+echo "  - Monitor logs: tail -f ~/.neura/node*/node.log | grep -i rpc"

@@ -234,6 +234,7 @@ mod tests {
                     num_workers: 1,
                     base_port: 10000 + (i * 100) as u16,
                     base_address: "127.0.0.1".to_string(),
+                    worker_ports: None,
                 },
             };
             authorities.insert(keypair.public().clone(), authority);
@@ -259,7 +260,7 @@ mod tests {
 
         // Add votes from 3 out of 4 validators (75% stake)
         for i in 0..3 {
-            let vote = Vote::new(&header, keypairs[i].public());
+            let vote = Vote::new_with_signer(&header, keypairs[i].public(), &keypairs[i]);
             aggregator.add_vote(vote, &committee).unwrap();
         }
 
@@ -288,7 +289,7 @@ mod tests {
         let mut aggregator = VotesAggregator::with_header(header.clone());
 
         // Add same vote twice
-        let vote = Vote::new(&header, keypairs[0].public());
+        let vote = Vote::new_with_signer(&header, keypairs[0].public(), &keypairs[0]);
         aggregator.add_vote(vote.clone(), &committee).unwrap();
         aggregator.add_vote(vote, &committee).unwrap();
 

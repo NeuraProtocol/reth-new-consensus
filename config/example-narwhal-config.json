@@ -1,0 +1,47 @@
+{
+  "narwhal_enabled": true,
+  "network_address": "127.0.0.1:9001",
+  "committee_size": 4,
+  "peer_addresses": ["127.0.0.1:9002", "127.0.0.1:9003", "127.0.0.1:9004"],
+  "bootstrap_mode": false,
+  
+  "validator_index": 0,
+  "validator_key_file": "test_validators/validator-0.json",
+  "validator_config_dir": "test_validators",
+  "deterministic_consensus_key": true,
+  
+  "vault_enabled": false,
+  "vault_mount_path": "secret",
+  
+  "consensus_rpc_port": 10001,
+  "consensus_rpc_enable_admin": true,
+  
+  "max_batch_size": 100000,
+  "max_batch_delay_ms": 100,
+  "num_workers": 4,
+  "gc_depth": 50,
+  "cache_size": 1000,
+  "max_concurrent_requests": 200,
+  "connection_timeout_ms": 5000,
+  "request_timeout_ms": 10000,
+  "retry_attempts": 3,
+  "retry_base_delay_ms": 100,
+  "retry_max_delay_ms": 10000,
+  "sync_retry_delay_ms": 5000,
+  "certificate_buffer_size": 1000,
+  "max_transactions_per_batch": 100,
+  "batch_creation_interval_ms": 50,
+  
+  "finality_threshold": 3,
+  "max_pending_rounds": 10,
+  "finalization_timeout_secs": 5,
+  "max_certificates_per_round": 1000,
+  "leader_rotation_frequency": 2,
+  "min_leader_round": 0,
+  "max_dag_walk_depth": 10,
+  "enable_detailed_metrics": true,
+  
+  "worker_base_port": 19000,
+  
+  "disable_metrics": false
+}

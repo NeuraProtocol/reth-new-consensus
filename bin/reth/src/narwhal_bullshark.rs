@@ -505,8 +505,55 @@ fn create_validator_committee(args: &NarwhalBullsharkArgs) -> eyre::Result<(Comm
               committee_member.consensus_public_key.encode_base64());
     }
 
-    // Step 4: Create committee from registered validators
-    let committee = validator_registry.create_committee(0, &stakes)
+    // Step 4: Create committee from registered validators with worker configuration
+    // Build network addresses map and worker configs from committee members
+    let mut network_addresses = HashMap::new();
+    let mut worker_configs = HashMap::new();
+    
+    for committee_member in &committee_public_keys {
+        // Derive network key from consensus key (for now, use the consensus key as network key)
+        let network_key = committee_member.consensus_public_key.clone();
+        network_addresses.insert(
+            committee_member.evm_address,
+            (committee_member.network_address.to_string(), network_key)
+        );
+        
+        // Use worker configuration from validator file or default to our own config
+        let worker_config = if let Some((start_port, end_port)) = committee_member.worker_port_range {
+            // Create explicit port list from range
+            let worker_ports: Vec<u16> = (start_port..=end_port).collect();
+            let num_workers = worker_ports.len() as u32;
+            
+            narwhal::types::WorkerConfiguration {
+                num_workers,
+                base_port: start_port, // Still set for compatibility
+                base_address: args.get_worker_bind_address(),
+                worker_ports: Some(worker_ports),
+            }
+        } else if committee_member.evm_address == validator_keypair.evm_address {
+            // This is us - use our configured settings
+            let mut config = args.get_worker_configuration();
+            // For our own node, create explicit port list based on configured base port
+            let worker_ports: Vec<u16> = (0..config.num_workers)
+                .map(|i| config.base_port + i as u16)
+                .collect();
+            config.worker_ports = Some(worker_ports);
+            config
+        } else {
+            // No worker config specified for peer - this is an error
+            return Err(eyre::eyre!("No worker port range specified for validator {}", committee_member.evm_address));
+        };
+        
+        worker_configs.insert(committee_member.evm_address, worker_config.clone());
+        
+        info!(target: "reth::narwhal_bullshark",
+              "Validator {} configured with {} workers on ports: {:?}",
+              committee_member.evm_address,
+              worker_config.num_workers,
+              worker_config.worker_ports.as_ref().unwrap_or(&vec![]));
+    }
+    
+    let committee = validator_registry.create_committee_with_per_validator_workers(0, &stakes, &worker_configs, &network_addresses)
         .map_err(|e| eyre::eyre!("Failed to create committee: {}", e))?;
     
     // Step 5: Verify this node's key is in the committee
@@ -609,6 +656,7 @@ struct CommitteeMember {
     pub evm_address: Address,
     pub consensus_public_key: narwhal::types::PublicKey,
     pub network_address: std::net::SocketAddr,
+    pub worker_port_range: Option<(u16, u16)>, // (start_port, end_port)
 }
 
 /// Load committee configuration (all validator public keys)
@@ -657,6 +705,7 @@ fn load_committee_from_file(config_file: &std::path::Path) -> eyre::Result<Vec<C
             evm_address: member.evm_address,
             consensus_public_key,
             network_address,
+            worker_port_range: None, // TODO: Add worker_port_range to CommitteeValidatorConfig
         });
     }
     
@@ -676,18 +725,40 @@ fn derive_committee_from_validator_directory(config_dir: &std::path::Path, args:
         // Create keypair to get public keys
         let keypair = validator_file_to_keypair(validator_file)?;
         
-        // Use peer addresses if available, otherwise default ports
-        let network_address = if index < args.peer_addresses.len() {
+        // Use network address from validator file if available, otherwise from CLI args
+        let network_address = if let Some(addr_str) = &validator_file.network_address {
+            addr_str.parse()
+                .map_err(|e| eyre::eyre!("Failed to parse network address '{}': {}", addr_str, e))?
+        } else if index < args.peer_addresses.len() {
             args.peer_addresses[index]
         } else {
             format!("127.0.0.1:{}", 9001 + index).parse()
                 .map_err(|e| eyre::eyre!("Failed to create default network address: {}", e))?
         };
         
+        // Parse worker port range if specified
+        let worker_port_range = if let Some(range_str) = &validator_file.worker_port_range {
+            let parts: Vec<&str> = range_str.split(':').collect();
+            if parts.len() != 2 {
+                return Err(eyre::eyre!("Invalid worker port range format '{}', expected 'start:end'", range_str));
+            }
+            let start_port = parts[0].parse::<u16>()
+                .map_err(|e| eyre::eyre!("Invalid start port in '{}': {}", range_str, e))?;
+            let end_port = parts[1].parse::<u16>()
+                .map_err(|e| eyre::eyre!("Invalid end port in '{}': {}", range_str, e))?;
+            if start_port > end_port {
+                return Err(eyre::eyre!("Invalid port range '{}': start port must be <= end port", range_str));
+            }
+            Some((start_port, end_port))
+        } else {
+            None
+        };
+        
         members.push(CommitteeMember {
             evm_address: keypair.evm_address,
             consensus_public_key: keypair.consensus_keypair.public().clone(),
             network_address,
+            worker_port_range,
         });
     }
     
@@ -711,6 +782,7 @@ fn create_test_committee(committee_size: usize) -> eyre::Result<Vec<CommitteeMem
             evm_address: keypair.evm_address,
             consensus_public_key: keypair.consensus_keypair.public().clone(),
             network_address,
+            worker_port_range: Some((19000 + (i as u16) * 4, 19003 + (i as u16) * 4)),
         });
         
         info!(target: "reth::narwhal_bullshark",
@@ -921,32 +993,32 @@ where
     P: reth_provider::DBProvider + Send + Sync,
 {
     fn get_finalized_batch(&self, key: u64) -> Result<Option<B256>> {
-        use reth_consensus::ConsensusFinalizedBatch;
+        use reth_db_api::tables::ConsensusFinalizedBatch;
         Ok(self.provider.tx_ref().get::<ConsensusFinalizedBatch>(key)?)
     }
     
     fn get_certificate(&self, key: u64) -> Result<Option<Vec<u8>>> {
-        use reth_consensus::ConsensusCertificates;
+        use reth_db_api::tables::ConsensusCertificates;
         Ok(self.provider.tx_ref().get::<ConsensusCertificates>(key)?)
     }
     
     fn get_batch(&self, key: u64) -> Result<Option<Vec<u8>>> {
-        use reth_consensus::ConsensusBatches;
+        use reth_db_api::tables::ConsensusBatches;
         Ok(self.provider.tx_ref().get::<ConsensusBatches>(key)?)
     }
     
     fn get_dag_vertex(&self, key: B256) -> Result<Option<Vec<u8>>> {
-        use reth_consensus::ConsensusDagVertices;
+        use reth_db_api::tables::ConsensusDagVertices;
         Ok(self.provider.tx_ref().get::<ConsensusDagVertices>(key)?)
     }
     
     fn get_latest_finalized(&self, key: u8) -> Result<Option<u64>> {
-        use reth_consensus::ConsensusLatestFinalized;
+        use reth_db_api::tables::ConsensusLatestFinalized;
         Ok(self.provider.tx_ref().get::<ConsensusLatestFinalized>(key)?)
     }
     
     fn list_finalized_batches(&self, limit: Option<usize>) -> Result<Vec<(u64, B256)>> {
-        use reth_consensus::ConsensusFinalizedBatch;
+        use reth_db_api::tables::ConsensusFinalizedBatch;
         use reth_db_api::cursor::DbCursorRO;
         
         let mut results = Vec::new();
@@ -965,7 +1037,7 @@ where
     }
     
     fn get_table_stats(&self) -> Result<(u64, u64, u64)> {
-        use reth_consensus::{ConsensusCertificates, ConsensusBatches, ConsensusDagVertices};
+        use reth_db_api::tables::{ConsensusCertificates, ConsensusBatches, ConsensusDagVertices};
         use reth_db_api::cursor::DbCursorRO;
         
         let mut total_certificates = 0u64;
@@ -994,28 +1066,20 @@ where
     }
     
     fn get_votes(&self, header_digest: B256) -> Result<Vec<Vec<u8>>> {
-        use reth_consensus::ConsensusVotes;
-        use reth_db_api::cursor::DbDupCursorRO;
+        use reth_db_api::tables::ConsensusVotes;
         
-        let mut votes = Vec::new();
-        if let Ok(mut cursor) = self.provider.tx_ref().cursor_dup_read::<ConsensusVotes>() {
-            // Seek to the header digest and get all duplicate values
-            if cursor.seek_exact(header_digest).is_ok() {
-                // Get first vote
-                if let Ok(Some((_, vote_data))) = cursor.current() {
-                    votes.push(vote_data);
-                }
-                // Get remaining votes for this header
-                while let Ok(Some(vote_data)) = cursor.next_dup_val() {
-                    votes.push(vote_data);
-                }
-            }
+        // ConsensusVotes stores all votes for a header as a single serialized Vec
+        if let Some(votes_data) = self.provider.tx_ref().get::<ConsensusVotes>(header_digest)? {
+            // Deserialize the Vec<Vec<u8>> from the stored data
+            bincode::deserialize(&votes_data)
+                .map_err(|e| anyhow::anyhow!("Failed to deserialize votes: {}", e))
+        } else {
+            Ok(Vec::new())
         }
-        Ok(votes)
     }
     
     fn get_certificates_by_round(&self, round: u64) -> Result<Vec<Vec<u8>>> {
-        use reth_consensus::ConsensusCertificatesByRound;
+        use reth_db_api::tables::ConsensusCertificatesByRound;
         use reth_db_api::cursor::DbDupCursorRO;
         
         let mut certificates = Vec::new();
@@ -1035,7 +1099,7 @@ where
     }
     
     fn get_worker_batch(&self, digest: B256) -> Result<Option<Vec<u8>>> {
-        use reth_consensus::WorkerBatches;
+        use reth_db_api::tables::WorkerBatches;
         Ok(self.provider.tx_ref().get::<WorkerBatches>(digest)?)
     }
 }
@@ -1050,32 +1114,32 @@ where
     P: reth_provider::DBProvider + Send + Sync,
 {
     fn get_finalized_batch(&self, key: u64) -> Result<Option<B256>> {
-        use reth_consensus::ConsensusFinalizedBatch;
+        use reth_db_api::tables::ConsensusFinalizedBatch;
         Ok(self.provider.tx_ref().get::<ConsensusFinalizedBatch>(key)?)
     }
     
     fn get_certificate(&self, key: u64) -> Result<Option<Vec<u8>>> {
-        use reth_consensus::ConsensusCertificates;
+        use reth_db_api::tables::ConsensusCertificates;
         Ok(self.provider.tx_ref().get::<ConsensusCertificates>(key)?)
     }
     
     fn get_batch(&self, key: u64) -> Result<Option<Vec<u8>>> {
-        use reth_consensus::ConsensusBatches;
+        use reth_db_api::tables::ConsensusBatches;
         Ok(self.provider.tx_ref().get::<ConsensusBatches>(key)?)
     }
     
     fn get_dag_vertex(&self, key: B256) -> Result<Option<Vec<u8>>> {
-        use reth_consensus::ConsensusDagVertices;
+        use reth_db_api::tables::ConsensusDagVertices;
         Ok(self.provider.tx_ref().get::<ConsensusDagVertices>(key)?)
     }
     
     fn get_latest_finalized(&self, key: u8) -> Result<Option<u64>> {
-        use reth_consensus::ConsensusLatestFinalized;
+        use reth_db_api::tables::ConsensusLatestFinalized;
         Ok(self.provider.tx_ref().get::<ConsensusLatestFinalized>(key)?)
     }
     
     fn list_finalized_batches(&self, limit: Option<usize>) -> Result<Vec<(u64, B256)>> {
-        use reth_consensus::ConsensusFinalizedBatch;
+        use reth_db_api::tables::ConsensusFinalizedBatch;
         use reth_db_api::cursor::DbCursorRO;
         
         let mut results = Vec::new();
@@ -1094,7 +1158,7 @@ where
     }
     
     fn get_table_stats(&self) -> Result<(u64, u64, u64)> {
-        use reth_consensus::{ConsensusCertificates, ConsensusBatches, ConsensusDagVertices};
+        use reth_db_api::tables::{ConsensusCertificates, ConsensusBatches, ConsensusDagVertices};
         use reth_db_api::cursor::DbCursorRO;
         
         let mut total_certificates = 0u64;
@@ -1123,28 +1187,20 @@ where
     }
     
     fn get_votes(&self, header_digest: B256) -> Result<Vec<Vec<u8>>> {
-        use reth_consensus::ConsensusVotes;
-        use reth_db_api::cursor::DbDupCursorRO;
+        use reth_db_api::tables::ConsensusVotes;
         
-        let mut votes = Vec::new();
-        if let Ok(mut cursor) = self.provider.tx_ref().cursor_dup_read::<ConsensusVotes>() {
-            // Seek to the header digest and get all duplicate values
-            if cursor.seek_exact(header_digest).is_ok() {
-                // Get first vote
-                if let Ok(Some((_, vote_data))) = cursor.current() {
-                    votes.push(vote_data);
-                }
-                // Get remaining votes for this header
-                while let Ok(Some(vote_data)) = cursor.next_dup_val() {
-                    votes.push(vote_data);
-                }
-            }
+        // ConsensusVotes stores all votes for a header as a single serialized Vec
+        if let Some(votes_data) = self.provider.tx_ref().get::<ConsensusVotes>(header_digest)? {
+            // Deserialize the Vec<Vec<u8>> from the stored data
+            bincode::deserialize(&votes_data)
+                .map_err(|e| anyhow::anyhow!("Failed to deserialize votes: {}", e))
+        } else {
+            Ok(Vec::new())
         }
-        Ok(votes)
     }
     
     fn get_certificates_by_round(&self, round: u64) -> Result<Vec<Vec<u8>>> {
-        use reth_consensus::ConsensusCertificatesByRound;
+        use reth_db_api::tables::ConsensusCertificatesByRound;
         use reth_db_api::cursor::DbDupCursorRO;
         
         let mut certificates = Vec::new();
@@ -1164,7 +1220,7 @@ where
     }
     
     fn get_worker_batch(&self, digest: B256) -> Result<Option<Vec<u8>>> {
-        use reth_consensus::WorkerBatches;
+        use reth_db_api::tables::WorkerBatches;
         Ok(self.provider.tx_ref().get::<WorkerBatches>(digest)?)
     }
 }
@@ -1174,61 +1230,72 @@ where
     P: reth_provider::DBProvider + reth_provider::BlockWriter + reth_db_api::transaction::DbTxMut + Send + Sync,
 {
     fn put_finalized_batch(&mut self, key: u64, value: B256) -> Result<()> {
-        use reth_consensus::ConsensusFinalizedBatch;
+        use reth_db_api::tables::ConsensusFinalizedBatch;
         self.provider.put::<ConsensusFinalizedBatch>(key, value)?;
         Ok(())
     }
     
     fn put_certificate(&mut self, key: u64, value: Vec<u8>) -> Result<()> {
-        use reth_consensus::ConsensusCertificates;
+        use reth_db_api::tables::ConsensusCertificates;
         self.provider.put::<ConsensusCertificates>(key, value)?;
         Ok(())
     }
     
     fn put_batch(&mut self, key: u64, value: Vec<u8>) -> Result<()> {
-        use reth_consensus::ConsensusBatches;
+        use reth_db_api::tables::ConsensusBatches;
         self.provider.put::<ConsensusBatches>(key, value)?;
         Ok(())
     }
     
     fn put_dag_vertex(&mut self, key: B256, value: Vec<u8>) -> Result<()> {
-        use reth_consensus::ConsensusDagVertices;
+        use reth_db_api::tables::ConsensusDagVertices;
         self.provider.put::<ConsensusDagVertices>(key, value)?;
         Ok(())
     }
     
     fn put_latest_finalized(&mut self, key: u8, value: u64) -> Result<()> {
-        use reth_consensus::ConsensusLatestFinalized;
+        use reth_db_api::tables::ConsensusLatestFinalized;
         self.provider.put::<ConsensusLatestFinalized>(key, value)?;
         Ok(())
     }
     
     fn put_vote(&mut self, header_digest: B256, vote_data: Vec<u8>) -> Result<()> {
-        use reth_consensus::ConsensusVotes;
-        self.provider.put::<ConsensusVotes>(header_digest, vote_data)?;
+        use reth_db_api::tables::ConsensusVotes;
+        
+        // Get existing votes for this header
+        let mut votes = if let Ok(Some(existing_data)) = self.provider.tx_ref().get::<ConsensusVotes>(header_digest) {
+            bincode::deserialize::<Vec<Vec<u8>>>(&existing_data)
+                .unwrap_or_else(|_| Vec::new())
+        } else {
+            Vec::new()
+        };
+        
+        // Add the new vote
+        votes.push(vote_data);
+        
+        // Serialize and store all votes
+        let serialized = bincode::serialize(&votes)
+            .map_err(|e| anyhow::anyhow!("Failed to serialize votes: {}", e))?;
+        self.provider.put::<ConsensusVotes>(header_digest, serialized)?;
         Ok(())
     }
     
     fn remove_votes(&mut self, header_digest: B256) -> Result<()> {
-        use reth_consensus::ConsensusVotes;
-        use reth_db_api::cursor::DbDupCursorRW;
+        use reth_db_api::tables::ConsensusVotes;
         
-        if let Ok(mut cursor) = self.provider.cursor_dup_write::<ConsensusVotes>() {
-            if cursor.seek_exact(header_digest).is_ok() {
-                cursor.delete_current_duplicates()?;
-            }
-        }
+        // Simply delete the entire entry
+        self.provider.delete::<ConsensusVotes>(header_digest, None)?;
         Ok(())
     }
     
     fn index_certificate_by_round(&mut self, round: u64, cert_digest: Vec<u8>) -> Result<()> {
-        use reth_consensus::ConsensusCertificatesByRound;
+        use reth_db_api::tables::ConsensusCertificatesByRound;
         self.provider.put::<ConsensusCertificatesByRound>(round, cert_digest)?;
         Ok(())
     }
     
     fn remove_certificates_before_round(&mut self, round: u64) -> Result<u64> {
-        use reth_consensus::ConsensusCertificatesByRound;
+        use reth_db_api::tables::ConsensusCertificatesByRound;
         use reth_db_api::cursor::DbDupCursorRW;
         
         let mut removed_count = 0u64;
@@ -1254,13 +1321,13 @@ where
     }
     
     fn put_worker_batch(&mut self, digest: B256, batch_data: Vec<u8>) -> Result<()> {
-        use reth_consensus::WorkerBatches;
+        use reth_db_api::tables::WorkerBatches;
         self.provider.put::<WorkerBatches>(digest, batch_data)?;
         Ok(())
     }
     
     fn delete_worker_batch(&mut self, digest: B256) -> Result<()> {
-        use reth_consensus::WorkerBatches;
+        use reth_db_api::tables::WorkerBatches;
         self.provider.delete::<WorkerBatches>(digest, None)?;
         Ok(())
     }
@@ -1290,6 +1357,12 @@ pub struct ValidatorKeyFile {
     pub stake: u64,
     /// Whether this validator is active
     pub active: bool,
+    /// Network address for the primary (e.g., "127.0.0.1:9001")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network_address: Option<String>,
+    /// Worker port range (e.g., "19000:19003" for ports 19000-19003)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worker_port_range: Option<String>,
 }
 
 /// Directory structure for validator keys
@@ -2586,7 +2659,7 @@ where
 
     fn get_table_stats(&self) -> anyhow::Result<(u64, u64, u64)> {
         let provider = self.provider.database_provider_ro()?;
-        use reth_consensus::{ConsensusCertificates, ConsensusBatches, ConsensusDagVertices};
+        use reth_db_api::tables::{ConsensusCertificates, ConsensusBatches, ConsensusDagVertices};
         use reth_db_api::cursor::DbCursorRO;
         
         // Count certificates and batches using cursor_read_collect (they use u64 keys)
@@ -2614,56 +2687,55 @@ where
     }
 
     fn put_vote(&self, header_digest: alloy_primitives::B256, vote_data: Vec<u8>) -> anyhow::Result<()> {
-        let provider = self.provider.database_provider_rw()?;
-        use reth_consensus::{ConsensusVotes};
-        provider.tx_ref().put::<ConsensusVotes>(header_digest, vote_data)?;
+        let mut provider = self.provider.database_provider_rw()?;
+        use reth_db_api::tables::ConsensusVotes;
+        
+        // Get existing votes for this header
+        let mut votes = if let Ok(Some(existing_data)) = provider.tx_ref().get::<ConsensusVotes>(header_digest) {
+            bincode::deserialize::<Vec<Vec<u8>>>(&existing_data)
+                .unwrap_or_else(|_| Vec::new())
+        } else {
+            Vec::new()
+        };
+        
+        // Add the new vote
+        votes.push(vote_data);
+        
+        // Serialize and store all votes
+        let serialized = bincode::serialize(&votes)
+            .map_err(|e| anyhow::anyhow!("Failed to serialize votes: {}", e))?;
+        provider.tx_ref().put::<ConsensusVotes>(header_digest, serialized)?;
         provider.commit()?;
         Ok(())
     }
 
     fn get_votes(&self, header_digest: alloy_primitives::B256) -> anyhow::Result<Vec<Vec<u8>>> {
         let provider = self.provider.database_provider_ro()?;
-        use reth_consensus::{ConsensusVotes};
-        use reth_db_api::cursor::DbDupCursorRO;
+        use reth_db_api::tables::ConsensusVotes;
         
-        let mut votes = Vec::new();
-        if let Ok(mut cursor) = provider.tx_ref().cursor_dup_read::<ConsensusVotes>() {
-            // Seek to the header digest and get all duplicate values
-            if cursor.seek_exact(header_digest).is_ok() {
-                // Get first vote
-                if let Ok(Some((_, vote_data))) = cursor.current() {
-                    votes.push(vote_data);
-                }
-                // Get remaining votes for this header
-                while let Ok(Some(vote_data)) = cursor.next_dup_val() {
-                    votes.push(vote_data);
-                }
-            }
+        // ConsensusVotes stores all votes for a header as a single serialized Vec
+        if let Ok(Some(votes_data)) = provider.tx_ref().get::<ConsensusVotes>(header_digest) {
+            // Deserialize the Vec<Vec<u8>> from the stored data
+            bincode::deserialize(&votes_data)
+                .map_err(|e| anyhow::anyhow!("Failed to deserialize votes: {}", e))
+        } else {
+            Ok(Vec::new())
         }
-        
-        Ok(votes)
     }
 
     fn remove_votes(&self, header_digest: alloy_primitives::B256) -> anyhow::Result<()> {
-        let provider = self.provider.database_provider_rw()?;
-        use reth_consensus::{ConsensusVotes};
-        use reth_db_api::cursor::DbDupCursorRW;
+        let mut provider = self.provider.database_provider_rw()?;
+        use reth_db_api::tables::ConsensusVotes;
         
-        if let Ok(mut cursor) = provider.tx_ref().cursor_dup_write::<ConsensusVotes>() {
-            // Seek to the header digest and delete all duplicate values
-            if cursor.seek_exact(header_digest).is_ok() {
-                // Delete all entries for this key
-                cursor.delete_current_duplicates()?;
-            }
-        }
-        
+        // Simply delete the entire entry
+        provider.tx_ref().delete::<ConsensusVotes>(header_digest, None)?;
         provider.commit()?;
         Ok(())
     }
 
     fn index_certificate_by_round(&self, round: u64, cert_digest: Vec<u8>) -> anyhow::Result<()> {
         let provider = self.provider.database_provider_rw()?;
-        use reth_consensus::{ConsensusCertificatesByRound};
+        use reth_db_api::tables::ConsensusCertificatesByRound;
         provider.tx_ref().put::<ConsensusCertificatesByRound>(round, cert_digest)?;
         provider.commit()?;
         Ok(())
@@ -2671,7 +2743,7 @@ where
 
     fn get_certificates_by_round(&self, round: u64) -> anyhow::Result<Vec<Vec<u8>>> {
         let provider = self.provider.database_provider_ro()?;
-        use reth_consensus::{ConsensusCertificatesByRound};
+        use reth_db_api::tables::ConsensusCertificatesByRound;
         use reth_db_api::cursor::DbDupCursorRO;
         
         let mut certificates = Vec::new();
@@ -2694,7 +2766,7 @@ where
 
     fn remove_certificates_before_round(&self, round: u64) -> anyhow::Result<u64> {
         let provider = self.provider.database_provider_rw()?;
-        use reth_consensus::{ConsensusCertificates, ConsensusCertificatesByRound};
+        use reth_db_api::tables::{ConsensusCertificates, ConsensusCertificatesByRound};
         use reth_db_api::cursor::{DbCursorRW, DbDupCursorRW};
         
         let mut removed_count = 0u64;
@@ -2727,7 +2799,7 @@ where
     
     fn put_worker_batch(&self, digest: alloy_primitives::B256, batch_data: Vec<u8>) -> anyhow::Result<()> {
         let provider = self.provider.database_provider_rw()?;
-        use reth_consensus::WorkerBatches;
+        use reth_db_api::tables::WorkerBatches;
         provider.tx_ref().put::<WorkerBatches>(digest, batch_data)?;
         provider.commit()?;
         Ok(())
@@ -2735,13 +2807,13 @@ where
     
     fn get_worker_batch(&self, digest: alloy_primitives::B256) -> anyhow::Result<Option<Vec<u8>>> {
         let provider = self.provider.database_provider_ro()?;
-        use reth_consensus::WorkerBatches;
+        use reth_db_api::tables::WorkerBatches;
         Ok(provider.tx_ref().get::<WorkerBatches>(digest)?)
     }
     
     fn delete_worker_batch(&self, digest: alloy_primitives::B256) -> anyhow::Result<()> {
         let provider = self.provider.database_provider_rw()?;
-        use reth_consensus::WorkerBatches;
+        use reth_db_api::tables::WorkerBatches;
         provider.tx_ref().delete::<WorkerBatches>(digest, None)?;
         provider.commit()?;
         Ok(())
@@ -2749,7 +2821,7 @@ where
     
     fn get_worker_batches(&self, digests: &[alloy_primitives::B256]) -> anyhow::Result<Vec<Option<Vec<u8>>>> {
         let provider = self.provider.database_provider_ro()?;
-        use reth_consensus::WorkerBatches;
+        use reth_db_api::tables::WorkerBatches;
         
         let mut results = Vec::with_capacity(digests.len());
         for digest in digests {

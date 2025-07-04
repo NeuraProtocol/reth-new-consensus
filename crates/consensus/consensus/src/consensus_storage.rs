@@ -1,6 +1,5 @@
 // REAL MDBX storage implementation using Reth's database with extension tables
 
-use crate::consensus_tables::*;
 use alloy_primitives::B256;
 use anyhow::Result;
 use std::sync::Arc;

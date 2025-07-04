@@ -127,12 +127,14 @@ impl RetryConfig {
 
 impl Default for RetryConfig {
     fn default() -> Self {
+        // Use config module's defaults
+        let config = crate::config::NarwhalConfig::default();
         Self {
-            initial_retry_interval: RetryConfig::DEFAULT_INITIAL_RETRY_INTERVAL,
-            max_retry_interval: RetryConfig::DEFAULT_MAX_RETRY_INTERVAL,
-            retry_delay_multiplier: RetryConfig::DEFAULT_RETRY_INTERVAL_MULTIPLIER,
-            retry_delay_rand_factor: RetryConfig::DEFAULT_RETRY_DELAY_RAND_FACTOR,
-            retrying_max_elapsed_time: Some(RetryConfig::DEFAULT_RETRYING_MAX_ELAPSED_TIME),
+            initial_retry_interval: config.network.retry.initial_interval,
+            max_retry_interval: config.network.retry.max_interval,
+            retry_delay_multiplier: config.network.retry.multiplier,
+            retry_delay_rand_factor: config.network.retry.randomization_factor,
+            retrying_max_elapsed_time: config.network.retry.max_elapsed_time,
         }
     }
 }

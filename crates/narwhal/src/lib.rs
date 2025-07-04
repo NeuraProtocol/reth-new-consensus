@@ -38,6 +38,7 @@ pub mod batch_store;
 pub mod worker_cache;
 pub mod retry;
 pub mod bounded_executor;
+pub mod metrics_collector;
 
 // Re-export key types
 pub use dag_service::{DagService, DagMessage};
@@ -50,6 +51,7 @@ pub use primary::Primary;
 pub use worker::Worker;
 pub use error::{DagError, DagResult};
 pub use batch_store::{InMemoryBatchStore, MdbxBatchStore};
+pub use metrics_collector::{NarwhalMetrics, init_metrics, metrics};
 // pub use config::NarwhalConfig; // Using local definition instead
 
 use serde::{Deserialize, Serialize};
@@ -142,32 +144,5 @@ pub struct FinalizedOutput {
     pub parent_hash: B256,
 }
 
-/// Configuration for the Narwhal DAG
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NarwhalConfig {
-    /// Maximum batch size
-    pub max_batch_size: usize,
-    /// Maximum delay before creating a batch
-    pub max_batch_delay: std::time::Duration,
-    /// Number of workers per authority
-    pub num_workers: WorkerId,
-    /// Garbage collection depth
-    pub gc_depth: Round,
-    /// Committee size
-    pub committee_size: usize,
-    /// Use in-memory batch storage (for testing)
-    pub batch_storage_memory: bool,
-}
-
-impl Default for NarwhalConfig {
-    fn default() -> Self {
-        Self {
-            max_batch_size: 1024,
-            max_batch_delay: std::time::Duration::from_millis(100),
-            num_workers: 4,
-            gc_depth: 50,
-            committee_size: 4,
-            batch_storage_memory: true,
-        }
-    }
-}
+// Re-export NarwhalConfig from config module
+pub use config::NarwhalConfig;

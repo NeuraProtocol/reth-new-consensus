@@ -10,6 +10,7 @@ use crate::{
     Batch, BatchDigest, DagError, DagResult,
     retry::{RetryConfig, classify_error},
     bounded_executor::{BoundedExecutor, CancelOnDropHandle},
+    metrics_collector::{metrics, MetricTimer},
 };
 use anemo::{Network, Request, Response, Router, PeerId};
 use anemo_tower::trace::TraceLayer;
@@ -70,6 +71,11 @@ impl NarwhalConsensus for NarwhalConsensusService {
         let header = request.into_inner();
         debug!("Received header: {:?}", header);
 
+        // Record metrics
+        if let Some(m) = metrics() {
+            m.record_message_received("header", &header.author.to_string());
+        }
+
         // Send event to local consensus
         let _ = self.event_sender.send(NetworkEvent::HeaderReceived(header));
 
@@ -88,6 +94,11 @@ impl NarwhalConsensus for NarwhalConsensusService {
         let vote = request.into_inner();
         debug!("Received vote: {:?}", vote);
 
+        // Record metrics
+        if let Some(m) = metrics() {
+            m.record_message_received("vote", &vote.author.to_string());
+        }
+
         // Send event to local consensus
         let _ = self.event_sender.send(NetworkEvent::VoteReceived(vote));
 
@@ -105,6 +116,11 @@ impl NarwhalConsensus for NarwhalConsensusService {
     ) -> Result<Response<CertificateResponse>, anemo::rpc::Status> {
         let certificate = request.into_inner();
         debug!("Received certificate: {:?}", certificate);
+
+        // Record metrics
+        if let Some(m) = metrics() {
+            m.record_message_received("certificate", &certificate.origin().to_string());
+        }
 
         // Store certificate
         let digest = certificate.digest();
@@ -210,12 +226,6 @@ impl NarwhalDag for NarwhalDagService {
     }
 }
 
-/// Maximum concurrent tasks per peer connection
-const MAX_CONCURRENT_TASKS_PER_PEER: usize = 100;
-
-/// Maximum total concurrent network tasks
-const MAX_TOTAL_CONCURRENT_TASKS: usize = 1000;
-
 /// Main Narwhal network implementation using anemo
 pub struct NarwhalNetwork {
     /// Our node's consensus public key
@@ -238,6 +248,8 @@ pub struct NarwhalNetwork {
     peer_executors: Arc<RwLock<HashMap<PublicKey, BoundedExecutor>>>,
     /// Global bounded executor for all network operations
     global_executor: BoundedExecutor,
+    /// Configuration
+    config: crate::config::NarwhalConfig,
 }
 
 impl std::fmt::Debug for NarwhalNetwork {
@@ -264,6 +276,7 @@ impl Clone for NarwhalNetwork {
             retry_config: self.retry_config.clone(),
             peer_executors: self.peer_executors.clone(),
             global_executor: self.global_executor.clone(),
+            config: self.config.clone(),
         }
     }
 }
@@ -275,6 +288,7 @@ impl NarwhalNetwork {
         committee: Committee,
         bind_address: SocketAddr,
         network_private_key: [u8; 32],
+        config: crate::config::NarwhalConfig,
     ) -> DagResult<(Self, broadcast::Receiver<NetworkEvent>)> {
         let (event_sender, event_receiver) = broadcast::channel(1000);
         let certificate_store = Arc::new(RwLock::new(HashMap::new()));
@@ -310,16 +324,12 @@ impl NarwhalNetwork {
             network.peer_id()
         );
 
-        // Create retry configuration for network operations
-        let retry_config = RetryConfig {
-            // Retry forever for critical consensus messages
-            retrying_max_elapsed_time: None,
-            ..Default::default()
-        };
+        // Convert config to retry configuration
+        let retry_config = config.to_retry_config();
 
-        // Create global bounded executor
+        // Create global bounded executor with configured limits
         let global_executor = BoundedExecutor::new_current(
-            MAX_TOTAL_CONCURRENT_TASKS,
+            config.network.max_total_connections,
             "narwhal-global"
         );
 
@@ -334,6 +344,7 @@ impl NarwhalNetwork {
             retry_config,
             peer_executors: Arc::new(RwLock::new(HashMap::new())),
             global_executor,
+            config,
         };
 
         Ok((narwhal_network, event_receiver))
@@ -589,7 +600,7 @@ impl NarwhalNetwork {
         executors.entry(peer_key.clone())
             .or_insert_with(|| {
                 BoundedExecutor::new_current(
-                    MAX_CONCURRENT_TASKS_PER_PEER,
+                    self.config.network.max_connections_per_peer,
                     format!("peer-{}", peer_key)
                 )
             })
@@ -695,6 +706,19 @@ impl NarwhalNetwork {
         let successful_sends = results.iter().filter(|r| r.is_ok()).count();
         let total_peers = results.len();
         
+        // Record metrics
+        if let Some(m) = metrics() {
+            for (idx, result) in results.iter().enumerate() {
+                if let Some((peer_key, _)) = peer_map.iter().nth(idx) {
+                    if result.is_ok() {
+                        m.record_message_sent(operation_name, &peer_key.to_string());
+                    } else {
+                        m.record_connection_error("send_failed", &peer_key.to_string());
+                    }
+                }
+            }
+        }
+        
         if successful_sends == 0 && total_peers > 0 {
             warn!("{} broadcast FAILED: 0/{} peers received the message", operation_name, total_peers);
         } else if successful_sends < total_peers {
@@ -789,6 +813,7 @@ mod tests {
                     num_workers: 1,
                     base_port: 10000 + (i * 100) as u16,
                     base_address: "127.0.0.1".to_string(),
+                    worker_ports: None,
                 },
             };
             authorities.insert(keypair.public().clone(), authority);
@@ -830,6 +855,7 @@ mod tests {
                 num_workers: 1,
                 base_port: 10000,
                 base_address: "127.0.0.1".to_string(),
+                worker_ports: None,
             },
         };
         committee.authorities.insert(header.author.clone(), authority);
@@ -848,7 +874,7 @@ mod tests {
         let bind_address = "127.0.0.1:0".parse().unwrap();
         let network_key = [1u8; 32];
 
-        let result = NarwhalNetwork::new(node_key, committee, bind_address, network_key);
+        let result = NarwhalNetwork::new(node_key, committee, bind_address, network_key, crate::config::NarwhalConfig::default());
         assert!(result.is_ok());
 
         let (network, _receiver) = result.unwrap();
@@ -872,6 +898,7 @@ mod tests {
             committee.clone(),
             "127.0.0.1:0".parse().unwrap(),
             [1u8; 32],
+            crate::config::NarwhalConfig::default(),
         ).unwrap();
         
         let (mut network2, mut events2) = NarwhalNetwork::new(
@@ -879,6 +906,7 @@ mod tests {
             committee.clone(),
             "127.0.0.1:0".parse().unwrap(),
             [2u8; 32],
+            crate::config::NarwhalConfig::default(),
         ).unwrap();
 
         let node1_addr = network1.local_addr();
@@ -918,6 +946,7 @@ mod tests {
             committee.clone(),
             "127.0.0.1:0".parse().unwrap(),
             [1u8; 32],
+            crate::config::NarwhalConfig::default(),
         ).unwrap();
         
         let (mut receiver_network, mut receiver_events) = NarwhalNetwork::new(
@@ -925,6 +954,7 @@ mod tests {
             committee.clone(),
             "127.0.0.1:0".parse().unwrap(),
             [2u8; 32],
+            crate::config::NarwhalConfig::default(),
         ).unwrap();
 
         // Connect receiver to sender
@@ -957,6 +987,7 @@ mod tests {
             committee.clone(),
             "127.0.0.1:0".parse().unwrap(),
             [1u8; 32],
+            crate::config::NarwhalConfig::default(),
         ).unwrap();
         
         let (mut network2, _events2) = NarwhalNetwork::new(
@@ -964,6 +995,7 @@ mod tests {
             committee.clone(),
             "127.0.0.1:0".parse().unwrap(),
             [2u8; 32],
+            crate::config::NarwhalConfig::default(),
         ).unwrap();
 
         // Connect networks
@@ -1011,6 +1043,7 @@ mod tests {
             committee.clone(),
             "127.0.0.1:0".parse().unwrap(),
             [1u8; 32],
+            crate::config::NarwhalConfig::default(),
         ).unwrap();
 
         // Create other nodes
@@ -1023,6 +1056,7 @@ mod tests {
                 committee.clone(),
                 format!("127.0.0.1:{}", 20000 + i).parse().unwrap(),
                 [(i + 2) as u8; 32],
+                crate::config::NarwhalConfig::default(),
             ).unwrap();
             
             peer_addresses.insert(key.clone(), network.local_addr());
@@ -1052,6 +1086,7 @@ mod tests {
             committee,
             "127.0.0.1:0".parse().unwrap(),
             [1u8; 32],
+            crate::config::NarwhalConfig::default(),
         ).unwrap();
 
         // Create a test batch
@@ -1094,6 +1129,7 @@ mod tests {
             committee.clone(),
             "127.0.0.1:0".parse().unwrap(),
             [1u8; 32],
+            crate::config::NarwhalConfig::default(),
         ).unwrap();
 
         let stats = network.stats();
@@ -1113,6 +1149,7 @@ mod tests {
             initial_committee.clone(),
             "127.0.0.1:0".parse().unwrap(),
             [1u8; 32],
+            crate::config::NarwhalConfig::default(),
         ).unwrap();
 
         // Create new committee

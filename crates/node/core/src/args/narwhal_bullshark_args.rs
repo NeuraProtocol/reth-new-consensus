@@ -3,6 +3,7 @@
 use clap::{Args, ArgAction};
 use std::net::SocketAddr;
 use fastcrypto::traits::KeyPair;
+use serde::{Deserialize, Serialize};
 
 /// Default network address for Narwhal
 const NARWHAL_NETWORK_DEFAULT: &str = "127.0.0.1:9000";
@@ -20,8 +21,9 @@ const GC_DEPTH_DEFAULT: u64 = 50;
 const FINALITY_THRESHOLD_DEFAULT: usize = 3;
 
 /// Parameters for configuring Narwhal + Bullshark consensus
-#[derive(Debug, Clone, Args, PartialEq, Eq)]
+#[derive(Debug, Clone, Args, PartialEq, Eq, Serialize, Deserialize)]
 #[command(next_help_heading = "Narwhal + Bullshark Consensus")]
+#[serde(default)]
 pub struct NarwhalBullsharkArgs {
     /// Enable Narwhal + Bullshark consensus instead of standard Ethereum consensus
     #[arg(long = "narwhal.enable", action = ArgAction::SetTrue)]
@@ -139,6 +141,78 @@ pub struct NarwhalBullsharkArgs {
     /// Port for standalone consensus RPC server (0 = disabled)
     #[arg(long = "consensus-rpc-port", default_value_t = 0)]
     pub consensus_rpc_port: u16,
+    
+    /// Enable admin endpoints for consensus RPC
+    #[arg(long = "consensus-rpc-enable-admin", action = ArgAction::SetTrue)]
+    pub consensus_rpc_enable_admin: bool,
+    
+    // ===== NETWORK CONFIGURATION =====
+    
+    /// Certificate cache size
+    #[arg(long = "narwhal.cache-size", default_value_t = 1000)]
+    pub cache_size: usize,
+    
+    /// Maximum concurrent network requests
+    #[arg(long = "narwhal.max-concurrent-requests", default_value_t = 200)]
+    pub max_concurrent_requests: usize,
+    
+    /// Connection timeout in milliseconds
+    #[arg(long = "narwhal.connection-timeout-ms", default_value_t = 5000)]
+    pub connection_timeout_ms: u64,
+    
+    /// Request timeout in milliseconds
+    #[arg(long = "narwhal.request-timeout-ms", default_value_t = 10000)]
+    pub request_timeout_ms: u64,
+    
+    /// Number of retry attempts for failed requests
+    #[arg(long = "narwhal.retry-attempts", default_value_t = 3)]
+    pub retry_attempts: u32,
+    
+    /// Base delay for exponential backoff in milliseconds
+    #[arg(long = "narwhal.retry-base-delay-ms", default_value_t = 100)]
+    pub retry_base_delay_ms: u64,
+    
+    /// Maximum delay for exponential backoff in milliseconds
+    #[arg(long = "narwhal.retry-max-delay-ms", default_value_t = 10000)]
+    pub retry_max_delay_ms: u64,
+    
+    /// Sync retry delay in milliseconds
+    #[arg(long = "narwhal.sync-retry-delay-ms", default_value_t = 5000)]
+    pub sync_retry_delay_ms: u64,
+    
+    // ===== PERFORMANCE CONFIGURATION =====
+    
+    /// Pre-allocated certificate buffer size
+    #[arg(long = "narwhal.certificate-buffer-size", default_value_t = 1000)]
+    pub certificate_buffer_size: usize,
+    
+    /// Maximum transactions per batch
+    #[arg(long = "narwhal.max-transactions-per-batch", default_value_t = 100)]
+    pub max_transactions_per_batch: usize,
+    
+    /// Batch creation interval in milliseconds
+    #[arg(long = "narwhal.batch-creation-interval-ms", default_value_t = 50)]
+    pub batch_creation_interval_ms: u64,
+    
+    // ===== BULLSHARK ADVANCED CONFIGURATION =====
+    
+    /// Maximum DAG walk depth for consensus
+    #[arg(long = "bullshark.max-dag-walk-depth", default_value_t = 10)]
+    pub max_dag_walk_depth: usize,
+    
+    /// Enable detailed consensus metrics
+    #[arg(long = "bullshark.enable-detailed-metrics", action = ArgAction::SetTrue)]
+    pub enable_detailed_metrics: bool,
+    
+    // ===== WORKER CONFIGURATION =====
+    
+    /// Base port for worker services (workers use sequential ports from this base)
+    #[arg(long = "narwhal.worker-base-port", default_value_t = 19000)]
+    pub worker_base_port: u16,
+    
+    /// Worker bind address (default: same as primary network address)
+    #[arg(long = "narwhal.worker-bind-address")]
+    pub worker_bind_address: Option<String>,
 }
 
 impl Default for NarwhalBullsharkArgs {
@@ -172,6 +246,22 @@ impl Default for NarwhalBullsharkArgs {
             peer_addresses: Vec::new(),
             bootstrap_mode: false,
             consensus_rpc_port: 0,
+            consensus_rpc_enable_admin: false,
+            cache_size: 1000,
+            max_concurrent_requests: 200,
+            connection_timeout_ms: 5000,
+            request_timeout_ms: 10000,
+            retry_attempts: 3,
+            retry_base_delay_ms: 100,
+            retry_max_delay_ms: 10000,
+            sync_retry_delay_ms: 5000,
+            certificate_buffer_size: 1000,
+            max_transactions_per_batch: 100,
+            batch_creation_interval_ms: 50,
+            max_dag_walk_depth: 10,
+            enable_detailed_metrics: false,
+            worker_base_port: 19000,
+            worker_bind_address: None,
         }
     }
 }
@@ -234,14 +324,38 @@ impl NarwhalBullsharkArgs {
 
     /// Convert to Narwhal configuration
     pub fn to_narwhal_config(&self) -> narwhal::NarwhalConfig {
-        narwhal::NarwhalConfig {
-            max_batch_size: self.max_batch_size,
-            max_batch_delay: std::time::Duration::from_millis(self.max_batch_delay_ms),
-            num_workers: self.num_workers,
-            gc_depth: self.gc_depth,
-            committee_size: self.committee_size,
-            batch_storage_memory: false, // Use persistent storage in production
-        }
+        let mut config = narwhal::NarwhalConfig::default();
+        
+        // Basic configuration
+        config.max_batch_size = self.max_batch_size;
+        config.max_batch_delay = std::time::Duration::from_millis(self.max_batch_delay_ms);
+        config.num_workers = self.num_workers;
+        config.gc_depth = self.gc_depth;
+        config.committee_size = self.committee_size;
+        config.batch_storage_memory = false; // Use persistent storage in production
+        config.sync_retry_delay = std::time::Duration::from_millis(self.sync_retry_delay_ms);
+        
+        // Worker configuration
+        config.worker.cache_size = self.cache_size;
+        config.worker.batch_timeout = std::time::Duration::from_millis(self.request_timeout_ms);
+        config.worker.max_batch_requests = self.max_concurrent_requests;
+        config.worker.batch_retry_attempts = self.retry_attempts;
+        config.worker.batch_retry_delay = std::time::Duration::from_millis(self.retry_base_delay_ms);
+        
+        // Network configuration
+        config.network.connection_timeout = std::time::Duration::from_millis(self.connection_timeout_ms);
+        config.network.request_timeout = std::time::Duration::from_millis(self.request_timeout_ms);
+        config.network.retry.initial_interval = std::time::Duration::from_millis(self.retry_base_delay_ms);
+        config.network.retry.max_interval = std::time::Duration::from_millis(self.retry_max_delay_ms);
+        
+        // Storage configuration
+        config.storage.cache_size = self.certificate_buffer_size;
+        
+        // Performance configuration
+        config.performance.tx_prealloc_size = self.max_transactions_per_batch;
+        config.performance.yield_interval = std::time::Duration::from_millis(self.batch_creation_interval_ms);
+        
+        config
     }
 
     /// Convert to Bullshark configuration
@@ -278,10 +392,30 @@ impl NarwhalBullsharkArgs {
     pub fn should_wait_for_peers(&self) -> bool {
         !self.bootstrap_mode && !self.peer_addresses.is_empty()
     }
+    
+    /// Get worker bind address (defaults to the primary bind address)
+    pub fn get_worker_bind_address(&self) -> String {
+        self.worker_bind_address.clone()
+            .unwrap_or_else(|| {
+                // Extract the IP from the network address
+                let ip = self.network_address.ip().to_string();
+                ip
+            })
+    }
+    
+    /// Get worker configuration for committee creation
+    pub fn get_worker_configuration(&self) -> narwhal::types::WorkerConfiguration {
+        narwhal::types::WorkerConfiguration {
+            num_workers: self.num_workers,
+            base_port: self.worker_base_port,
+            base_address: self.get_worker_bind_address(),
+            worker_ports: None, // Will be set explicitly from validator config if needed
+        }
+    }
 }
 
 /// Vault configuration extracted from CLI arguments
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VaultConfig {
     pub address: String,
     pub mount_path: String,

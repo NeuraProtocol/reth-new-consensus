@@ -84,4 +84,19 @@ pub enum BullsharkError {
     /// Configuration parameter error
     #[error("Configuration error: {0}")]
     Configuration(String),
+    
+    /// Batch not found in storage
+    #[error("Batch {digest} not found: {reason}")]
+    BatchNotFound {
+        digest: narwhal::BatchDigest,
+        reason: String,
+    },
+    
+    /// Storage operation failed with context
+    #[error("Storage operation failed: {context}")]
+    StorageError {
+        #[source]
+        source: anyhow::Error,
+        context: String,
+    },
 }

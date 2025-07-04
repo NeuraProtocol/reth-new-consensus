@@ -5,6 +5,7 @@
 use crate::{
     DagError, DagResult, Transaction, Batch, WorkerId,
     types::{Committee, Epoch},
+    metrics_collector::{metrics, MetricTimer},
 };
 use tokio::{
     sync::{mpsc, watch},
@@ -94,6 +95,12 @@ impl BatchMaker {
                 Some(transaction) = self.rx_transaction.recv() => {
                     let tx_size = transaction.as_bytes().len();
                     
+                    // Record metrics
+                    if let Some(m) = metrics() {
+                        m.record_transaction_received(&format!("worker_{}", self.worker_id));
+                        m.set_transactions_in_flight("worker_batching", self.current_batch.len() as i64);
+                    }
+                    
                     // Check if adding this transaction would exceed max size
                     if self.current_batch_size + tx_size > self.config.max_batch_size && !self.current_batch.is_empty() {
                         // Seal current batch first
@@ -154,16 +161,28 @@ impl BatchMaker {
             return Ok(());
         }
         
+        let _timer = metrics().map(|m| MetricTimer::new(
+            m.batch_creation_duration.clone(), 
+            vec![&self.worker_id.to_string()]
+        ));
+        
         let batch = Batch(std::mem::take(&mut self.current_batch));
         let batch_size = self.current_batch_size;
+        let transaction_count = batch.0.len();
         self.current_batch_size = 0;
         
         debug!(
             "Worker {} sealed batch with {} transactions ({} bytes)",
             self.worker_id,
-            batch.0.len(),
+            transaction_count,
             batch_size
         );
+        
+        // Record metrics
+        if let Some(m) = metrics() {
+            m.record_transactions_batched(&self.worker_id.to_string(), transaction_count as u64);
+            m.record_batch_size(&self.worker_id.to_string(), transaction_count as f64);
+        }
         
         // Send batch to the next stage
         if let Err(e) = self.tx_batch.send(batch) {

@@ -252,6 +252,69 @@ impl ValidatorRegistry {
         Ok(Committee::new_simple(epoch, authorities))
     }
     
+    /// Create a committee with custom worker configuration  
+    pub fn create_committee_with_workers(
+        &self, 
+        epoch: u64, 
+        stakes: &HashMap<Address, u64>,
+        worker_config: &narwhal::types::WorkerConfiguration,
+        network_addresses: &HashMap<Address, (String, narwhal::types::PublicKey)>,
+    ) -> Result<Committee> {
+        // Create a map with the same worker config for all validators
+        let mut worker_configs = HashMap::new();
+        for addr in stakes.keys() {
+            worker_configs.insert(*addr, worker_config.clone());
+        }
+        
+        self.create_committee_with_per_validator_workers(epoch, stakes, &worker_configs, network_addresses)
+    }
+    
+    /// Create a committee with per-validator worker configurations
+    pub fn create_committee_with_per_validator_workers(
+        &self, 
+        epoch: u64, 
+        stakes: &HashMap<Address, u64>,
+        worker_configs: &HashMap<Address, narwhal::types::WorkerConfiguration>,
+        network_addresses: &HashMap<Address, (String, narwhal::types::PublicKey)>,
+    ) -> Result<Committee> {
+        let mut authorities_map = HashMap::new();
+        
+        for (evm_address, stake) in stakes {
+            if let Some(identity) = self.validators.get(evm_address) {
+                // Get network address and key from the provided map
+                let (network_addr, network_key) = network_addresses.get(evm_address)
+                    .ok_or_else(|| anyhow!("Network address not provided for validator {:?}", evm_address))?;
+                
+                // Get worker configuration for this specific validator
+                let worker_config = worker_configs.get(evm_address)
+                    .ok_or_else(|| anyhow!("Worker configuration not provided for validator {:?}", evm_address))?;
+                
+                // Create authority with worker configuration
+                let authority = narwhal::types::Authority {
+                    stake: *stake,
+                    primary_address: network_addr.clone(),
+                    network_key: network_key.clone(),
+                    workers: worker_config.clone(),
+                };
+                
+                authorities_map.insert(identity.consensus_public_key.clone(), authority);
+                
+                info!("Configured validator {} with worker ports {}-{}",
+                      evm_address,
+                      worker_config.base_port,
+                      worker_config.base_port + worker_config.num_workers as u16 - 1);
+            } else {
+                warn!("Validator with EVM address {:?} not found in registry", evm_address);
+            }
+        }
+        
+        if authorities_map.is_empty() {
+            return Err(anyhow!("No registered validators found for committee creation"));
+        }
+        
+        Ok(Committee::new(epoch, authorities_map))
+    }
+    
     /// Get all registered validators
     pub fn all_validators(&self) -> Vec<&ValidatorIdentity> {
         self.validators.values().collect()

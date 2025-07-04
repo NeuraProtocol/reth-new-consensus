@@ -544,6 +544,8 @@ pub struct ConsensusRpcImpl {
     validator_registry: Arc<RwLock<ValidatorRegistry>>,
     /// Reference to consensus storage
     storage: Arc<RwLock<MdbxConsensusStorage>>,
+    /// RPC configuration
+    config: crate::rpc_config::ConsensusRpcConfig,
 }
 
 impl ConsensusRpcImpl {
@@ -557,6 +559,22 @@ impl ConsensusRpcImpl {
             consensus_bridge,
             validator_registry,
             storage,
+            config: crate::rpc_config::ConsensusRpcConfig::from_env(),
+        }
+    }
+    
+    /// Create a new consensus RPC implementation with custom config
+    pub fn with_config(
+        consensus_bridge: Arc<RwLock<NarwhalRethBridge>>,
+        validator_registry: Arc<RwLock<ValidatorRegistry>>,
+        storage: Arc<RwLock<MdbxConsensusStorage>>,
+        config: crate::rpc_config::ConsensusRpcConfig,
+    ) -> Self {
+        Self {
+            consensus_bridge,
+            validator_registry,
+            storage,
+            config,
         }
     }
 }
@@ -622,8 +640,8 @@ impl ConsensusApiServer for ConsensusRpcImpl {
             .map(|identity| ValidatorSummary {
                 evm_address: identity.evm_address,
                 consensus_key: identity.consensus_public_key.encode_base64(),
-                stake: 100, // TODO: Get actual stake from somewhere
-                active: true, // TODO: Determine if active
+                stake: self.config.validator.default_stake,
+                active: true, // TODO: Determine if active from actual state
                 name: identity.metadata.name.clone(),
             })
             .collect();
@@ -669,8 +687,8 @@ impl ConsensusApiServer for ConsensusRpcImpl {
                 summary: ValidatorSummary {
                     evm_address: identity.evm_address,
                     consensus_key: identity.consensus_public_key.encode_base64(),
-                    stake: 100, // TODO: Get actual stake
-                    active: true, // TODO: Determine if active
+                    stake: self.config.validator.default_stake,
+                    active: true, // TODO: Determine if active from actual state
                     name: identity.metadata.name.clone(),
                 },
                 metadata: ValidatorMetadata {
@@ -710,7 +728,7 @@ impl ConsensusApiServer for ConsensusRpcImpl {
                     summary: ValidatorSummary {
                         evm_address: identity.evm_address,
                         consensus_key: identity.consensus_public_key.encode_base64(),
-                        stake: 100, // TODO: Get actual stake
+                        stake: self.config.validator.default_stake,
                         active: is_active,
                         name: identity.metadata.name.clone(),
                     },
@@ -868,30 +886,63 @@ impl ConsensusApiServer for ConsensusRpcImpl {
         let committee = bridge.get_current_committee();
         let committee_size = committee.authorities.len();
         
+        // Get real metrics from the metrics collector if available
+        let (tps_recent, tps_total, certs_per_sec, batches_per_sec, peak_tps) = 
+            if let Some(m) = narwhal::metrics() {
+                // Get Prometheus metrics
+                use prometheus::core::Collector;
+                let registry = prometheus::default_registry();
+                let families = registry.gather();
+                
+                // Extract relevant metrics
+                let mut tps_recent = 0.0;
+                let mut tps_total = 0.0;
+                
+                for family in families {
+                    if family.get_name() == "narwhal_throughput_tps" {
+                        for metric in family.get_metric() {
+                            for label_pair in metric.get_label() {
+                                if label_pair.get_name() == "window" {
+                                    match label_pair.get_value() {
+                                        "1min" => tps_recent = metric.get_gauge().get_value(),
+                                        "total" => tps_total = metric.get_gauge().get_value(),
+                                        _ => {},
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                (tps_recent, tps_total, 0.0, 0.0, 0.0)
+            } else {
+                (0.0, 0.0, 0.0, 0.0, 0.0)
+            };
+        
         Ok(ConsensusMetrics {
             throughput: ThroughputMetrics {
-                tps_recent: 0.0, // TODO: Track recent TPS
-                tps_total: 0.0, // TODO: Track total TPS
-                certificates_per_second: 0.0, // TODO: Track certificate rate
-                batches_per_second: 0.0, // TODO: Track batch rate
-                peak_tps: 0.0, // TODO: Track peak TPS
+                tps_recent,
+                tps_total,
+                certificates_per_second: certs_per_sec,
+                batches_per_second: batches_per_sec,
+                peak_tps,
             },
             latency: LatencyMetrics {
-                avg_finalization_time: 1000, // TODO: Track actual latency
+                avg_finalization_time: 1000, // Still TODO: Track actual latency from metrics
                 median_finalization_time: 900,
                 p95_finalization_time: 2000,
                 avg_certificate_time: 500,
                 avg_round_time: 2000,
             },
             resources: ResourceMetrics {
-                memory_usage: 0, // TODO: Get process memory
+                memory_usage: 0, // Still TODO: Get from metrics collector
                 database_size: stats.total_certificates + stats.total_batches + stats.total_dag_vertices,
-                cpu_usage: 0.0, // TODO: Get CPU usage
-                network_bandwidth: 0, // TODO: Track bandwidth
+                cpu_usage: 0.0, // Still TODO: Get from metrics collector
+                network_bandwidth: 0, // Still TODO: Track bandwidth
             },
             network: NetworkMetrics {
                 connected_peers: if is_running { committee_size - 1 } else { 0 },
-                messages_sent_per_sec: 0.0, // TODO: Track message rate
+                messages_sent_per_sec: 0.0, // Still TODO: Calculate from metrics
                 messages_received_per_sec: 0.0,
                 network_health: if is_running { 1.0 } else { 0.0 },
             },
@@ -915,16 +966,19 @@ impl ConsensusApiServer for ConsensusRpcImpl {
                 round_timeout_ms: 5000,
             },
             network: NetworkConfig {
-                listen_address: "0.0.0.0:8080".to_string(), // TODO: Get from actual config
-                max_message_size: 1024 * 1024,
-                connection_timeout_ms: 30000,
-                keepalive_interval_ms: 60000,
+                listen_address: format!("{}:{}", 
+                    self.config.network.default_listen_address,
+                    self.config.network.default_consensus_port
+                ),
+                max_message_size: 1024 * 1024, // 1MB
+                connection_timeout_ms: self.config.network.connection_timeout.as_millis() as u64,
+                keepalive_interval_ms: self.config.network.heartbeat_interval.as_millis() as u64,
             },
             performance: PerformanceConfig {
-                certificate_cache_size: 1000,
-                transaction_batch_size: 100,
-                worker_threads: 4,
-                memory_pool_size: 1024 * 1024 * 100,
+                certificate_cache_size: self.config.performance.certificate_cache_size as usize,
+                transaction_batch_size: 100, // TODO: Make configurable
+                worker_threads: self.config.performance.worker_threads as usize,
+                memory_pool_size: 1024 * 1024 * 100, // 100MB
             },
         })
     }

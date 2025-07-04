@@ -342,6 +342,7 @@ mod tests {
                     num_workers: 1,
                     base_port: 10000 + (i * 100) as u16,
                     base_address: "127.0.0.1".to_string(),
+                    worker_ports: None,
                 },
             };
             authorities.insert(keypair.public().clone(), authority);

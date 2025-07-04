@@ -523,6 +523,76 @@ tables! {
         type Key = ChainStateKey;
         type Value = BlockNumber;
     }
+
+    // Consensus extension tables for Narwhal + Bullshark
+    
+    /// Table mapping finalized batch id to the block hash that was built from that batch.
+    table ConsensusFinalizedBatch {
+        type Key = u64;
+        type Value = B256;
+    }
+
+    /// Table storing consensus certificates by ID
+    table ConsensusCertificates {
+        type Key = u64;
+        type Value = Vec<u8>;
+    }
+
+    /// Table storing consensus batches by ID
+    table ConsensusBatches {
+        type Key = u64;
+        type Value = Vec<u8>;
+    }
+
+    /// Table storing DAG vertices by hash
+    table ConsensusDagVertices {
+        type Key = B256;
+        type Value = Vec<u8>;
+    }
+
+    /// Table storing the latest finalized certificate ID
+    table ConsensusLatestFinalized {
+        type Key = u8;
+        type Value = u64;
+    }
+
+    /// Table storing worker batch data by digest
+    table WorkerBatches {
+        type Key = B256;
+        type Value = Vec<u8>;
+    }
+
+    /// Table storing worker batch metadata
+    table WorkerBatchMetadata {
+        type Key = B256;
+        type Value = Vec<u8>;
+    }
+
+    /// Table storing pending transactions for workers
+    table WorkerPendingTransactions {
+        type Key = B256;
+        type Value = Vec<u8>;
+    }
+
+    /// Table storing batch acknowledgments from other workers
+    table WorkerBatchAcks {
+        type Key = B256;
+        type Value = Vec<u8>;
+        type SubKey = Vec<u8>;
+    }
+
+    /// Table storing votes indexed by header digest
+    table ConsensusVotes {
+        type Key = B256;
+        type Value = Vec<u8>;
+    }
+
+    /// Table indexing certificates by round for efficient round queries
+    table ConsensusCertificatesByRound {
+        type Key = u64;
+        type Value = Vec<u8>;
+        type SubKey = Vec<u8>;
+    }
 }
 
 /// Keys for the `ChainState` table.

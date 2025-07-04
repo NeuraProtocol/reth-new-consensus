@@ -5,6 +5,7 @@ use crate::{
     NarwhalConfig, DagError, DagResult, Transaction, Round, Batch,
     aggregators::VotesAggregator,
     storage_trait::{DagStorageInterface, DagStorageRef},
+    metrics_collector::{metrics, MetricTimer},
 };
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
@@ -40,7 +41,7 @@ pub struct DagService {
     /// Receiver for DAG messages (headers, votes, certificates) from network
     rx_network_messages: mpsc::UnboundedReceiver<DagMessage>,
     /// Sender for notifying Bullshark of new certificates
-    certificate_output_sender: mpsc::UnboundedSender<Certificate>,
+    certificate_output_sender: mpsc::Sender<Certificate>,
     /// Watch channel for reconfiguration
     reconfigure_receiver: watch::Receiver<Committee>,
     /// Storage backend for persistence
@@ -87,7 +88,7 @@ impl DagService {
         signature_service: SignatureService<Signature>,
         transaction_receiver: mpsc::UnboundedReceiver<Transaction>,
         rx_network_messages: mpsc::UnboundedReceiver<DagMessage>,
-        certificate_output_sender: mpsc::UnboundedSender<Certificate>,
+        certificate_output_sender: mpsc::Sender<Certificate>,
         reconfigure_receiver: watch::Receiver<Committee>,
         storage: DagStorageRef,
     ) -> Self {
@@ -121,7 +122,7 @@ impl DagService {
         signature_service: SignatureService<Signature>,
         transaction_receiver: mpsc::UnboundedReceiver<Transaction>,
         rx_network_messages: mpsc::UnboundedReceiver<DagMessage>,
-        certificate_output_sender: mpsc::UnboundedSender<Certificate>,
+        certificate_output_sender: mpsc::Sender<Certificate>,
         reconfigure_receiver: watch::Receiver<Committee>,
         storage: DagStorageRef,
         network_sender: mpsc::UnboundedSender<DagMessage>,
@@ -202,6 +203,12 @@ impl DagService {
                 // Process new transactions for batching
                 Some(transaction) = self.transaction_receiver.recv() => {
                     self.current_batch.push(transaction);
+                    
+                    // Record metrics
+                    if let Some(m) = metrics() {
+                        m.record_transaction_received("mempool");
+                        m.set_transactions_in_flight("batching", self.current_batch.len() as i64);
+                    }
                     
                     // Check if we should create a header
                     let enough_transactions = self.current_batch.len() >= self.config.max_batch_size;
@@ -367,6 +374,14 @@ impl DagService {
          
          info!("Created header {} for round {}", header.id, header.round);
 
+         // Record metrics
+         if let Some(m) = metrics() {
+             m.record_header_created(&self.name.to_string());
+             m.record_transactions_batched("0", self.current_batch.len() as u64);
+             m.record_batch_size("0", self.current_batch.len() as f64);
+             m.set_dag_depth(&self.name.to_string(), self.current_round as i64);
+         }
+
          // Clear batch and advance round
          self.current_batch.clear();
          self.current_round += 1;
@@ -489,11 +504,17 @@ impl DagService {
     async fn process_vote(&mut self, vote: Vote) -> DagResult<()> {
         info!("Processing vote from {} for header {}", vote.author, vote.id);
         
+        // Record metrics
+        if let Some(m) = metrics() {
+            m.record_vote_cast(&vote.author.to_string(), vote.round);
+        }
+        
         // Find the vote aggregator for this header
         let aggregator = self.vote_aggregators.get_mut(&vote.id)
             .ok_or_else(|| DagError::Consensus(format!("No header found for vote: {}", vote.id)))?;
         
         // Store vote in persistent storage
+        let _timer = metrics().map(|m| MetricTimer::new(m.storage_operation_duration.clone(), vec!["write", "votes"]));
         self.storage.store_vote(vote.id, vote.clone()).await?;
         
         // Add vote to aggregator
@@ -504,6 +525,11 @@ impl DagService {
             let header_id = certificate.header.id;
             info!("Created certificate for header {} with {} votes", 
                   header_id, aggregator.vote_count());
+            
+            // Record metrics
+            if let Some(m) = metrics() {
+                m.record_certificate_formed(&certificate.origin().to_string(), certificate.round());
+            }
             
             // Send certificate for network broadcast
             if let Some(ref sender) = self.network_sender {
@@ -526,15 +552,29 @@ impl DagService {
 
      /// Process certificate (adapted from reference implementation)
      async fn process_certificate(&mut self, certificate: Certificate) -> DagResult<()> {
-         info!("Processing certificate from {} for round {}", certificate.origin(), certificate.round());
-
          let cert_digest = certificate.digest();
          let author = certificate.origin();
          let cert_round = certificate.round();
+         
+         // Check if we've already processed this certificate
+         if self.certificates.contains_key(&cert_digest) {
+             debug!("Certificate {} from {} for round {} already processed, skipping", 
+                   cert_digest, author, cert_round);
+             return Ok(());
+         }
+         
+         info!("Processing certificate from {} for round {}", author, cert_round);
 
          // Store certificate in persistent storage
+         let _timer = metrics().map(|m| MetricTimer::new(m.storage_operation_duration.clone(), vec!["write", "certificates"]));
          self.storage.store_certificate(certificate.clone()).await?;
          self.storage.store_latest_certificate(author.clone(), certificate.clone()).await?;
+         
+         // Record metrics
+         if let Some(m) = metrics() {
+             m.record_certificate_stored(cert_round);
+             m.record_storage_operation("write", "certificates");
+         }
 
          // Also keep in memory for fast access
          self.certificates.insert(cert_digest, certificate.clone());
@@ -548,10 +588,18 @@ impl DagService {
                certs_in_round, cert_round, self.certificates.len());
 
          // Send to Bullshark consensus
-         if let Err(e) = self.certificate_output_sender.send(certificate.clone()) {
-             warn!("Failed to send certificate to Bullshark: {}", e);
-         } else {
-             debug!("Sent certificate for round {} to Bullshark consensus", cert_round);
+         match self.certificate_output_sender.try_send(certificate.clone()) {
+             Ok(()) => {
+                 debug!("Sent certificate for round {} to Bullshark consensus", cert_round);
+             }
+             Err(mpsc::error::TrySendError::Full(_)) => {
+                 warn!("Certificate channel full, Bullshark is falling behind. Dropping certificate for round {}", cert_round);
+                 // Note: In production, we might want to handle this differently,
+                 // but for now we drop to prevent unbounded memory growth
+             }
+             Err(mpsc::error::TrySendError::Closed(_)) => {
+                 warn!("Failed to send certificate to Bullshark: channel closed");
+             }
          }
 
          // Check if we should advance rounds based on certificates collected
@@ -586,8 +634,11 @@ impl DagService {
              info!("Collected quorum of certificates for round {}, can advance to round {}", 
                    cert_round, self.current_round + 1);
              
-             // If we have pending transactions, create a header immediately
-             if !self.current_batch.is_empty() {
+             // Check if we should advance the round
+             // We advance if:
+             // 1. We have pending transactions OR
+             // 2. We're falling behind (the certificates are from the previous round)
+             if !self.current_batch.is_empty() || cert_round == self.current_round - 1 {
                  self.create_and_propose_header().await?;
              }
          }
@@ -652,9 +703,9 @@ impl DagService {
 #[derive(Debug)]
 pub struct DagServiceChannels {
     /// Send new certificates to consensus (output from DAG)
-    pub certificate_sender: mpsc::UnboundedSender<Certificate>,
+    pub certificate_sender: mpsc::Sender<Certificate>,
     /// Receive new certificates from consensus (input to DAG)
-    pub certificate_receiver: mpsc::UnboundedReceiver<Certificate>,
+    pub certificate_receiver: mpsc::Receiver<Certificate>,
     /// Send transactions to DAG
     pub transaction_sender: mpsc::UnboundedSender<Transaction>,
     /// Send network messages (headers, votes, certificates) to DAG
@@ -666,7 +717,7 @@ pub struct DagServiceChannels {
 impl DagServiceChannels {
     /// Create new channels for DAG service
     pub fn new() -> Self {
-        let (certificate_sender, certificate_receiver) = mpsc::unbounded_channel();
+        let (certificate_sender, certificate_receiver) = mpsc::channel(1000);
         let (transaction_sender, _) = mpsc::unbounded_channel();
         let (network_message_sender, _) = mpsc::unbounded_channel();
         let (committee_sender, _) = watch::channel(Committee::new(0, Default::default()));

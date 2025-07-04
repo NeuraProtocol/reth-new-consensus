@@ -31,7 +31,7 @@ pub struct BftService {
     /// Current committee
     committee: Committee,
     /// Receiver for certificates from Narwhal
-    certificate_receiver: mpsc::UnboundedReceiver<Certificate>,
+    certificate_receiver: mpsc::Receiver<Certificate>,
     /// Sender for finalized batches to Reth integration layer
     finalized_batch_sender: mpsc::UnboundedSender<FinalizedBatchInternal>,
     /// Current block number being processed
@@ -65,7 +65,7 @@ impl BftService {
     pub fn new(
         config: BftConfig,
         committee: Committee,
-        certificate_receiver: mpsc::UnboundedReceiver<Certificate>,
+        certificate_receiver: mpsc::Receiver<Certificate>,
         finalized_batch_sender: mpsc::UnboundedSender<FinalizedBatchInternal>,
     ) -> Self {
         // Initialize DAG with genesis certificates
@@ -94,7 +94,7 @@ impl BftService {
     pub fn with_storage(
         config: BftConfig,
         committee: Committee,
-        certificate_receiver: mpsc::UnboundedReceiver<Certificate>,
+        certificate_receiver: mpsc::Receiver<Certificate>,
         finalized_batch_sender: mpsc::UnboundedSender<FinalizedBatchInternal>,
         storage: std::sync::Arc<dyn ConsensusStorage>,
     ) -> Self {
@@ -160,7 +160,15 @@ impl BftService {
                     }
                 }
                 Err(e) => {
-                    error!("Error processing certificate: {}", e);
+                    // Only log as error if it's not a batch not found error
+                    match &e {
+                        BullsharkError::BatchNotFound { .. } => {
+                            debug!("Certificate processing skipped: {}", e);
+                        }
+                        _ => {
+                            error!("Error processing certificate: {}", e);
+                        }
+                    }
                     // Continue processing other certificates
                 }
             }
@@ -271,30 +279,29 @@ impl BftService {
                                 transactions.extend(batch.0);
                             }
                             None => {
-                                warn!("Batch {} not found in storage", batch_digests[i]);
-                                // Create a dummy transaction as fallback
-                                let dummy_tx = format!("missing_batch_{}", batch_digests[i]).into_bytes();
-                                transactions.push(narwhal::Transaction(dummy_tx));
+                                // When there are no transactions, workers might not create batches
+                                // This is expected behavior, not an error
+                                debug!("Batch {} not found in storage - this is expected when there are no transactions", 
+                                    batch_digests[i]);
+                                // Continue processing other batches
                             }
                         }
                     }
                 }
                 Err(e) => {
-                    warn!("Failed to retrieve batches from storage: {}", e);
-                    // Fall back to dummy transactions
-                    for (batch_digest, _worker_id) in &certificate.header.payload {
-                        let dummy_tx = format!("tx_from_batch_{}", batch_digest).into_bytes();
-                        transactions.push(narwhal::Transaction(dummy_tx));
-                    }
+                    // Cannot proceed without batch data - this is a storage failure
+                    return Err(BullsharkError::StorageError {
+                        source: anyhow::anyhow!(e),
+                        context: format!("Failed to retrieve {} batches for certificate in round {}",
+                            batch_digests.len(), certificate.round()),
+                    });
                 }
             }
         } else {
-            // No batch store available - use dummy transactions
-            debug!("No batch store available, using dummy transactions");
-            for (batch_digest, _worker_id) in &certificate.header.payload {
-                let dummy_tx = format!("tx_from_batch_{}", batch_digest).into_bytes();
-                transactions.push(narwhal::Transaction(dummy_tx));
-            }
+            // Batch store is required for proper operation
+            return Err(BullsharkError::Configuration(
+                "Batch store not configured - cannot extract transactions from certificates".to_string()
+            ));
         }
 
         Ok(transactions)
@@ -414,6 +421,7 @@ mod tests {
                     num_workers: 1,
                     base_port: 10000 + (i * 100) as u16,
                     base_address: "127.0.0.1".to_string(),
+                    worker_ports: None,
                 },
             };
             authorities.insert(keypair.public().clone(), authority);
@@ -425,7 +433,7 @@ mod tests {
     async fn test_bft_service_creation() {
         let committee = create_test_committee();
         let config = BftConfig::default();
-        let (cert_sender, cert_receiver) = mpsc::unbounded_channel();
+        let (cert_sender, cert_receiver) = mpsc::channel(1000);
         let (batch_sender, _batch_receiver) = mpsc::unbounded_channel();
 
         let service = BftService::new(config, committee, cert_receiver, batch_sender);
@@ -438,7 +446,7 @@ mod tests {
     async fn test_committee_update() {
         let committee = create_test_committee();
         let config = BftConfig::default();
-        let (cert_sender, cert_receiver) = mpsc::unbounded_channel();
+        let (cert_sender, cert_receiver) = mpsc::channel(1000);
         let (batch_sender, _batch_receiver) = mpsc::unbounded_channel();
 
         let mut service = BftService::new(config, committee.clone(), cert_receiver, batch_sender);

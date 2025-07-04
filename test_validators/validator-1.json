@@ -7,5 +7,7 @@
   "evm_private_key": "0x2222222222222222222222222222222222222222222222222222222222222222",
   "consensus_private_key": null,
   "stake": 1000,
-  "active": true
+  "active": true,
+  "network_address": "127.0.0.1:9002",
+  "worker_port_range": "19004:19007"
 } 

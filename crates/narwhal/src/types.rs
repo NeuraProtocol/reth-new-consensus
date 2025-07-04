@@ -48,7 +48,7 @@ pub struct Authority {
 }
 
 /// Worker configuration for an authority
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct WorkerConfiguration {
     /// Number of workers
     pub num_workers: u32,
@@ -56,16 +56,27 @@ pub struct WorkerConfiguration {
     pub base_port: u16,
     /// Base address for workers (e.g., "127.0.0.1")
     pub base_address: String,
+    /// Optional explicit worker ports (overrides base_port if specified)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worker_ports: Option<Vec<u16>>,
 }
 
 impl WorkerConfiguration {
     /// Get the address for a specific worker
     pub fn get_worker_address(&self, worker_id: WorkerId) -> Option<String> {
-        if worker_id < self.num_workers {
-            Some(format!("{}:{}", self.base_address, self.base_port + worker_id as u16))
-        } else {
-            None
+        if worker_id >= self.num_workers {
+            return None;
         }
+        
+        let port = if let Some(ports) = &self.worker_ports {
+            // Use explicit ports if specified
+            ports.get(worker_id as usize).copied()?
+        } else {
+            // Fall back to sequential ports from base_port
+            self.base_port + worker_id as u16
+        };
+        
+        Some(format!("{}:{}", self.base_address, port))
     }
     
     /// Get all worker addresses
@@ -112,6 +123,7 @@ impl Committee {
                     num_workers: num_workers_per_authority,
                     base_port: worker_base_port,
                     base_address: "127.0.0.1".to_string(),
+                    worker_ports: None,
                 },
             };
             (key, authority)
@@ -371,17 +383,9 @@ pub struct Vote {
 }
 
 impl Vote {
-    /// Create a new vote (signature will be added later when signing is properly implemented)
-    pub fn new(header: &Header, author: &PublicKey) -> Self {
-        Self {
-            id: header.id,
-            round: header.round,
-            epoch: header.epoch,
-            origin: header.author.clone(),
-            author: author.clone(),
-            signature: Signature::default(), // TODO: Fix signing with correct fastcrypto API
-        }
-    }
+    // Note: Vote creation requires proper signing. Use either:
+    // - new_with_signer() for synchronous signing (e.g., in tests)
+    // - new_with_signature_service() for async signing (production code)
 
     /// Create a new vote with signer using real cryptography
     pub fn new_with_signer<S>(header: &Header, author: &PublicKey, signer: &S) -> Self
@@ -624,8 +628,9 @@ impl Certificate {
         
         for (index, &authority) in committee_keys.iter().enumerate() {
             if self.signed_authorities.contains(index as u32) {
-                // For aggregated signatures, we would need to decompose them
-                // For now, return the authority with a placeholder
+                // BLS aggregate signatures cannot be decomposed back to individual signatures
+                // This is a cryptographic property of BLS signatures
+                // Return the authority with a default signature as individual signatures are not recoverable
                 signers.push((authority.clone(), Signature::default()));
             }
         }

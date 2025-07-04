@@ -169,6 +169,8 @@ impl ConsensusProtocol for BullsharkConsensus {
             // Create consensus outputs for each certificate
             for cert in ordered_certificates {
                 let cert_digest = cert.digest();
+                // Extract signature before moving cert
+                let cert_signature = cert.aggregated_signature().as_ref().to_vec();
                 
                 // Update DAG state
                 dag.update_last_committed(&cert, self.config.gc_depth);
@@ -183,16 +185,19 @@ impl ConsensusProtocol for BullsharkConsensus {
 
                 // Persist certificate and state to storage
                 if let Some(storage) = &self.storage {
-                    // Convert narwhal certificate to storage certificate
+                    // Note: The actual transaction extraction happens in BftService when creating blocks.
+                    // This storage is for consensus state tracking and recovery.
+                    // We store a simplified representation here since the full transaction data
+                    // is retrieved from worker batch storage when needed.
                     let storage_cert = StorageCertificate {
                         batch_id: consensus_index,
-                        transactions: vec![], // TODO: extract transactions from certificate
+                        transactions: vec![], // Transaction data is stored separately in worker batch storage
                         block_hash: cert_digest.into(), // Convert digest to B256
                         timestamp: std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap()
                             .as_secs(),
-                        signature: vec![], // TODO: extract signature from certificate
+                        signature: cert_signature, // Use pre-extracted signature
                     };
                     
                     // Store the certificate

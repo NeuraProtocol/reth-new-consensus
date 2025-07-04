@@ -3,7 +3,6 @@
 
 use reth_db_api::{transaction::DbTx, transaction::DbTxMut, cursor::DbCursorRO};
 use crate::consensus_storage::DatabaseOps;
-use crate::consensus_tables::*;
 use alloy_primitives::B256;
 use anyhow::Result;
 use std::sync::Arc;

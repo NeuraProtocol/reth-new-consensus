@@ -28,8 +28,8 @@ pub mod narwhal_bullshark;
 /// MDBX-based consensus storage implementation
 pub mod consensus_storage;
 
-/// Consensus extension tables for MDBX
-pub mod consensus_tables;
+/// Consensus RPC configuration
+pub mod rpc_config;
 
 /// Storage adapter for Bullshark consensus
 pub mod bullshark_storage_adapter;
@@ -40,8 +40,13 @@ pub mod rpc;
 /// Real MDBX database operations implementation
 pub mod mdbx_database_ops;
 
-// Re-export key types for easier access
-pub use consensus_tables::*;
+// Re-export consensus tables from db-api
+pub use reth_db_api::tables::{
+    ConsensusFinalizedBatch, ConsensusCertificates, ConsensusBatches,
+    ConsensusDagVertices, ConsensusLatestFinalized, WorkerBatches,
+    WorkerBatchMetadata, WorkerPendingTransactions, WorkerBatchAcks,
+    ConsensusVotes, ConsensusCertificatesByRound,
+};
 pub use bullshark_storage_adapter::BullsharkMdbxAdapter;
 pub use mdbx_database_ops::{
     RethMdbxDatabaseOps, 

@@ -180,7 +180,7 @@ impl Worker {
             channels.tx_batch_digest,
             channels.rx_batch_ack,
             channels.rx_reconfigure,
-            Duration::from_secs(10), // TODO: Make configurable
+            self.config.worker.batch_timeout,
             self.store.clone(),
         );
         

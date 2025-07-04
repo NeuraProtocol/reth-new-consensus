@@ -30,7 +30,7 @@ pub mod chain_state;
 pub mod chain_state_adapter;
 
 // Re-export key types for easier access
-pub use types::{FinalizedBatch, NarwhalBullsharkConfig, ConsensusRpcConfig};
+pub use types::{FinalizedBatch, NarwhalBullsharkConfig, ConsensusRpcConfig, ConsensusSeal};
 pub use service::NarwhalBullsharkService;
 pub use integration::{NarwhalRethBridge, RethIntegrationConfig};
 pub use mempool_bridge::{MempoolBridge, PoolStats};
