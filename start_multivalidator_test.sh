@@ -49,7 +49,7 @@ echo "   Consensus RPC: port 10001"
 echo "   P2P: port 30303"
 $RETH_BINARY node \
   --narwhal.enable \
-  --chain neura-mainnet \
+  --chain neura-genesis.json \
   --datadir /home/peastew/.neura/node1 \
   --port 30303 \
   --discovery.port 30303 \
@@ -101,7 +101,7 @@ echo "   Consensus RPC: port 10002"
 echo "   P2P: port 30304"
 $RETH_BINARY node \
   --narwhal.enable \
-  --chain neura-mainnet \
+  --chain neura-genesis.json \
   --datadir /home/peastew/.neura/node2 \
   --port 30304 \
   --discovery.port 30304 \
@@ -153,7 +153,7 @@ echo "   Consensus RPC: port 10003"
 echo "   P2P: port 30305"
 $RETH_BINARY node \
   --narwhal.enable \
-  --chain neura-mainnet \
+  --chain neura-genesis.json \
   --datadir /home/peastew/.neura/node3 \
   --port 30305 \
   --discovery.port 30305 \
@@ -205,7 +205,7 @@ echo "   Consensus RPC: port 10004"
 echo "   P2P: port 30306"
 $RETH_BINARY node \
   --narwhal.enable \
-  --chain neura-mainnet \
+  --chain neura-genesis.json \
   --datadir /home/peastew/.neura/node4 \
   --port 30306 \
   --discovery.port 30306 \

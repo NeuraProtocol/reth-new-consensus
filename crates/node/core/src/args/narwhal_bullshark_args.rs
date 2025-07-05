@@ -204,6 +204,10 @@ pub struct NarwhalBullsharkArgs {
     #[arg(long = "bullshark.enable-detailed-metrics", action = ArgAction::SetTrue)]
     pub enable_detailed_metrics: bool,
     
+    /// Minimum time between blocks in milliseconds
+    #[arg(long = "bullshark.min-block-time-ms", default_value_t = 100)]
+    pub min_block_time_ms: u64,
+    
     // ===== WORKER CONFIGURATION =====
     
     /// Base port for worker services (workers use sequential ports from this base)
@@ -260,6 +264,7 @@ impl Default for NarwhalBullsharkArgs {
             batch_creation_interval_ms: 50,
             max_dag_walk_depth: 10,
             enable_detailed_metrics: false,
+            min_block_time_ms: 100,
             worker_base_port: 19000,
             worker_bind_address: None,
         }
@@ -368,6 +373,7 @@ impl NarwhalBullsharkArgs {
             max_certificates_per_round: self.max_certificates_per_round,
             leader_rotation_frequency: self.leader_rotation_frequency,
             min_leader_round: self.min_leader_round,
+            min_block_time: std::time::Duration::from_millis(self.min_block_time_ms),
         }
     }
 

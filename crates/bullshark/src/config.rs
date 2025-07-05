@@ -22,6 +22,8 @@ pub struct BftConfig {
     /// Minimum round for leader election (must be even)
     /// In production this should be 2, but can be 0 for testing
     pub min_leader_round: Round,
+    /// Minimum time between blocks (to prevent excessive block production)
+    pub min_block_time: Duration,
 }
 
 impl Default for BftConfig {
@@ -36,6 +38,7 @@ impl Default for BftConfig {
             max_certificates_per_round: 1000,
             leader_rotation_frequency: 2, // Change leader every 2 rounds
             min_leader_round: 0, // Temporarily set to 0 for testing
+            min_block_time: Duration::from_millis(100), // 100ms minimum between blocks
         }
     }
 } 

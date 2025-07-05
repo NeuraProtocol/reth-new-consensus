@@ -12,7 +12,7 @@ use narwhal::{
     Transaction as NarwhalTransaction,
 };
 use alloy_primitives::B256;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH, Instant};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{info, warn, error, debug};
@@ -44,6 +44,8 @@ pub struct BftService {
     batch_store: Option<std::sync::Arc<dyn narwhal::storage_trait::BatchStore>>,
     /// Chain state provider for parent hash and block number
     chain_state: std::sync::Arc<dyn ChainStateProvider>,
+    /// Last block creation time (for rate limiting)
+    last_block_time: Instant,
 }
 
 impl std::fmt::Debug for BftService {
@@ -82,11 +84,12 @@ impl BftService {
             committee,
             certificate_receiver,
             finalized_batch_sender,
-            current_block_number: 1,
+            current_block_number: 0, // Will be set from chain state
             consensus_index: 0,
             metrics: ConsensusMetrics::default(),
             batch_store: None,
             chain_state: std::sync::Arc::new(DefaultChainState),
+            last_block_time: Instant::now(),
         }
     }
     
@@ -112,11 +115,12 @@ impl BftService {
             committee,
             certificate_receiver,
             finalized_batch_sender,
-            current_block_number: 1,
+            current_block_number: 0, // Will be set from chain state
             consensus_index: 0,
             metrics: ConsensusMetrics::default(),
             batch_store: None,
             chain_state: std::sync::Arc::new(DefaultChainState),
+            last_block_time: Instant::now(),
         }
     }
     
@@ -144,6 +148,13 @@ impl BftService {
     /// Main run loop for the BFT service
     async fn run(&mut self) -> BullsharkResult<()> {
         info!("Starting Bullshark BFT service");
+        
+        // Initialize block number from chain state
+        let initial_state = self.chain_state.get_chain_state();
+        self.current_block_number = initial_state.block_number + 1;
+        info!("BFT service initialized with chain state: next block {} parent {}", 
+              self.current_block_number, initial_state.parent_hash);
+        
         info!("BFT service waiting for certificates...");
 
         loop {
@@ -222,13 +233,42 @@ impl BftService {
             // Extract all transactions from the finalized certificate
             let cert_transactions = self.extract_transactions_from_certificate(&output.certificate).await?;
             
-            if !cert_transactions.is_empty() {
-                info!("Creating finalized batch with {} transactions from certificate", cert_transactions.len());
+            // Don't enforce minimum block time here - let the execution layer pull at its own pace
+            // This prevents certificate backlog in the channel
+            
+            // Only create a finalized batch if we have transactions
+            let tx_count = cert_transactions.len();
+            if tx_count == 0 {
+                debug!("Skipping empty certificate - no transactions to finalize");
+                continue;
+            }
+            
+            info!("Creating finalized batch with {} transactions from certificate", tx_count);
+            
+            // Check if we should create a new block based on chain state
+            let current_state = self.chain_state.get_chain_state();
+            let next_block_number = current_state.block_number + 1;
+            
+            // Only create a finalized batch if we haven't already created this block number
+            if self.current_block_number == 0 || self.current_block_number < next_block_number {
+                // Check minimum block time
+                let elapsed = self.last_block_time.elapsed();
+                if elapsed < self.config.min_block_time {
+                    // Skip this certificate - we're creating blocks too fast
+                    debug!("Skipping certificate - min block time not elapsed ({}ms < {}ms)", 
+                          elapsed.as_millis(), self.config.min_block_time.as_millis());
+                    continue;
+                }
+                
                 let finalized_batch = self.create_finalized_batch(
                     cert_transactions,
                     output.certificate.round(),
                     vec![output.certificate],
                 ).await?;
+                
+                // Update last block time
+                self.last_block_time = Instant::now();
+                self.current_block_number = finalized_batch.block_number;
 
                 // Send to Reth integration
                 info!("Sending finalized batch {} to Reth integration", finalized_batch.block_number);
@@ -238,9 +278,10 @@ impl BftService {
                 }
 
                 finalized_count += 1;
-                self.current_block_number += 1;
             } else {
-                debug!("No transactions in certificate, skipping batch creation");
+                // We're ahead of the chain state - skip this certificate
+                debug!("Skipping certificate - already created block {} (chain at block {})", 
+                      self.current_block_number, current_state.block_number);
             }
         }
 
@@ -322,7 +363,9 @@ impl BftService {
         // Get chain state
         let chain_state = self.chain_state.get_chain_state();
         let parent_hash = chain_state.parent_hash;
-        let block_number = chain_state.block_number;
+        // The chain state contains the last created block number
+        // The next block should be block_number + 1
+        let block_number = chain_state.block_number + 1;
 
         let batch = FinalizedBatchInternal {
             block_number,

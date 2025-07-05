@@ -74,6 +74,8 @@ pub struct NarwhalBullsharkService {
     tx_primary: Option<mpsc::UnboundedSender<(narwhal::BatchDigest, narwhal::WorkerId)>>,
     /// Chain state tracker for parent hash and block number
     chain_state: ChainStateTracker,
+    /// Chain state adapter for BFT service
+    chain_state_adapter: Option<Arc<super::chain_state_adapter::ChainStateAdapter>>,
 }
 
 impl std::fmt::Debug for NarwhalBullsharkService {
@@ -127,6 +129,7 @@ impl NarwhalBullsharkService {
             current_committee,
             tx_primary: None,
             chain_state: ChainStateTracker::new(),
+            chain_state_adapter: None,
         })
     }
 
@@ -249,10 +252,21 @@ impl NarwhalBullsharkService {
             info!("⚠️ BFT service using dummy transactions (no batch store)");
         }
         
-        // Set chain state provider
-        let chain_state_adapter = super::chain_state_adapter::ChainStateAdapter::new(self.chain_state.clone());
-        bft_service.set_chain_state(Arc::new(chain_state_adapter));
-        info!("✅ BFT service configured with chain state provider");
+        // Set chain state provider with proper genesis hash
+        let chain_state_adapter = Arc::new(super::chain_state_adapter::ChainStateAdapter::new());
+        
+        // Initialize with genesis state (block 0, genesis hash)
+        // This ensures the first block created will be block 1 with correct parent
+        let genesis_hash = "0x514191893c03d851abdf3534c946dd3e8d0f71685629bbf46957f2a0b0067cbd"
+            .parse::<alloy_primitives::B256>()
+            .unwrap_or(alloy_primitives::B256::ZERO);
+        chain_state_adapter.update(0, genesis_hash);
+        
+        bft_service.set_chain_state(chain_state_adapter.clone());
+        info!("✅ BFT service configured with chain state provider (genesis: {})", genesis_hash);
+        
+        // Store the adapter so we can update it later
+        self.chain_state_adapter = Some(chain_state_adapter);
 
         info!("✅ Created real Bullshark BFT service");
 
@@ -812,6 +826,11 @@ impl NarwhalBullsharkService {
     /// Update chain state from external source
     pub async fn update_chain_state(&self, block_number: u64, parent_hash: alloy_primitives::B256) {
         self.chain_state.update(block_number, parent_hash).await;
+        
+        // Also update the chain state adapter if it exists
+        if let Some(ref adapter) = self.chain_state_adapter {
+            adapter.update(block_number, parent_hash);
+        }
     }
     
     /// Update chain state synchronously (for non-async contexts)

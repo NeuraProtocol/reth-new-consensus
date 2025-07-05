@@ -68,8 +68,39 @@ where
         
         // Spawn task to listen for new transactions and forward them
         tokio::spawn(async move {
-            let mut new_tx_listener = pool.new_transactions_listener_for(TransactionListenerKind::All);
             let mut tx_count = 0u64;
+            
+            // IMPORTANT: First, send all existing pending transactions in the pool
+            // This ensures transactions that were loaded from backup are processed
+            let existing_txs = pool.pending_transactions();
+            info!("Found {} existing pending transactions in mempool", existing_txs.len());
+            
+            for tx in existing_txs {
+                tx_count += 1;
+                let tx_hash = *tx.hash();
+                
+                // Extract the underlying Reth transaction
+                let recovered_tx = tx.to_consensus();
+                let reth_transaction = recovered_tx.into_inner();
+                
+                debug!(
+                    "Forwarding existing transaction to consensus: {} (count: {})",
+                    tx_hash, tx_count
+                );
+
+                // Forward to consensus system
+                if tx_sender.send(reth_transaction).is_err() {
+                    warn!("Consensus system is shutting down, stopping pool listener");
+                    return;
+                }
+            }
+            
+            if tx_count > 0 {
+                info!("Forwarded {} existing transactions from pool to consensus", tx_count);
+            }
+            
+            // Now listen for new transactions that arrive after startup
+            let mut new_tx_listener = pool.new_transactions_listener_for(TransactionListenerKind::All);
 
             while let Some(event) = new_tx_listener.recv().await {
                 tx_count += 1;
@@ -82,7 +113,7 @@ where
                 let reth_transaction = recovered_tx.into_inner();
                 
                 debug!(
-                    "Forwarding transaction from {:?} pool to consensus: {} (count: {})",
+                    "Forwarding new transaction from {:?} pool to consensus: {} (count: {})",
                     subpool, tx_hash, tx_count
                 );
 

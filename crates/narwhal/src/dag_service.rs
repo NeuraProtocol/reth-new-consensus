@@ -219,9 +219,14 @@ impl DagService {
                         let prev_round = self.current_round.saturating_sub(1);
                         let mut total_stake = 0u64;
                         
-                        for (author, cert) in &self.latest_certificates {
-                            if cert.round() == prev_round {
-                                total_stake += self.committee.stake(author);
+                        // Special case for round 1 - we can always proceed from genesis
+                        if self.current_round == 1 {
+                            total_stake = self.committee.total_stake();
+                        } else {
+                            for (author, cert) in &self.latest_certificates {
+                                if cert.round() == prev_round {
+                                    total_stake += self.committee.stake(author);
+                                }
                             }
                         }
                         
@@ -261,9 +266,16 @@ impl DagService {
                     }
                     
                     if total_stake >= self.committee.quorum_threshold() {
-                        info!("Timer expired for round {}, have quorum ({} certs, {} stake), creating header", 
-                              self.current_round, cert_count, total_stake);
-                        self.create_and_propose_header().await?;
+                        // Only create header if we have transactions or haven't advanced in a while
+                        // This prevents creating thousands of empty headers
+                        if !self.current_batch.is_empty() {
+                            info!("Timer expired for round {}, have quorum ({} certs, {} stake) and {} transactions, creating header", 
+                                  self.current_round, cert_count, total_stake, self.current_batch.len());
+                            self.create_and_propose_header().await?;
+                        } else {
+                            debug!("Timer expired for round {} with quorum but no transactions, skipping header creation", 
+                                   self.current_round);
+                        }
                     } else {
                         debug!("Timer expired for round {} but only have {} stake (need {}), waiting for more certificates", 
                                self.current_round, total_stake, self.committee.quorum_threshold());
@@ -324,10 +336,12 @@ impl DagService {
              
          info!("Including {} certificates from round {} as parents", parents.len(), prev_round);
 
-         // Create batch and payload
-         let batch = Batch(self.current_batch.clone());
-         let mut payload = IndexMap::new();
-         payload.insert(batch.digest(), 0u32); // worker_id = 0
+         // Create payload - only include batch if we have transactions
+          let mut payload = IndexMap::new();
+         if !self.current_batch.is_empty() {
+            let batch = Batch(self.current_batch.clone());
+            payload.insert(batch.digest(), 0u32); // worker_id = 0
+        }
 
          // Create header
          let mut header = Header {
@@ -519,6 +533,10 @@ impl DagService {
         
         // Add vote to aggregator
         aggregator.add_vote(vote.clone(), &self.committee)?;
+        
+        // Log current aggregator state
+        info!("Vote aggregator for header {} now has {} votes with stake {} (quorum threshold: {})",
+              vote.id, aggregator.vote_count(), aggregator.stake(), self.committee.quorum_threshold());
         
         // Check if we can form a certificate
         if let Some(certificate) = aggregator.try_form_certificate(&self.committee)? {

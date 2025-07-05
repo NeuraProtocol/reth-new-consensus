@@ -1,0 +1,84 @@
+[2m2025-07-05T09:27:23.672011Z[0m [32m INFO[0m [2mreth::cli[0m[2m:[0m Initialized tracing, debug log directory: /home/peastew/.cache/reth/logs/266
+[2m2025-07-05T09:27:23.872597Z[0m [32m INFO[0m [2mreth::cli[0m[2m:[0m Starting reth [3mversion[0m[2m=[0m"1.4.8 (bda85e7)"
+[2m2025-07-05T09:27:23.872649Z[0m [32m INFO[0m [2mreth::cli[0m[2m:[0m Opening database [3mpath[0m[2m=[0m"/home/peastew/.neura/test-node/db"
+[2m2025-07-05T09:27:23.889156Z[0m [34mDEBUG[0m [2mstorage::db::mdbx[0m[2m:[0m Commit [3mtotal_duration[0m[2m=[0m765.265µs [3mcommit_latency[0m[2m=[0mSome(CommitLatency(MDBX_commit_latency { preparation: 0, gc_wallclock: 1, audit: 0, write: 0, sync: 47, ending: 0, whole: 48, gc_cputime: 0, gc_prof: MDBX_commit_latency__bindgen_ty_1 { wloops: 0, coalescences: 0, wipes: 0, flushes: 0, kicks: 0, work_counter: 0, work_rtime_monotonic: 0, work_xtime_cpu: 0, work_rsteps: 0, work_xpages: 0, work_majflt: 0, self_counter: 0, self_rtime_monotonic: 0, self_xtime_cpu: 0, self_rsteps: 0, self_xpages: 0, self_majflt: 0, pnl_merge_work: MDBX_commit_latency__bindgen_ty_1__bindgen_ty_1 { time: 0, volume: 0, calls: 0 }, pnl_merge_self: MDBX_commit_latency__bindgen_ty_1__bindgen_ty_1 { time: 0, volume: 0, calls: 0 } } })) [3mis_read_only[0m[2m=[0mfalse
+[2m2025-07-05T09:27:23.889833Z[0m [32m INFO[0m [2mreth::cli[0m[2m:[0m Launching node
+[2m2025-07-05T09:27:23.890051Z[0m [34mDEBUG[0m [2mreth_node_builder::launch::common[0m[2m:[0m Raised file descriptor limit [3mfrom[0m[2m=[0m1048576 [3mto[0m[2m=[0m1048576
+[2m2025-07-05T09:27:23.891553Z[0m [32m INFO[0m [2mreth::cli[0m[2m:[0m Saving prune config to toml file
+[2m2025-07-05T09:27:23.891678Z[0m [32m INFO[0m [2mreth::cli[0m[2m:[0m Configuration loaded [3mpath[0m[2m=[0m"/home/peastew/.neura/test-node/reth.toml"
+[2m2025-07-05T09:27:23.891877Z[0m [32m INFO[0m [2mreth::cli[0m[2m:[0m Verifying storage consistency.
+[2m2025-07-05T09:27:23.899087Z[0m [32m INFO[0m [2mreth::cli[0m[2m:[0m Database opened
+[2m2025-07-05T09:27:23.899110Z[0m [34mDEBUG[0m [2mreth::cli[0m[2m:[0m Initializing genesis [3mchain[0m[2m=[0m266 [3mgenesis[0m[2m=[0m0x5a23e0162a9ddb669ed30d90d9f4200aa1d71f90ccad5bc8ac2cf206440e0c4b
+[2m2025-07-05T09:27:23.899143Z[0m [34mDEBUG[0m [2mreth_db_common::init[0m[2m:[0m Writing genesis block.
+[2m2025-07-05T09:27:23.900309Z[0m [34mDEBUG[0m [2mstorage::db::mdbx[0m[2m:[0m Commit [3mtotal_duration[0m[2m=[0m773.785µs [3mcommit_latency[0m[2m=[0mSome(CommitLatency(MDBX_commit_latency { preparation: 0, gc_wallclock: 0, audit: 0, write: 0, sync: 47, ending: 0, whole: 49, gc_cputime: 0, gc_prof: MDBX_commit_latency__bindgen_ty_1 { wloops: 0, coalescences: 0, wipes: 0, flushes: 0, kicks: 0, work_counter: 0, work_rtime_monotonic: 0, work_xtime_cpu: 0, work_rsteps: 0, work_xpages: 0, work_majflt: 0, self_counter: 0, self_rtime_monotonic: 0, self_xtime_cpu: 0, self_rsteps: 0, self_xpages: 0, self_majflt: 0, pnl_merge_work: MDBX_commit_latency__bindgen_ty_1__bindgen_ty_1 { time: 0, volume: 0, calls: 0 }, pnl_merge_self: MDBX_commit_latency__bindgen_ty_1__bindgen_ty_1 { time: 0, volume: 0, calls: 0 } } })) [3mis_read_only[0m[2m=[0mfalse
+[2m2025-07-05T09:27:23.902368Z[0m [34mDEBUG[0m [2mprovider::static_file[0m[2m:[0m Commit [3msegment[0m[2m=[0mHeaders [3mpath[0m[2m=[0m"/home/peastew/.neura/test-node/static_files/static_file_headers_0_499999" [3mduration[0m[2m=[0m1.994074ms
+[2m2025-07-05T09:27:23.903593Z[0m [34mDEBUG[0m [2mprovider::static_file[0m[2m:[0m Commit [3msegment[0m[2m=[0mTransactions [3mpath[0m[2m=[0m"/home/peastew/.neura/test-node/static_files/static_file_transactions_0_499999" [3mduration[0m[2m=[0m1.159386ms
+[2m2025-07-05T09:27:23.904796Z[0m [34mDEBUG[0m [2mprovider::static_file[0m[2m:[0m Commit [3msegment[0m[2m=[0mReceipts [3mpath[0m[2m=[0m"/home/peastew/.neura/test-node/static_files/static_file_receipts_0_499999" [3mduration[0m[2m=[0m1.144999ms
+[2m2025-07-05T09:27:23.904856Z[0m [32m INFO[0m [2mreth::cli[0m[2m:[0m 
+Pre-merge hard forks (block based):
+- Frontier                         @0
+- Homestead                        @0
+- Tangerine                        @0
+- SpuriousDragon                   @0
+- Byzantium                        @0
+- Constantinople                   @0
+- Petersburg                       @0
+- Istanbul                         @0
+- Berlin                           @0
+- London                           @0
+Post-merge hard forks (timestamp based):
+- Shanghai                         @0
+- Cancun                           @0
+- Prague                           @0
+[2m2025-07-05T09:27:23.904884Z[0m [34mDEBUG[0m [2mreth::cli[0m[2m:[0m Spawning stages metrics listener task
+[2m2025-07-05T09:27:23.905020Z[0m [34mDEBUG[0m [2mreth::cli[0m[2m:[0m creating components
+[2m2025-07-05T09:27:23.905084Z[0m [34mDEBUG[0m [2mtxpool::blob[0m[2m:[0m Creating blob store [3mblob_dir[0m[2m=[0m"/home/peastew/.neura/test-node/blobstore"
+[2m2025-07-05T09:27:23.905300Z[0m [32m INFO[0m [2mreth::cli[0m[2m:[0m Transaction pool initialized
+[2m2025-07-05T09:27:23.905313Z[0m [34mDEBUG[0m [2mreth::cli[0m[2m:[0m Spawned txpool maintenance task
+[2m2025-07-05T09:27:23.906643Z[0m [34mDEBUG[0m [2mtxpool[0m[2m:[0m removing stale transactions [3mcount[0m[2m=[0m0
+[2m2025-07-05T09:27:23.919879Z[0m [34mDEBUG[0m [2mdiscv4[0m[2m:[0m pinging boot node [3mrecord[0m[2m=[0mNodeRecord { address: 65.108.70.101, udp_port: 30303, tcp_port: 30303, id: 0x2b252ab6a1d0f971d9722cb839a42cb81db019ba44c08754628ab4a823487071b5695317c8ccd085219c3a03af063495b2f1da8d18218da2d6a82981b45e6ffc }
+[2m2025-07-05T09:27:23.919972Z[0m [34mDEBUG[0m [2mdiscv4[0m[2m:[0m pinging boot node [3mrecord[0m[2m=[0mNodeRecord { address: 3.209.45.79, udp_port: 30303, tcp_port: 30303, id: 0x22a8232c3abc76a16ae9d6c3b164f98775fe226f0917b0ca871128a74a8e9630b458460865bab457221f1d448dd9791d24c4e5d88786180ac185df813a68d4de }
+[2m2025-07-05T09:27:23.920027Z[0m [34mDEBUG[0m [2mdiscv4[0m[2m:[0m pinging boot node [3mrecord[0m[2m=[0mNodeRecord { address: 18.138.108.67, udp_port: 30303, tcp_port: 30303, id: 0xd860a01f9722d78051619d1e2351aba3f43f943f6f00718d1b9baa4101932a1f5011f16bb2b1bb35db20d6fe28fa0bf09636d26a87d31de9ec6203eeedb1f666 }
+[2m2025-07-05T09:27:23.920088Z[0m [34mDEBUG[0m [2mdiscv4[0m[2m:[0m pinging boot node [3mrecord[0m[2m=[0mNodeRecord { address: 157.90.35.166, udp_port: 30303, tcp_port: 30303, id: 0x4aeb4ab6c14b23e2c4cfdce879c04b0748a20d8e9b59e25ded2a08143e265c6c25936e74cbc8e641e3312ca288673d91f2f93f8e277de3cfa444ecdaaf982052 }
+[2m2025-07-05T09:27:23.920410Z[0m [32m INFO[0m [2mreth::cli[0m[2m:[0m P2P networking initialized [3menode[0m[2m=[0menode://cd4fc5adc486fd9d93fb19b315c9189bf58b26a43f8be10ab2bcafd70c45182fa64ade3fb1d55f888747f1a217e1dc4814bbf0641ffaab2f46f10365d5853610@0.0.0.0:30303
+[2m2025-07-05T09:27:23.920438Z[0m [34mDEBUG[0m [2mreth::cli[0m[2m:[0m calling on_component_initialized hook
+[2m2025-07-05T09:27:23.920598Z[0m [32m INFO[0m [2mreth::cli[0m[2m:[0m StaticFileProducer initialized
+[2m2025-07-05T09:27:23.920837Z[0m [34mDEBUG[0m [2mstatic_file[0m[2m:[0m StaticFileProducer started [3mtargets[0m[2m=[0mStaticFileTargets { headers: None, receipts: None, transactions: None, block_meta: Some(0..=0) }
+[2m2025-07-05T09:27:23.920860Z[0m [34mDEBUG[0m [2mstatic_file[0m[2m:[0m StaticFileProducer finished [3mtargets[0m[2m=[0mStaticFileTargets { headers: None, receipts: None, transactions: None, block_meta: Some(0..=0) } [3melapsed[0m[2m=[0m6.286µs
+[2m2025-07-05T09:27:23.920939Z[0m [34mDEBUG[0m [2mpruner[0m[2m:[0m Nothing to prune yet [3mtip_block_number[0m[2m=[0m0
+[2m2025-07-05T09:27:23.920972Z[0m [34mDEBUG[0m [2mstorage::db::mdbx[0m[2m:[0m Commit [3mtotal_duration[0m[2m=[0m23.956µs [3mcommit_latency[0m[2m=[0mSome(CommitLatency(MDBX_commit_latency { preparation: 0, gc_wallclock: 0, audit: 0, write: 0, sync: 0, ending: 0, whole: 1, gc_cputime: 0, gc_prof: MDBX_commit_latency__bindgen_ty_1 { wloops: 0, coalescences: 0, wipes: 0, flushes: 0, kicks: 0, work_counter: 0, work_rtime_monotonic: 0, work_xtime_cpu: 0, work_rsteps: 0, work_xpages: 0, work_majflt: 0, self_counter: 0, self_rtime_monotonic: 0, self_xtime_cpu: 0, self_rsteps: 0, self_xpages: 0, self_majflt: 0, pnl_merge_work: MDBX_commit_latency__bindgen_ty_1__bindgen_ty_1 { time: 0, volume: 0, calls: 0 }, pnl_merge_self: MDBX_commit_latency__bindgen_ty_1__bindgen_ty_1 { time: 0, volume: 0, calls: 0 } } })) [3mis_read_only[0m[2m=[0mfalse
+[2m2025-07-05T09:27:23.921012Z[0m [32m INFO[0m [2mreth::cli[0m[2m:[0m Pruner initialized [3mprune_config[0m[2m=[0mPruneConfig { block_interval: 5, segments: PruneModes { sender_recovery: None, transaction_lookup: None, receipts: None, account_history: None, storage_history: None, receipts_log_filter: ReceiptsLogPruneConfig({}) } }
+[2m2025-07-05T09:27:23.921141Z[0m [32m INFO[0m [2mreth::cli[0m[2m:[0m Creating JWT auth secret file [3mpath[0m[2m=[0m"/home/peastew/.neura/test-node/jwt.hex"
+[2m2025-07-05T09:27:23.921575Z[0m [34mDEBUG[0m [2mdiscv4[0m[2m:[0m pinging boot node [3mrecord[0m[2m=[0mNodeRecord { address: 65.108.70.101, udp_port: 30303, tcp_port: 30303, id: 0x2b252ab6a1d0f971d9722cb839a42cb81db019ba44c08754628ab4a823487071b5695317c8ccd085219c3a03af063495b2f1da8d18218da2d6a82981b45e6ffc }
+[2m2025-07-05T09:27:23.921593Z[0m [34mDEBUG[0m [2mdiscv4[0m[2m:[0m pinging boot node [3mrecord[0m[2m=[0mNodeRecord { address: 3.209.45.79, udp_port: 30303, tcp_port: 30303, id: 0x22a8232c3abc76a16ae9d6c3b164f98775fe226f0917b0ca871128a74a8e9630b458460865bab457221f1d448dd9791d24c4e5d88786180ac185df813a68d4de }
+[2m2025-07-05T09:27:23.921603Z[0m [34mDEBUG[0m [2mdiscv4[0m[2m:[0m pinging boot node [3mrecord[0m[2m=[0mNodeRecord { address: 18.138.108.67, udp_port: 30303, tcp_port: 30303, id: 0xd860a01f9722d78051619d1e2351aba3f43f943f6f00718d1b9baa4101932a1f5011f16bb2b1bb35db20d6fe28fa0bf09636d26a87d31de9ec6203eeedb1f666 }
+[2m2025-07-05T09:27:23.921610Z[0m [34mDEBUG[0m [2mdiscv4[0m[2m:[0m pinging boot node [3mrecord[0m[2m=[0mNodeRecord { address: 157.90.35.166, udp_port: 30303, tcp_port: 30303, id: 0x4aeb4ab6c14b23e2c4cfdce879c04b0748a20d8e9b59e25ded2a08143e265c6c25936e74cbc8e641e3312ca288673d91f2f93f8e277de3cfa444ecdaaf982052 }
+[2m2025-07-05T09:27:23.922181Z[0m [32m INFO[0m [2mreth::cli[0m[2m:[0m Consensus engine initialized
+[2m2025-07-05T09:27:23.922306Z[0m [32m INFO[0m [2mreth::cli[0m[2m:[0m Engine API handler initialized
+[2m2025-07-05T09:27:23.922333Z[0m [34mDEBUG[0m [2mreth_node_events::node[0m[2m:[0m Static File Producer started [3mtargets[0m[2m=[0mStaticFileTargets { headers: None, receipts: None, transactions: None, block_meta: Some(0..=0) }
+[2m2025-07-05T09:27:23.922388Z[0m [34mDEBUG[0m [2mreth_node_events::node[0m[2m:[0m Static File Producer finished [3mtargets[0m[2m=[0mStaticFileTargets { headers: None, receipts: None, transactions: None, block_meta: Some(0..=0) } [3melapsed[0m[2m=[0m6.286µs
+[2m2025-07-05T09:27:23.923318Z[0m [34mDEBUG[0m [2mreth::cli[0m[2m:[0m Using RPC module config [3mhttp[0m[2m=[0mSome(All) [3mws[0m[2m=[0mNone
+[2m2025-07-05T09:27:23.923965Z[0m [32m INFO[0m [2mreth::cli[0m[2m:[0m RPC auth server started [3murl[0m[2m=[0m127.0.0.1:8551
+[2m2025-07-05T09:27:23.924310Z[0m [32m INFO[0m [2mreth::cli[0m[2m:[0m RPC IPC server started [3mpath[0m[2m=[0m/tmp/reth.ipc
+[2m2025-07-05T09:27:23.924325Z[0m [32m INFO[0m [2mreth::cli[0m[2m:[0m RPC HTTP server started [3murl[0m[2m=[0m0.0.0.0:8545
+[2m2025-07-05T09:27:23.924466Z[0m [32m INFO[0m [2mreth::cli[0m[2m:[0m Starting consensus engine
+[2m2025-07-05T09:27:23.924496Z[0m [32m INFO[0m [2mreth::cli[0m[2m:[0m Enabling Narwhal + Bullshark consensus instead of standard Ethereum consensus
+[2m2025-07-05T09:27:23.924508Z[0m [32m INFO[0m [2mreth::cli[0m[2m:[0m Installing Narwhal + Bullshark consensus with REAL validator key management
+[2m2025-07-05T09:27:23.924521Z[0m [32m INFO[0m [2mreth::narwhal_bullshark[0m[2m:[0m Creating validator committee using REAL key management
+[2m2025-07-05T09:27:23.924535Z[0m [32m INFO[0m [2mreth::narwhal_bullshark[0m[2m:[0m Committee size: 1
+[2m2025-07-05T09:27:23.924542Z[0m [32m INFO[0m [2mreth::narwhal_bullshark[0m[2m:[0m Loading validator key from file: "test_validators/validator-0.json"
+[2m2025-07-05T09:27:23.924810Z[0m [32m INFO[0m [2mreth::narwhal_bullshark[0m[2m:[0m ✅ Loaded validator private key: EVM 0x19e7e376e7c213b7e7e7e46cc70a5dd086daff2a, Consensus jICYs2EzF4oFmyzIsIdYNxkHYVLukY3lcbKCaL7Piz+1MIXgz69VoXK7RXFB3TgYF/1Mug5hapz5bi1Jal41N3TCWJHIV3Mmd+YKvwDKvrJ8Auw008V7nN5/o6YbGVYH
+[2m2025-07-05T09:27:23.924820Z[0m [33m WARN[0m [2mreth::narwhal_bullshark[0m[2m:[0m No committee configuration found. Creating test committee for DEVELOPMENT ONLY
+[2m2025-07-05T09:27:23.924826Z[0m [33m WARN[0m [2mreth::narwhal_bullshark[0m[2m:[0m Use --validator.committee-config or --validator.config-dir for production
+[2m2025-07-05T09:27:23.925026Z[0m [32m INFO[0m [2mreth_consensus::narwhal_bullshark::validator_keys[0m[2m:[0m Generated deterministic validator from seed 'test-validator-0': EVM 0x69b4739e4a319cd11cb6991d6992e37cafabccf2, Consensus mPgiY5NdgSGyfLjpd9IPkTt1VsUVjkw405izlV1PycnxM/0DxNTT3bw4CwCK4uZYE2Djre//gKzhO2pv3+n2yjBT7xh5QGEmo3AU6eRoV6BYXyIMqG/rSrSqbRWKcZo0
+[2m2025-07-05T09:27:23.925040Z[0m [32m INFO[0m [2mreth::narwhal_bullshark[0m[2m:[0m Created test validator 0: EVM 0x69b4739e4a319cd11cb6991d6992e37cafabccf2, Consensus mPgiY5NdgSGyfLjpd9IPkTt1VsUVjkw405izlV1PycnxM/0DxNTT3bw4CwCK4uZYE2Djre//gKzhO2pv3+n2yjBT7xh5QGEmo3AU6eRoV6BYXyIMqG/rSrSqbRWKcZo0, Network 127.0.0.1:9001
+[2m2025-07-05T09:27:23.925047Z[0m [32m INFO[0m [2mreth::narwhal_bullshark[0m[2m:[0m ✅ Loaded committee configuration with 1 validators
+[2m2025-07-05T09:27:23.925057Z[0m [32m INFO[0m [2mreth_consensus::narwhal_bullshark::validator_keys[0m[2m:[0m Registered validator: EVM 0x69b4739e4a319cd11cb6991d6992e37cafabccf2 <-> Consensus "mPgiY5NdgSGyfLjpd9IPkTt1VsUVjkw405izlV1PycnxM/0DxNTT3bw4CwCK4uZYE2Djre//gKzhO2pv3+n2yjBT7xh5QGEmo3AU6eRoV6BYXyIMqG/rSrSqbRWKcZo0"
+[2m2025-07-05T09:27:23.925066Z[0m [32m INFO[0m [2mreth::narwhal_bullshark[0m[2m:[0m Registered committee validator 0: EVM 0x69b4739e4a319cd11cb6991d6992e37cafabccf2, Consensus mPgiY5NdgSGyfLjpd9IPkTt1VsUVjkw405izlV1PycnxM/0DxNTT3bw4CwCK4uZYE2Djre//gKzhO2pv3+n2yjBT7xh5QGEmo3AU6eRoV6BYXyIMqG/rSrSqbRWKcZo0
+[2m2025-07-05T09:27:23.925076Z[0m [32m INFO[0m [2mreth::narwhal_bullshark[0m[2m:[0m Validator 0x69b4739E4A319Cd11Cb6991d6992E37cafabCCF2 configured with 4 workers on ports: [19000, 19001, 19002, 19003]
+[2m2025-07-05T09:27:23.925086Z[0m [32m INFO[0m [2mreth_consensus::narwhal_bullshark::validator_keys[0m[2m:[0m Configured validator 0x69b4739E4A319Cd11Cb6991d6992E37cafabCCF2 with worker ports 19000-19003
+[2m2025-07-05T09:27:23.925113Z[0m [31mERROR[0m [2mreth::cli[0m[2m:[0m shutting down due to error
+Error: This node's consensus key jICYs2EzF4oFmyzIsIdYNxkHYVLukY3lcbKCaL7Piz+1MIXgz69VoXK7RXFB3TgYF/1Mug5hapz5bi1Jal41N3TCWJHIV3Mmd+YKvwDKvrJ8Auw008V7nN5/o6YbGVYH is not in the committee configuration
+
+Location:
+    bin/reth/src/narwhal_bullshark.rs:562:20

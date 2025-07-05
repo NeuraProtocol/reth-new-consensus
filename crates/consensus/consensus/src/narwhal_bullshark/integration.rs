@@ -262,7 +262,10 @@ impl NarwhalRethBridge {
             finalized_batch_broadcast,
             committee_sender,
             current_block_number: 1,
-            current_parent_hash: B256::ZERO, // Genesis parent
+            // Use actual Neura genesis hash as parent for block 1
+            current_parent_hash: "0x514191893c03d851abdf3534c946dd3e8d0f71685629bbf46957f2a0b0067cbd"
+                .parse::<B256>()
+                .unwrap_or(B256::ZERO),
             execution_outcomes: Vec::new(),
             block_executor: None,
             storage,
@@ -289,6 +292,47 @@ impl NarwhalRethBridge {
     /// Start the consensus service
     pub async fn start(&mut self) -> Result<()> {
         if let Some(mut service) = self.service.take() {
+            // Initialize chain state in the consensus service before starting
+            // This ensures BFT service creates blocks with correct block numbers
+            if self.block_executor.is_some() {
+                // If we have a block executor, use its chain tip
+                if let Some(ref executor) = self.block_executor {
+                    if let Ok((block_number, parent_hash)) = executor.chain_tip() {
+                        self.current_block_number = block_number + 1;
+                        self.current_parent_hash = parent_hash;
+                        // Update consensus service with initial chain state
+                        service.update_chain_state(block_number, parent_hash).await;
+                        info!("Initialized consensus chain state from block executor: next block {} parent {}", 
+                              self.current_block_number, self.current_parent_hash);
+                    }
+                }
+            } else {
+                // No block executor, use our current state (genesis or configured)
+                // For genesis, we want to create block 1 (current_block_number = 1)
+                // So the chain state should show block_number = 0, parent_hash = genesis hash
+                let chain_block_number = if self.current_block_number > 0 { 
+                    self.current_block_number - 1 
+                } else { 
+                    0 
+                };
+                
+                // Use the actual Neura genesis block hash instead of 0x0
+                let genesis_hash = "0x514191893c03d851abdf3534c946dd3e8d0f71685629bbf46957f2a0b0067cbd"
+                    .parse::<B256>()
+                    .unwrap_or(B256::ZERO);
+                
+                // If we're at genesis (block 0), use the genesis hash as parent
+                let parent_hash = if chain_block_number == 0 {
+                    genesis_hash
+                } else {
+                    self.current_parent_hash
+                };
+                
+                service.update_chain_state(chain_block_number, parent_hash).await;
+                info!("Initialized consensus chain state: current block {} (next: {}) parent {}", 
+                      chain_block_number, self.current_block_number, parent_hash);
+            }
+            
             // IMPORTANT: Connect to peers BEFORE starting the consensus service
             // This avoids the race condition where DAG service starts broadcasting before connections exist
             if let Some(ref mut network) = self.network {
@@ -448,14 +492,18 @@ impl NarwhalRethBridge {
         let sealed_block = SealedBlock::seal_slow(block);
 
         // Update our state
+        // batch.block_number is the block we just created
+        // So the next block number is batch.block_number + 1
         self.current_block_number = batch.block_number + 1;
         self.current_parent_hash = sealed_block.hash();
         
         // Update consensus service chain state
+        // The chain state should reflect the block we just created (batch.block_number)
+        // with its hash as the parent for the next block
         if let Some(ref service) = self.service {
-            service.update_chain_state_sync(self.current_block_number, self.current_parent_hash);
-            debug!("Updated consensus service chain state to block {} parent {}", 
-                   self.current_block_number, self.current_parent_hash);
+            service.update_chain_state_sync(batch.block_number, sealed_block.hash());
+            debug!("Updated consensus service chain state to block {} (next: {}) parent {}", 
+                   batch.block_number, self.current_block_number, sealed_block.hash());
         }
 
         Ok(sealed_block)
