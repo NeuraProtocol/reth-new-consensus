@@ -659,6 +659,7 @@ impl NarwhalBullsharkService {
                 // Spawn task to forward batch digests from worker to primary
                 let forward_handle = tokio::spawn(async move {
                     while let Some((digest, worker_id)) = rx_batch_digest.recv().await {
+                        info!("Worker {} forwarding batch digest to primary: {:?}", worker_id, digest);
                         if let Err(e) = tx_primary_clone.send((digest, worker_id)) {
                             warn!("Failed to forward batch digest to primary: {}", e);
                             break;
