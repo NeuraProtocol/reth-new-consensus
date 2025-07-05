@@ -95,6 +95,8 @@ impl BatchMaker {
                 Some(transaction) = self.rx_transaction.recv() => {
                     let tx_size = transaction.as_bytes().len();
                     
+                    info!("Worker {} received transaction: {} bytes", self.worker_id, tx_size);
+                    
                     // Record metrics
                     if let Some(m) = metrics() {
                         m.record_transaction_received(&format!("worker_{}", self.worker_id));
@@ -171,7 +173,7 @@ impl BatchMaker {
         let transaction_count = batch.0.len();
         self.current_batch_size = 0;
         
-        debug!(
+        info!(
             "Worker {} sealed batch with {} transactions ({} bytes)",
             self.worker_id,
             transaction_count,

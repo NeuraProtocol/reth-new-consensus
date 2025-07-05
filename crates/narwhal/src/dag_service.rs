@@ -2,7 +2,7 @@
 
 use crate::{
     types::{Certificate, Committee, Header, Vote, PublicKey, Signature, HeaderDigest}, 
-    NarwhalConfig, DagError, DagResult, Transaction, Round, Batch,
+    NarwhalConfig, DagError, DagResult, Transaction, Round, Batch, BatchDigest, WorkerId,
     aggregators::VotesAggregator,
     storage_trait::{DagStorageInterface, DagStorageRef},
     metrics_collector::{metrics, MetricTimer},
@@ -48,6 +48,8 @@ pub struct DagService {
     storage: DagStorageRef,
     /// Sender for outbound network messages (headers, votes, certificates)
     network_sender: Option<mpsc::UnboundedSender<DagMessage>>,
+    /// Receiver for batch digests from workers
+    rx_batch_digests: Option<mpsc::UnboundedReceiver<(BatchDigest, WorkerId)>>,
     
     // State tracking (from reference implementation)
     /// Current round for transaction batching
@@ -65,6 +67,8 @@ pub struct DagService {
     latest_certificates: HashMap<PublicKey, Certificate>,
     /// Current transaction batch being assembled
     current_batch: Vec<Transaction>,
+    /// Worker batch digests ready to be included in the next header
+    worker_batches: IndexMap<BatchDigest, WorkerId>,
     /// Garbage collection round - we can clean up data older than this
     gc_round: Round,
 }
@@ -103,6 +107,7 @@ impl DagService {
             reconfigure_receiver,
             storage,
             network_sender: None,
+            rx_batch_digests: None,
             current_round: 1,
             processing: HashMap::new(),
             current_header: None,
@@ -110,6 +115,7 @@ impl DagService {
             certificates: HashMap::new(),
             latest_certificates: HashMap::new(),
             current_batch: Vec::new(),
+            worker_batches: IndexMap::new(),
             gc_round: 0,
         }
     }
@@ -140,6 +146,15 @@ impl DagService {
         );
         service.network_sender = Some(network_sender);
         service
+    }
+    
+    /// Set the batch digest receiver for worker integration
+    pub fn with_batch_digest_receiver(
+        mut self,
+        rx_batch_digests: mpsc::UnboundedReceiver<(BatchDigest, WorkerId)>,
+    ) -> Self {
+        self.rx_batch_digests = Some(rx_batch_digests);
+        self
     }
 
     /// Spawn the DAG service
@@ -245,6 +260,52 @@ impl DagService {
                     Ok(())
                 },
 
+                // Process batch digests from workers
+                Some((batch_digest, worker_id)) = async {
+                    if let Some(ref mut rx) = self.rx_batch_digests {
+                        rx.recv().await
+                    } else {
+                        None
+                    }
+                } => {
+                    info!("Primary received batch digest from worker {}", worker_id);
+                    self.worker_batches.insert(batch_digest, worker_id);
+                    
+                    // Check if we should create a header now that we have worker batches
+                    let enough_batches = self.worker_batches.len() >= self.config.max_batch_size;
+                    let timer_expired = timer.is_elapsed();
+                    
+                    if (enough_batches || timer_expired) && !self.worker_batches.is_empty() {
+                        // Check quorum before creating header
+                        let prev_round = self.current_round.saturating_sub(1);
+                        let mut total_stake = 0u64;
+                        
+                        if self.current_round == 1 {
+                            total_stake = self.committee.total_stake();
+                        } else {
+                            for (author, cert) in &self.latest_certificates {
+                                if cert.round() == prev_round {
+                                    total_stake += self.committee.stake(author);
+                                }
+                            }
+                        }
+                        
+                        if total_stake >= self.committee.quorum_threshold() {
+                            info!("Have {} worker batches and quorum, creating header", self.worker_batches.len());
+                            self.create_and_propose_header().await?;
+                        } else {
+                            debug!("Have {} worker batches but only {} stake, waiting for quorum", 
+                                   self.worker_batches.len(), total_stake);
+                        }
+                        
+                        // Reset timer
+                        let deadline = tokio::time::Instant::now() + max_header_delay;
+                        timer.as_mut().reset(deadline);
+                    }
+                    
+                    Ok(())
+                },
+
                 // Timer for active block production (heartbeat)
                 () = &mut timer => {
                     // Check if we have quorum of certificates from previous round before advancing
@@ -266,14 +327,14 @@ impl DagService {
                     }
                     
                     if total_stake >= self.committee.quorum_threshold() {
-                        // Only create header if we have transactions or haven't advanced in a while
+                        // Only create header if we have transactions or worker batches
                         // This prevents creating thousands of empty headers
-                        if !self.current_batch.is_empty() {
-                            info!("Timer expired for round {}, have quorum ({} certs, {} stake) and {} transactions, creating header", 
-                                  self.current_round, cert_count, total_stake, self.current_batch.len());
+                        if !self.current_batch.is_empty() || !self.worker_batches.is_empty() {
+                            info!("Timer expired for round {}, have quorum ({} certs, {} stake), {} transactions and {} worker batches, creating header", 
+                                  self.current_round, cert_count, total_stake, self.current_batch.len(), self.worker_batches.len());
                             self.create_and_propose_header().await?;
                         } else {
-                            debug!("Timer expired for round {} with quorum but no transactions, skipping header creation", 
+                            debug!("Timer expired for round {} with quorum but no transactions or worker batches, skipping header creation", 
                                    self.current_round);
                         }
                     } else {
@@ -336,12 +397,24 @@ impl DagService {
              
          info!("Including {} certificates from round {} as parents", parents.len(), prev_round);
 
-         // Create payload - only include batch if we have transactions
-          let mut payload = IndexMap::new();
+         // Create payload - include both primary batch and worker batches
+         let mut payload = IndexMap::new();
+         
+         // Include primary's own batch if we have transactions
          if !self.current_batch.is_empty() {
             let batch = Batch(self.current_batch.clone());
-            payload.insert(batch.digest(), 0u32); // worker_id = 0
-        }
+            payload.insert(batch.digest(), 0u32); // worker_id = 0 for primary
+         }
+         
+         // Include all worker batches
+         for (batch_digest, worker_id) in &self.worker_batches {
+             payload.insert(*batch_digest, *worker_id);
+         }
+         
+         info!("Creating header with {} batches ({} from primary, {} from workers)", 
+               payload.len(), 
+               if self.current_batch.is_empty() { 0 } else { 1 },
+               self.worker_batches.len());
 
          // Create header
          let mut header = Header {
@@ -396,8 +469,9 @@ impl DagService {
              m.set_dag_depth(&self.name.to_string(), self.current_round as i64);
          }
 
-         // Clear batch and advance round
+         // Clear batch and worker batches, then advance round
          self.current_batch.clear();
+         self.worker_batches.clear();
          self.current_round += 1;
 
          Ok(())

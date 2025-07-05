@@ -218,16 +218,9 @@ impl NarwhalBullsharkService {
         );
 
         info!("✅ Created real Narwhal DAG service for node {}", node_key.encode_base64());
-
-        // Spawn DAG service
-        let dag_handle = dag_service.spawn();
-        // Convert Result<(), DagError> to () for consistency
-        let dag_handle_wrapped = tokio::spawn(async move {
-            if let Err(e) = dag_handle.await {
-                warn!("DAG service error: {:?}", e);
-            }
-        });
-        self.task_handles.push(dag_handle_wrapped);
+        
+        // Store DAG service for later configuration with worker batch digests
+        self.dag_service = Some(dag_service);
 
         // Create REAL Bullshark BFT service  
         let bft_config = BftConfig::default();
@@ -286,18 +279,25 @@ impl NarwhalBullsharkService {
         let tx_bridge_handle = self.spawn_transaction_bridge_with_workers(worker_channels).await?;
         self.task_handles.push(tx_bridge_handle);
         
-        // TODO: Implement proper batch digest collection from workers
-        // For now, the DAG service will only include its own batches in headers
-        // The rx_primary channel receives batch digests from workers but we need
-        // to properly integrate this with the DAG service's header creation
-        
-        // Drop the receiver to avoid resource leak
-        drop(rx_primary);
-        
-        // Note: In the full implementation, worker batch digests should be:
-        // 1. Collected by the primary
-        // 2. Included in the header payload when creating new headers
-        // 3. Verified during certificate formation
+        // Connect the rx_primary channel to the DAG service for worker batch digest integration
+        if let Some(mut dag_service) = self.dag_service.take() {
+            dag_service = dag_service.with_batch_digest_receiver(rx_primary);
+            
+            // Now spawn the DAG service with the batch digest receiver connected
+            let dag_handle = dag_service.spawn();
+            // Convert Result<(), DagError> to () for consistency
+            let dag_handle_wrapped = tokio::spawn(async move {
+                if let Err(e) = dag_handle.await {
+                    warn!("DAG service error: {:?}", e);
+                }
+            });
+            self.task_handles.push(dag_handle_wrapped);
+            
+            info!("✅ DAG service spawned with worker batch digest integration");
+        } else {
+            warn!("❌ Failed to connect worker batch digest channel - DAG service not initialized");
+            drop(rx_primary);
+        }
 
         // Spawn finalized batch processor  
         let batch_processor_handle = self.spawn_batch_processor(bft_output_receiver).await?;
@@ -715,7 +715,7 @@ impl NarwhalBullsharkService {
                 // Convert to RLP bytes
                 let tx_bytes = alloy_rlp::encode(&reth_tx);
                 
-                debug!("🔄 Bridging transaction: {} -> {} bytes", 
+                info!("🔄 Bridging transaction: {} -> {} bytes", 
                     reth_tx.hash(), tx_bytes.len());
                 
                 if tx_to_adapter.send(tx_bytes).is_err() {

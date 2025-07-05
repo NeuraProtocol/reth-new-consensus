@@ -52,7 +52,7 @@ impl TransactionAdapter {
         
         // Listen for transactions
         while let Some(tx_bytes) = self.rx_transactions.recv().await {
-            debug!("Received transaction ({} bytes)", tx_bytes.len());
+            info!("TransactionAdapter received transaction ({} bytes)", tx_bytes.len());
             
             // Convert to Narwhal transaction
             let narwhal_tx = narwhal::Transaction::from_bytes(tx_bytes);
@@ -65,7 +65,7 @@ impl TransactionAdapter {
             if let Err(e) = self.tx_to_workers[worker_idx].send(narwhal_tx) {
                 warn!("Failed to send to worker {}: {}", worker_idx, e);
             } else {
-                debug!("Sent transaction to worker {}", worker_idx);
+                info!("TransactionAdapter sent transaction to worker {}", worker_idx);
             }
         }
         

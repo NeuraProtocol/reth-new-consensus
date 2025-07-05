@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**Last Updated**: 2025-07-05 - Fixed mempool listener to forward existing transactions. The `new_transactions_listener_for` method only emits events for NEW transactions, not existing ones already in the pool. Fixed by sending all pending transactions before starting the listener.
+**Last Updated**: 2025-07-05 - Fixed worker-primary batch digest integration. The `rx_primary` channel was being dropped immediately instead of being connected to the DAG service. Now worker batch digests are properly forwarded to the primary and included in headers.
 
 ## Project Overview
 
@@ -53,14 +53,24 @@ pkill -f "reth.*node.*narwhal"    # Stop all nodes
     - ✅ Now forwards 12 existing transactions on startup (from backup file)
     - Location: `bin/reth/src/narwhal_bullshark.rs:73-96`
 
+20. ✅ **Worker-Primary Integration** - COMPLETED
+    - ✅ Fixed critical bug: `rx_primary` channel was dropped immediately (line 295 in service.rs)
+    - ✅ Worker batch digests now properly forwarded to DAG service
+    - ✅ DAG service receives batch digests via `rx_batch_digests` channel
+    - ✅ Modified `create_and_propose_header` to include worker batches in header payload
+    - ✅ Headers now contain both primary batches and worker batches
+    - ✅ Worker batches cleared after header creation to prevent duplicates
+    - ✅ DAG service spawned after connecting batch digest receiver
+    - Location: `crates/consensus/consensus/src/narwhal_bullshark/service.rs:289-307`
+
 ### 2025-07-04
 
-17. ✅ **Empty Block Production** - COMPLETED
-    - ✅ Fixed BFT service to create finalized batches even without transactions
+17. ❌ **Empty Block Production** - NOT WORKING (previously marked complete incorrectly)
+    - ❌ BFT service skips certificates without transactions
     - ✅ Resolved runtime panic caused by `block_on` within async context
     - ✅ Replaced async RwLock with sync Mutex in chain state adapter
-    - ✅ System now produces empty blocks at regular intervals
-    - ✅ Block production continues regardless of transaction presence
+    - ❌ System does NOT produce empty blocks at regular intervals
+    - ❌ Block production only happens when there are transactions
     
 18. ✅ **Block Number Incrementing** - PARTIALLY FIXED
     - ✅ Fixed BFT service to use `chain_state.block_number + 1` for new blocks
@@ -80,6 +90,8 @@ pkill -f "reth.*node.*narwhal"    # Stop all nodes
 - **Chain State Synchronization**: BFT service needs chain state for block numbers; integration layer must update chain state after blocks
 - **Mempool Transaction Listeners**: The `new_transactions_listener_for` trait method only yields transactions that arrive AFTER the listener is created, NOT existing transactions
 - **Transaction Backup Files**: Transactions loaded from backup (`txpool-transactions-backup.rlp`) won't trigger the new transaction listener - must send them explicitly
+- **Worker-Primary Architecture**: Workers create batches and send digests to primary via channels - these MUST be connected to DAG service or headers won't include worker batches
+- **DAG Service Spawning**: Must configure DAG service with batch digest receiver BEFORE spawning it
 - Ensure to review existing implementation thoroughly before making changes
 - Cross-reference with reference implementations before claiming completeness
 
@@ -163,10 +175,11 @@ Working on branch `v1.4.8-neura` with recent commits implementing functional con
     - ✅ Finalized batches use block numbers (incrementing from 0 to 1)
     - ❌ Parent hash tracking requires BlockExecutor connection
 
-15. ✅ **Empty Block Production** - COMPLETED
-    - ✅ BFT service creates blocks even without transactions
-    - ✅ Consistent block time regardless of transaction presence
+15. ❌ **Empty Block Production** - NOT WORKING
+    - ❌ BFT service skips empty certificates (no transactions = no block)
+    - ❌ Workers don't create batches without transactions
+    - ❌ DAG service doesn't create certificates without batches
     - ✅ Fixed runtime panic in async context
-    - ✅ Blocks being produced at regular intervals
+    - ❌ Blocks are NOT being produced at regular intervals
 
 ## Key Files to Understand

@@ -367,8 +367,12 @@ impl NarwhalRethBridge {
                     }
                     
                     // Wait for initial connections to be established
+                    info!("🔍 DEBUG: About to call wait_for_initial_connections...");
                     let connection_timeout = std::time::Duration::from_secs(5);
-                    match network.wait_for_initial_connections(&peer_address_map, connection_timeout).await {
+                    let wait_result = network.wait_for_initial_connections(&peer_address_map, connection_timeout).await;
+                    info!("🔍 DEBUG: wait_for_initial_connections returned: {:?}", wait_result);
+                    
+                    match wait_result {
                         Ok(()) => info!("✅ Initial peer connections established"),
                         Err(e) => {
                             warn!("⚠️ Failed to establish all peer connections: {}", e);
@@ -397,13 +401,18 @@ impl NarwhalRethBridge {
                 }
             }
             
+            info!("✅ Peer connection phase completed, proceeding to start consensus service");
+            
             // Initialize consensus service chain state
+            info!("🔍 DEBUG: About to update consensus service chain state...");
             service.update_chain_state(self.current_block_number, self.current_parent_hash).await;
             info!("Initialized consensus chain state: block {} parent {}", 
                   self.current_block_number, self.current_parent_hash);
             
             // NOW start the consensus service after connections are ready
+            info!("🔍 DEBUG: About to spawn consensus service...");
             let spawn_result = service.spawn().await;
+            info!("🔍 DEBUG: service.spawn() returned: {:?}", spawn_result);
             spawn_result?;
             info!("✅ Narwhal + Bullshark consensus service started");
             
