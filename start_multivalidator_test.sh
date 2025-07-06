@@ -30,9 +30,30 @@ echo ""
 echo "Cleaning up previous blockchain data..."
 for i in {1..4}; do
     echo "Cleaning node $i..."
+    # Remove blockchain database
     rm -rf /home/peastew/.neura/node$i/db || true
     rm -rf /home/peastew/.neura/node$i/static_files || true
+    
+    # Remove consensus-specific data
+    rm -rf /home/peastew/.neura/node$i/consensus_db || true
+    rm -rf /home/peastew/.neura/node$i/consensus-db || true
+    
+    # Remove transaction pool backup
+    rm -f /home/peastew/.neura/node$i/txpool-transactions-backup.rlp || true
+    
+    # Remove any lock files
+    rm -f /home/peastew/.neura/node$i/db.lock || true
+    rm -f /home/peastew/.neura/node$i/.lock || true
+    
+    # Remove logs (optional - comment out if you want to preserve logs)
+    rm -f /home/peastew/.neura/node$i/node.log || true
+    
+    # Ensure the directory exists for the node
+    mkdir -p /home/peastew/.neura/node$i
 done
+
+echo "✅ Cleanup completed - all blockchain data removed"
+echo "🔑 Validator keys preserved in test_validators/"
 
 echo ""
 echo "Starting validator nodes with REAL key management..."

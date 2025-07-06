@@ -254,6 +254,13 @@ impl BftService {
             info!("BFT: Checking block creation - current_block_number: {}, chain_state.block_number: {}, next: {}", 
                   self.current_block_number, current_state.block_number, next_block_number);
             
+            // Update our current_block_number from chain state to stay in sync
+            // This allows us to recover if blocks were persisted while we were processing
+            if current_state.block_number >= self.current_block_number {
+                self.current_block_number = current_state.block_number;
+                debug!("Updated current_block_number from chain state: {}", self.current_block_number);
+            }
+            
             // Only create a finalized batch if we haven't already created this block number
             if self.current_block_number == 0 || self.current_block_number < next_block_number {
                 // Check minimum block time
@@ -273,10 +280,14 @@ impl BftService {
                 
                 // Update last block time
                 self.last_block_time = Instant::now();
-                self.current_block_number = finalized_batch.block_number;
+                
+                // DO NOT update current_block_number here - wait for chain confirmation
+                // This prevents skipping certificates when the block hasn't been persisted yet
+                let batch_block_number = finalized_batch.block_number;
 
                 // Send to Reth integration
-                info!("Sending finalized batch {} to Reth integration", finalized_batch.block_number);
+                info!("Sending finalized batch {} to Reth integration (current_block_number remains {})", 
+                      batch_block_number, self.current_block_number);
                 if self.finalized_batch_sender.send(finalized_batch).is_err() {
                     warn!("Failed to send finalized batch to Reth - channel closed");
                     return Err(BullsharkError::Network("Reth channel closed".to_string()));

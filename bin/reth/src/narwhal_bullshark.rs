@@ -367,6 +367,13 @@ where
                             info!(target: "reth::narwhal_bullshark", 
                                   "Successfully executed and persisted block #{}",
                                   sealed_block.number);
+                            
+                            // Update consensus bridge chain state so BFT knows the block was confirmed
+                            // This allows BFT to move on to the next block number
+                            bridge.update_chain_state(sealed_block.number, sealed_block.hash()).await;
+                            info!(target: "reth::narwhal_bullshark", 
+                                  "Updated consensus chain state to block {} (hash: {})",
+                                  sealed_block.number, sealed_block.hash());
                         }
                         Err(e) => {
                             error!(target: "reth::narwhal_bullshark", 

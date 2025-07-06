@@ -49,7 +49,7 @@ impl BlockExecutor for MockBlockExecutor {
     
     fn execute_block(&self, block: &SealedBlock) -> Result<BlockExecutionOutput<ExecutionOutcome>> {
         // Simulate block execution
-        let block_number = block.header.number;
+        let block_number = block.header().number;
         let block_hash = block.hash();
         
         info!("Mock executor 'executing' block {} with hash {}", block_number, block_hash);
@@ -68,24 +68,24 @@ impl BlockExecutor for MockBlockExecutor {
     fn validate_block(&self, block: &SealedBlock) -> Result<()> {
         // Basic validation
         let expected_number = *self.block_number.lock().unwrap() + 1;
-        if block.header.number != expected_number {
+        if block.header().number != expected_number {
             return Err(anyhow::anyhow!(
                 "Invalid block number: expected {}, got {}", 
                 expected_number, 
-                block.header.number
+                block.header().number
             ));
         }
         
         let expected_parent = *self.block_hash.lock().unwrap();
-        if block.header.parent_hash != expected_parent {
+        if block.header().parent_hash != expected_parent {
             return Err(anyhow::anyhow!(
                 "Invalid parent hash: expected {}, got {}", 
                 expected_parent, 
-                block.header.parent_hash
+                block.header().parent_hash
             ));
         }
         
-        info!("Mock executor validated block {} successfully", block.header.number);
+        info!("Mock executor validated block {} successfully", block.header().number);
         Ok(())
     }
 }

@@ -28,6 +28,10 @@ pub mod service_rpc;
 pub mod chain_state;
 /// Chain state adapter for Bullshark
 pub mod chain_state_adapter;
+/// Mock block executor for testing
+pub mod mock_executor;
+/// Real block executor that integrates with Reth's database
+pub mod reth_block_executor;
 
 // Re-export key types for easier access
 pub use types::{FinalizedBatch, NarwhalBullsharkConfig, ConsensusRpcConfig, ConsensusSeal};

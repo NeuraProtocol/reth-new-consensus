@@ -649,6 +649,15 @@ impl NarwhalRethBridge {
         
         self.block_executor = Some(executor);
     }
+    
+    /// Update chain state after block persistence
+    /// This ensures the BFT service knows about persisted blocks
+    pub async fn update_chain_state(&self, block_number: u64, block_hash: B256) {
+        if let Some(ref service) = self.service {
+            service.update_chain_state(block_number, block_hash).await;
+            info!("Updated consensus service chain state: block {} hash {}", block_number, block_hash);
+        }
+    }
 }
 
 /// Helper function to create a test committee

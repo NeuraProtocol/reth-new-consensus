@@ -55,7 +55,19 @@ pkill -f "reth.*node.*narwhal"    # Stop all nodes
     - Issue: BFT service updates `current_block_number` before confirmation, causing subsequent certificates to be skipped
     - Location: `crates/bullshark/src/bft_service.rs:276`
 
-23. ❌ **Block Persistence** - NOT IMPLEMENTED
+23. ✅ **Chain State Synchronization** - COMPLETED
+    - ✅ Fixed BFT service to NOT update current_block_number when sending finalized batch
+    - ✅ BFT service now checks chain state from provider on each certificate
+    - ✅ Added update_chain_state method to NarwhalRethBridge for post-persistence updates
+    - ✅ Chain state flows: Block persisted → Bridge updated → Service updated → BFT synced
+    - ✅ Prevents multiple block 1s being created due to state mismatch
+    - ✅ BFT service only advances block number after confirmation from chain
+    - Locations: 
+      - `crates/bullshark/src/bft_service.rs:257-302` (state sync logic)
+      - `crates/consensus/consensus/src/narwhal_bullshark/integration.rs:653-660` (update method)
+      - `bin/reth/src/narwhal_bullshark.rs:371-376` (persistence callback)
+
+24. ❌ **Block Persistence** - NOT IMPLEMENTED
     - ❌ Finalized batches are created but not executed
     - ❌ BlockExecutor trait stub returns error "not implemented"
     - ❌ No actual block creation or state updates in Reth database
