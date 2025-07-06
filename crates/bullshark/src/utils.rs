@@ -133,11 +133,25 @@ fn certificate_references_leader(
 /// Order the DAG sub-graph referenced by a leader certificate
 /// Returns certificates in topological order for execution
 pub fn order_dag(gc_depth: Round, leader: &Certificate, dag: &BullsharkDag) -> Vec<Certificate> {
+    order_dag_with_limit(gc_depth, leader, dag, 500)
+}
+
+/// Order the DAG sub-graph with a configurable limit
+pub fn order_dag_with_limit(gc_depth: Round, leader: &Certificate, dag: &BullsharkDag, max_certificates: usize) -> Vec<Certificate> {
     let mut sequence = Vec::new();
     let mut visited = HashSet::new();
     
     // Perform topological sort starting from the leader
     topological_sort_from_certificate(leader, dag, &mut visited, &mut sequence, gc_depth);
+    
+    // When catching up after being offline, the DAG can contain thousands of certificates
+    // Limit the returned sequence to prevent overwhelming the system
+    if sequence.len() > max_certificates {
+        debug!("DAG traversal found {} certificates, limiting to {} most recent", 
+               sequence.len(), max_certificates);
+        // Return the most recent certificates (end of the sequence)
+        sequence = sequence.split_off(sequence.len() - max_certificates);
+    }
     
     sequence
 }

@@ -24,6 +24,8 @@ pub struct BftConfig {
     pub min_leader_round: Round,
     /// Minimum time between blocks (to prevent excessive block production)
     pub min_block_time: Duration,
+    /// Maximum certificates to output per DAG traversal (prevents overwhelming system when catching up)
+    pub max_certificates_per_dag: usize,
 }
 
 impl Default for BftConfig {
@@ -39,6 +41,7 @@ impl Default for BftConfig {
             leader_rotation_frequency: 2, // Change leader every 2 rounds
             min_leader_round: 0, // Temporarily set to 0 for testing
             min_block_time: Duration::from_millis(500), // 500ms minimum between blocks
+            max_certificates_per_dag: 500, // Limit DAG traversal output
         }
     }
 } 

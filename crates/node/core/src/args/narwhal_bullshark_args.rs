@@ -205,6 +205,10 @@ pub struct NarwhalBullsharkArgs {
     #[arg(long = "bullshark.enable-detailed-metrics", action = ArgAction::SetTrue)]
     pub enable_detailed_metrics: bool,
     
+    /// Maximum certificates to output per DAG traversal (prevents overwhelming system when catching up)
+    #[arg(long = "bullshark.max-certificates-per-dag", default_value_t = 500, help = "Maximum certificates to process in one DAG traversal. Lower values prevent system overload when catching up. Default: 500")]
+    pub max_certificates_per_dag: usize,
+    
     /// Minimum time between blocks in milliseconds (default: 500ms for sub-second blocks)
     /// Lower values = faster blocks but higher resource usage
     #[arg(long = "bullshark.min-block-time-ms", default_value_t = 500, help = "Minimum time between blocks in milliseconds. Lower values produce faster blocks but use more resources. Default: 500ms")]
@@ -266,6 +270,7 @@ impl Default for NarwhalBullsharkArgs {
             batch_creation_interval_ms: 50,
             max_dag_walk_depth: 10,
             enable_detailed_metrics: false,
+            max_certificates_per_dag: 500,
             min_block_time_ms: 500,
             worker_base_port: 19000,
             worker_bind_address: None,
@@ -376,6 +381,7 @@ impl NarwhalBullsharkArgs {
             leader_rotation_frequency: self.leader_rotation_frequency,
             min_leader_round: self.min_leader_round,
             min_block_time: std::time::Duration::from_millis(self.min_block_time_ms),
+            max_certificates_per_dag: self.max_certificates_per_dag,
         }
     }
 

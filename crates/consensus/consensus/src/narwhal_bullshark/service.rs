@@ -147,8 +147,8 @@ impl NarwhalBullsharkService {
 
         // Create channels for DAG ↔ BFT communication
         // Use bounded channel for certificates to prevent unbounded backlog
-        // Increased buffer size to handle burst traffic when catching up
-        let (certificate_sender, certificate_receiver) = mpsc::channel(10000); // Larger buffer for catching up
+        // Very large buffer size to handle burst traffic when catching up
+        let (certificate_sender, certificate_receiver) = mpsc::channel(50000); // Very large buffer for catching up
         let (dag_tx_sender, dag_tx_receiver) = mpsc::unbounded_channel();
         let (dag_network_sender, dag_network_receiver) = mpsc::unbounded_channel();
         let (dag_outbound_sender, dag_outbound_receiver) = mpsc::unbounded_channel();

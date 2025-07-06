@@ -110,6 +110,7 @@ $RETH_BINARY node \
   --bullshark.leader-rotation-frequency 2 \
   --bullshark.max-dag-walk-depth 10 \
   --bullshark.enable-detailed-metrics \
+  --bullshark.max-certificates-per-dag 200 \
   > /home/peastew/.neura/node1/node.log 2>&1 &
 
 NODE1_PID=$!
@@ -163,6 +164,7 @@ $RETH_BINARY node \
   --bullshark.leader-rotation-frequency 2 \
   --bullshark.max-dag-walk-depth 10 \
   --bullshark.enable-detailed-metrics \
+  --bullshark.max-certificates-per-dag 200 \
   > /home/peastew/.neura/node2/node.log 2>&1 &
 
 NODE2_PID=$!
@@ -216,6 +218,7 @@ $RETH_BINARY node \
   --bullshark.leader-rotation-frequency 2 \
   --bullshark.max-dag-walk-depth 10 \
   --bullshark.enable-detailed-metrics \
+  --bullshark.max-certificates-per-dag 200 \
   > /home/peastew/.neura/node3/node.log 2>&1 &
 
 NODE3_PID=$!
@@ -269,6 +272,7 @@ $RETH_BINARY node \
   --bullshark.leader-rotation-frequency 2 \
   --bullshark.max-dag-walk-depth 10 \
   --bullshark.enable-detailed-metrics \
+  --bullshark.max-certificates-per-dag 200 \
   > /home/peastew/.neura/node4/node.log 2>&1 &
 
 NODE4_PID=$!
@@ -328,6 +332,7 @@ echo "  --bullshark.leader-rotation-frequency: Leader rotation frequency in roun
 echo "  --bullshark.min-leader-round: Minimum round for leader election (default: 0)"
 echo "  --bullshark.max-dag-walk-depth: Maximum DAG walk depth for consensus (default: 10)"
 echo "  --bullshark.enable-detailed-metrics: Enable detailed consensus metrics"
+echo "  --bullshark.max-certificates-per-dag: Max certificates per DAG traversal (default: 500, using 200 for faster catchup)"
 echo ""
 echo "🔧 Monitoring Commands:"
 echo "  Monitor all logs: tail -f /home/peastew/.neura/node*/node.log"

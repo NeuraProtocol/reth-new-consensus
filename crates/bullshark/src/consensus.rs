@@ -3,7 +3,7 @@
 use crate::{
     BullsharkResult, ConsensusOutput, SequenceNumber,
     dag::{BullsharkDag, Dag},
-    utils::{order_leaders, order_dag},
+    utils::{order_leaders, order_dag_with_limit},
     BftConfig,
     storage::{ConsensusStorage, Certificate as StorageCertificate},
 };
@@ -164,7 +164,12 @@ impl ConsensusProtocol for BullsharkConsensus {
             debug!("Processing leader sequence for round {}", leader_cert.round());
             
             // Get all certificates in the sub-DAG rooted at this leader
-            let ordered_certificates = order_dag(self.config.gc_depth, leader_cert, dag);
+            let ordered_certificates = order_dag_with_limit(
+                self.config.gc_depth, 
+                leader_cert, 
+                dag,
+                self.config.max_certificates_per_dag
+            );
 
             // Create consensus outputs for each certificate
             for cert in ordered_certificates {
