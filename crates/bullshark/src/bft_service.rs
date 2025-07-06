@@ -255,6 +255,11 @@ impl BftService {
             info!("Skipping {} already processed certificates (current consensus index: {})", 
                   skip_count, self.consensus_index);
         }
+        
+        // When catching up, limit how many blocks we create in one batch
+        // This prevents the system from getting overwhelmed
+        const MAX_BLOCKS_PER_BATCH: usize = 10;
+        let mut blocks_created_this_batch = 0;
 
         let mut finalized_count = 0;
 
@@ -267,21 +272,15 @@ impl BftService {
                 continue;
             }
             
-            info!("Processing consensus output {} of {} for round {}", idx + 1, outputs_count, output.certificate.round());
+            debug!("Processing consensus output {} of {} for round {}", idx + 1, outputs_count, output.certificate.round());
             self.consensus_index = output.consensus_index + 1;
             
-            // Extract all transactions from the finalized certificate
-            let cert_transactions = self.extract_transactions_from_certificate(&output.certificate).await?;
-            
-            // Don't enforce minimum block time here - let the execution layer pull at its own pace
-            // This prevents certificate backlog in the channel
-            
-            // Create finalized batch even if empty (for consistent block times)
-            let tx_count = cert_transactions.len();
-            if tx_count == 0 {
-                debug!("Processing empty certificate - will create empty block for consistent block times");
-            } else {
-                info!("Creating finalized batch with {} transactions from certificate", tx_count);
+            // Early check for minimum block time to avoid unnecessary work
+            let elapsed = self.last_block_time.elapsed();
+            if elapsed < self.config.min_block_time {
+                // Skip this certificate - we're creating blocks too fast
+                // Don't log each skip to avoid spam when catching up
+                continue;
             }
             
             // Check if we should create a new block based on chain state
@@ -300,13 +299,15 @@ impl BftService {
             
             // Only create a finalized batch if we haven't already created this block number
             if self.current_block_number == 0 || self.current_block_number < next_block_number {
-                // Check minimum block time
-                let elapsed = self.last_block_time.elapsed();
-                if elapsed < self.config.min_block_time {
-                    // Skip this certificate - we're creating blocks too fast
-                    debug!("Skipping certificate - min block time not elapsed ({}ms < {}ms)", 
-                          elapsed.as_millis(), self.config.min_block_time.as_millis());
-                    continue;
+                // Now extract transactions since we're actually going to use them
+                let cert_transactions = self.extract_transactions_from_certificate(&output.certificate).await?;
+                
+                // Create finalized batch even if empty (for consistent block times)
+                let tx_count = cert_transactions.len();
+                if tx_count == 0 {
+                    debug!("Processing empty certificate - will create empty block for consistent block times");
+                } else {
+                    info!("Creating finalized batch with {} transactions from certificate", tx_count);
                 }
                 
                 let finalized_batch = self.create_finalized_batch(
@@ -331,6 +332,14 @@ impl BftService {
                 }
 
                 finalized_count += 1;
+                blocks_created_this_batch += 1;
+                
+                // If we've created enough blocks in this batch, stop processing
+                // This prevents overwhelming the system when catching up
+                if blocks_created_this_batch >= MAX_BLOCKS_PER_BATCH {
+                    info!("Created {} blocks in this batch, deferring remaining certificates", blocks_created_this_batch);
+                    break;
+                }
             } else {
                 // We're ahead of the chain state - skip this certificate
                 info!("BFT: Skipping certificate - already created block {} (chain at block {})", 
