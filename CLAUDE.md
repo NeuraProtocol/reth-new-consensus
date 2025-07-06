@@ -2,12 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**Last Updated**: 2025-07-06 - Fixed multiple critical issues:
-- Implemented proper BlockExecutor with EVM execution and state persistence
-- Fixed consensus replay bug where thousands of old certificates were reprocessed on restart
-- Added graceful handling of invalid transactions by creating empty blocks
-- Increased block timing to 2 seconds to prevent excessive block production
-- Blocks are now being executed and persisted successfully!
+**Last Updated**: 2025-07-06 - Fixed DAG output limiting and made block time configurable:
+- Limited DAG traversal output to prevent 5200+ certificate batches that hang the system
+- Made block time configurable via --bullshark.min-block-time-ms (default: 500ms)
+- Added --bullshark.max-certificates-per-dag to limit certificates per traversal
+- Increased certificate channel buffer to 50K for better burst handling
+- System now handles catching up after being offline without overwhelming execution layer
 
 ## Project Overview
 
@@ -49,6 +49,25 @@ pkill -f "reth.*node.*narwhal"    # Stop all nodes
 ## Recent Updates
 
 ### 2025-07-06 (Latest)
+
+27. ✅ **DAG Output Limiting** - COMPLETED
+    - ✅ Fixed system hang when consensus outputs 5200+ certificates
+    - ✅ Added max_certificates_per_dag configuration (default: 500)
+    - ✅ Created order_dag_with_limit function to cap DAG traversal
+    - ✅ Increased certificate channel buffer from 10K to 50K
+    - ✅ Command line arg: --bullshark.max-certificates-per-dag
+    - ✅ Test script uses 200 for faster catchup
+    - Prevents overwhelming system when catching up after being offline
+    - Location: `crates/bullshark/src/utils.rs:140-157`
+
+28. ✅ **Configurable Block Time** - COMPLETED
+    - ✅ Made block time configurable via --bullshark.min-block-time-ms
+    - ✅ Changed default from 2000ms to 500ms for sub-second blocks
+    - ✅ Updated all configuration files and scripts
+    - ✅ Added helpful documentation in CLI args
+    - Location: `crates/node/core/src/args/narwhal_bullshark_args.rs:210-214`
+
+### 2025-07-06 (Earlier)
 
 25. ✅ **Consensus Replay Fix** - COMPLETED
     - ✅ Fixed BFT service to load last consensus index from storage on startup
@@ -181,8 +200,10 @@ pkill -f "reth.*node.*narwhal"    # Stop all nodes
 - Cross-reference with reference implementations before claiming completeness
 - **Reference Implementation**: Always consult `/home/peastew/src/reth-new-consensus/narwhal-reference-implementation` for guidance on implementation details and design choices
 - **Consensus State Persistence**: Always load last consensus index from storage to avoid replaying entire DAG history
-- **Block Timing**: Use appropriate block times (2+ seconds) to prevent consensus getting overwhelmed
+- **Block Timing**: Use appropriate block times (500ms default) with configurable --bullshark.min-block-time-ms
 - **Use Reth Examples**: The `/home/peastew/src/reth-new-consensus/examples` directory has many integration examples - use them!
+- **DAG Output Limits**: When catching up, the DAG can contain thousands of certificates - limit output with --bullshark.max-certificates-per-dag
+- **Channel Buffer Sizes**: Use large buffers (50K+) for certificate channels to handle burst traffic when catching up
 
 ## Current Branch Status
 
