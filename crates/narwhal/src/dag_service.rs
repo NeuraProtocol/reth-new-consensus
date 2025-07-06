@@ -327,16 +327,10 @@ impl DagService {
                     }
                     
                     if total_stake >= self.committee.quorum_threshold() {
-                        // Only create header if we have transactions or worker batches
-                        // This prevents creating thousands of empty headers
-                        if !self.current_batch.is_empty() || !self.worker_batches.is_empty() {
-                            info!("Timer expired for round {}, have quorum ({} certs, {} stake), {} transactions and {} worker batches, creating header", 
-                                  self.current_round, cert_count, total_stake, self.current_batch.len(), self.worker_batches.len());
-                            self.create_and_propose_header().await?;
-                        } else {
-                            debug!("Timer expired for round {} with quorum but no transactions or worker batches, skipping header creation", 
-                                   self.current_round);
-                        }
+                        // Always create header when timer expires with quorum for consistent block production
+                        info!("Timer expired for round {}, have quorum ({} certs, {} stake), {} transactions and {} worker batches, creating header", 
+                              self.current_round, cert_count, total_stake, self.current_batch.len(), self.worker_batches.len());
+                        self.create_and_propose_header().await?;
                     } else {
                         debug!("Timer expired for round {} but only have {} stake (need {}), waiting for more certificates", 
                                self.current_round, total_stake, self.committee.quorum_threshold());
@@ -729,10 +723,10 @@ impl DagService {
              // Check if we should advance the round
              // We advance if:
              // 1. We have pending transactions OR
-             // 2. We're falling behind (the certificates are from the previous round)
-             if !self.current_batch.is_empty() || cert_round == self.current_round - 1 {
-                 self.create_and_propose_header().await?;
-             }
+             // 2. We're falling behind (the certificates are from the previous round) OR
+             // 3. Always advance to ensure consistent block production
+             // Always create headers to ensure empty block production
+             self.create_and_propose_header().await?;
          }
          
          Ok(())

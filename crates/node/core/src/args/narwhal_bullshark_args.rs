@@ -90,7 +90,7 @@ pub struct NarwhalBullsharkArgs {
     pub max_batch_size: usize,
 
     /// Maximum batch delay in milliseconds
-    #[arg(long = "narwhal.max-batch-delay-ms", default_value_t = 100)]
+    #[arg(long = "narwhal.max-batch-delay-ms", default_value_t = 2000)]
     pub max_batch_delay_ms: u64,
 
     /// Number of workers per authority
@@ -205,7 +205,7 @@ pub struct NarwhalBullsharkArgs {
     pub enable_detailed_metrics: bool,
     
     /// Minimum time between blocks in milliseconds
-    #[arg(long = "bullshark.min-block-time-ms", default_value_t = 100)]
+    #[arg(long = "bullshark.min-block-time-ms", default_value_t = 2000)]
     pub min_block_time_ms: u64,
     
     // ===== WORKER CONFIGURATION =====
@@ -237,7 +237,7 @@ impl Default for NarwhalBullsharkArgs {
             vault_key_path: None,
             vault_token: None,
             max_batch_size: MAX_BATCH_SIZE_DEFAULT,
-            max_batch_delay_ms: 100,
+            max_batch_delay_ms: 2000,
             num_workers: 4,
             gc_depth: GC_DEPTH_DEFAULT,
             finality_threshold: FINALITY_THRESHOLD_DEFAULT,
@@ -264,7 +264,7 @@ impl Default for NarwhalBullsharkArgs {
             batch_creation_interval_ms: 50,
             max_dag_walk_depth: 10,
             enable_detailed_metrics: false,
-            min_block_time_ms: 100,
+            min_block_time_ms: 2000,
             worker_base_port: 19000,
             worker_bind_address: None,
         }

@@ -46,6 +46,8 @@ pub struct BftService {
     chain_state: std::sync::Arc<dyn ChainStateProvider>,
     /// Last block creation time (for rate limiting)
     last_block_time: Instant,
+    /// Consensus storage for persistent state
+    storage: Option<std::sync::Arc<dyn ConsensusStorage>>,
 }
 
 impl std::fmt::Debug for BftService {
@@ -90,6 +92,7 @@ impl BftService {
             batch_store: None,
             chain_state: std::sync::Arc::new(DefaultChainState),
             last_block_time: Instant::now(),
+            storage: None,
         }
     }
     
@@ -106,7 +109,7 @@ impl BftService {
         let dag = BullsharkDag::new(genesis_certificates);
         
         // Create consensus algorithm with storage
-        let consensus = BullsharkConsensus::with_storage(committee.clone(), config.clone(), storage);
+        let consensus = BullsharkConsensus::with_storage(committee.clone(), config.clone(), storage.clone());
 
         Self {
             config,
@@ -121,6 +124,7 @@ impl BftService {
             batch_store: None,
             chain_state: std::sync::Arc::new(DefaultChainState),
             last_block_time: Instant::now(),
+            storage: Some(storage),
         }
     }
     
@@ -154,6 +158,23 @@ impl BftService {
         self.current_block_number = initial_state.block_number;
         info!("BFT service initialized with chain state: current block {} (will create block {}) parent {}", 
               self.current_block_number, self.current_block_number + 1, initial_state.parent_hash);
+        
+        // Load last consensus index from storage if available
+        if let Some(ref storage) = self.storage {
+            match storage.get_latest_finalized() {
+                Ok(Some(last_index)) => {
+                    self.consensus_index = last_index + 1;
+                    info!("Loaded last consensus index from storage: {} (will continue from {})", 
+                          last_index, self.consensus_index);
+                }
+                Ok(None) => {
+                    info!("No previous consensus index found in storage, starting from 0");
+                }
+                Err(e) => {
+                    warn!("Failed to load last consensus index from storage: {}", e);
+                }
+            }
+        }
         
         info!("BFT service waiting for certificates...");
 
@@ -225,10 +246,27 @@ impl BftService {
         let outputs_count = consensus_outputs.len();
         info!("Consensus produced {} outputs for certificate round {}", outputs_count, cert_round);
 
+        // Count how many we'll skip
+        let skip_count = consensus_outputs.iter()
+            .filter(|o| o.consensus_index < self.consensus_index)
+            .count();
+        
+        if skip_count > 0 {
+            info!("Skipping {} already processed certificates (current consensus index: {})", 
+                  skip_count, self.consensus_index);
+        }
+
         let mut finalized_count = 0;
 
         // Process any finalized outputs
         for (idx, output) in consensus_outputs.into_iter().enumerate() {
+            // Skip certificates we've already processed
+            if output.consensus_index < self.consensus_index {
+                debug!("Skipping already processed certificate with index {} (current index: {})", 
+                      output.consensus_index, self.consensus_index);
+                continue;
+            }
+            
             info!("Processing consensus output {} of {} for round {}", idx + 1, outputs_count, output.certificate.round());
             self.consensus_index = output.consensus_index + 1;
             

@@ -28,7 +28,7 @@ impl Default for BatchMakerConfig {
     fn default() -> Self {
         Self {
             max_batch_size: 500_000, // 500KB default
-            max_batch_delay: Duration::from_millis(100),
+            max_batch_delay: Duration::from_millis(2000),
         }
     }
 }
@@ -125,11 +125,10 @@ impl BatchMaker {
                     }
                 }
                 
-                // Timer expired - seal batch if not empty
+                // Timer expired - seal batch (even if empty for consistent block production)
                 () = &mut timer => {
-                    if !self.current_batch.is_empty() {
-                        self.seal_batch().await?;
-                    }
+                    // Always seal batch when timer expires to ensure empty block production
+                    self.seal_batch().await?;
                     
                     // Reset timer
                     timer.as_mut().reset(Instant::now() + self.config.max_batch_delay);
