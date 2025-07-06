@@ -6,6 +6,9 @@
 echo "🚀 Starting Neura Multivalidator Test (Chain ID: 266, Coin: ANKR)"
 echo "🔑 Using REAL Validator Key Management (No Random Keys!)"
 echo "🏛️ Committee loaded from test_validators/ directory"
+echo "⏱️  Block Time: 500ms (configurable with --bullshark.min-block-time-ms)"
+echo "   For faster blocks: --bullshark.min-block-time-ms 100"
+echo "   For slower blocks: --bullshark.min-block-time-ms 1000"
 echo "=================================================================="
 
 # Kill any existing reth processes
@@ -87,6 +90,7 @@ $RETH_BINARY node \
   --narwhal.max-batch-delay-ms 100 \
   --narwhal.max-batch-size 100000 \
   --narwhal.gc-depth 50 \
+  --bullshark.min-block-time-ms 500 \
   --narwhal.cache-size 1000 \
   --narwhal.max-concurrent-requests 200 \
   --narwhal.connection-timeout-ms 5000 \
@@ -139,6 +143,7 @@ $RETH_BINARY node \
   --narwhal.max-batch-delay-ms 100 \
   --narwhal.max-batch-size 100000 \
   --narwhal.gc-depth 50 \
+  --bullshark.min-block-time-ms 500 \
   --narwhal.cache-size 1000 \
   --narwhal.max-concurrent-requests 200 \
   --narwhal.connection-timeout-ms 5000 \
@@ -191,6 +196,7 @@ $RETH_BINARY node \
   --narwhal.max-batch-delay-ms 100 \
   --narwhal.max-batch-size 100000 \
   --narwhal.gc-depth 50 \
+  --bullshark.min-block-time-ms 500 \
   --narwhal.cache-size 1000 \
   --narwhal.max-concurrent-requests 200 \
   --narwhal.connection-timeout-ms 5000 \
@@ -243,6 +249,7 @@ $RETH_BINARY node \
   --narwhal.max-batch-delay-ms 100 \
   --narwhal.max-batch-size 100000 \
   --narwhal.gc-depth 50 \
+  --bullshark.min-block-time-ms 500 \
   --narwhal.cache-size 1000 \
   --narwhal.max-concurrent-requests 200 \
   --narwhal.connection-timeout-ms 5000 \

@@ -89,8 +89,9 @@ pub struct NarwhalBullsharkArgs {
     #[arg(long = "narwhal.max-batch-size", default_value_t = MAX_BATCH_SIZE_DEFAULT)]
     pub max_batch_size: usize,
 
-    /// Maximum batch delay in milliseconds
-    #[arg(long = "narwhal.max-batch-delay-ms", default_value_t = 2000)]
+    /// Maximum batch delay in milliseconds (how long to wait before sealing a batch)
+    /// Should be less than min-block-time-ms for responsive block production
+    #[arg(long = "narwhal.max-batch-delay-ms", default_value_t = 200, help = "Maximum time to wait before sealing a transaction batch. Should be less than min-block-time-ms. Default: 200ms")]
     pub max_batch_delay_ms: u64,
 
     /// Number of workers per authority
@@ -204,8 +205,9 @@ pub struct NarwhalBullsharkArgs {
     #[arg(long = "bullshark.enable-detailed-metrics", action = ArgAction::SetTrue)]
     pub enable_detailed_metrics: bool,
     
-    /// Minimum time between blocks in milliseconds
-    #[arg(long = "bullshark.min-block-time-ms", default_value_t = 2000)]
+    /// Minimum time between blocks in milliseconds (default: 500ms for sub-second blocks)
+    /// Lower values = faster blocks but higher resource usage
+    #[arg(long = "bullshark.min-block-time-ms", default_value_t = 500, help = "Minimum time between blocks in milliseconds. Lower values produce faster blocks but use more resources. Default: 500ms")]
     pub min_block_time_ms: u64,
     
     // ===== WORKER CONFIGURATION =====
@@ -237,7 +239,7 @@ impl Default for NarwhalBullsharkArgs {
             vault_key_path: None,
             vault_token: None,
             max_batch_size: MAX_BATCH_SIZE_DEFAULT,
-            max_batch_delay_ms: 2000,
+            max_batch_delay_ms: 200,
             num_workers: 4,
             gc_depth: GC_DEPTH_DEFAULT,
             finality_threshold: FINALITY_THRESHOLD_DEFAULT,
@@ -264,7 +266,7 @@ impl Default for NarwhalBullsharkArgs {
             batch_creation_interval_ms: 50,
             max_dag_walk_depth: 10,
             enable_detailed_metrics: false,
-            min_block_time_ms: 2000,
+            min_block_time_ms: 500,
             worker_base_port: 19000,
             worker_bind_address: None,
         }

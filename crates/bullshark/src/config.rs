@@ -38,7 +38,7 @@ impl Default for BftConfig {
             max_certificates_per_round: 1000,
             leader_rotation_frequency: 2, // Change leader every 2 rounds
             min_leader_round: 0, // Temporarily set to 0 for testing
-            min_block_time: Duration::from_millis(100), // 100ms minimum between blocks
+            min_block_time: Duration::from_millis(500), // 500ms minimum between blocks
         }
     }
 } 

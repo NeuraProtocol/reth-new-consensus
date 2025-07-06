@@ -172,12 +172,12 @@ impl Default for NarwhalConfig {
     fn default() -> Self {
         Self {
             max_batch_size: 1024 * 1024,  // 1MB
-            max_batch_delay: Duration::from_millis(2000),
+            max_batch_delay: Duration::from_millis(200),
             num_workers: 4,
             gc_depth: 50,
             committee_size: 4,
             max_header_size: 1024 * 1024,  // 1MB
-            max_header_delay: Duration::from_millis(2000),
+            max_header_delay: Duration::from_millis(200),
             sync_retry_delay: Duration::from_millis(5000),
             sync_retry_nodes: 3,
             batch_storage_memory: true, // Default to in-memory for now
