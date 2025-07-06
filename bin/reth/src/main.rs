@@ -12,7 +12,8 @@ use tracing::{info, warn};
 use std::sync::{Arc, RwLock};
 
 mod narwhal_bullshark;
-mod block_executor;
+mod block_executor_simple;
+mod block_executor_batch;
 
 use narwhal_bullshark::{
     install_narwhal_bullshark_consensus, 

@@ -10,6 +10,7 @@ use reth_primitives::{
 };
 use reth_ethereum_primitives::{Block};
 use alloy_primitives::{B256, U256, Address, Bloom, Bytes};
+use alloy_consensus::proofs;
 use reth_execution_types::{ExecutionOutcome, BlockExecutionOutput};
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
@@ -480,10 +481,10 @@ impl NarwhalRethBridge {
             logs_bloom: Bloom::ZERO,
             extra_data,
             base_fee_per_gas: Some(1_000_000_000), // 1 gwei
-            blob_gas_used: None,
-            excess_blob_gas: None,
-            parent_beacon_block_root: None,
-            withdrawals_root: None,
+            blob_gas_used: Some(0),  // No blob transactions in Narwhal/Bullshark
+            excess_blob_gas: Some(0), // Required for EIP-4844, set to 0 for no blob transactions
+            parent_beacon_block_root: Some(B256::ZERO), // Required for EIP-4788, using zero for consensus blocks
+            withdrawals_root: Some(proofs::calculate_withdrawals_root(&[])), // Required for Shanghai, empty withdrawals
             requests_hash: None,
         };
 
@@ -491,7 +492,7 @@ impl NarwhalRethBridge {
         let body = reth_primitives::BlockBody {
             transactions: batch.transactions,
             ommers: vec![], // No uncles in Narwhal/Bullshark
-            withdrawals: None,
+            withdrawals: Some(vec![].into()), // Required for Shanghai, empty withdrawals
         };
 
         // Create the block

@@ -72,6 +72,11 @@ bullshark = { path = "../../crates/bullshark" }
 fastcrypto = "=0.1.2"
 rand_08.workspace = true
 
+# trie dependencies for state root calculation
+reth-trie.workspace = true
+reth-trie-common.workspace = true
+reth-trie-db.workspace = true
+
 # misc
 aquamarine.workspace = true
 clap = { workspace = true, features = ["derive", "env"] }

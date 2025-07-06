@@ -383,12 +383,22 @@ impl NarwhalBullsharkService {
                 // Decode Narwhal transactions back to Reth transactions
                 let mut reth_transactions = Vec::new();
                 let mut decode_errors = 0;
+                let mut validation_errors = 0;
                 
                 for narwhal_tx in &internal_batch.transactions {
                     // Decode RLP encoded transaction
                     let mut tx_bytes = narwhal_tx.as_bytes();
                     match RethTransaction::decode(&mut tx_bytes) {
-                        Ok(tx) => reth_transactions.push(tx),
+                        Ok(tx) => {
+                            // For now, include all decoded transactions
+                            // TODO: Add pre-execution validation here to filter out invalid transactions
+                            // This would require access to current chain state to validate:
+                            // - Account balance for gas fees
+                            // - Correct nonce
+                            // - Valid signature
+                            // For now, we rely on execution layer to handle invalid transactions
+                            reth_transactions.push(tx);
+                        },
                         Err(e) => {
                             warn!("Failed to decode transaction: {:?}", e);
                             decode_errors += 1;

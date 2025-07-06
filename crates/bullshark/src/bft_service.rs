@@ -238,14 +238,13 @@ impl BftService {
             // Don't enforce minimum block time here - let the execution layer pull at its own pace
             // This prevents certificate backlog in the channel
             
-            // Only create a finalized batch if we have transactions
+            // Create finalized batch even if empty (for consistent block times)
             let tx_count = cert_transactions.len();
             if tx_count == 0 {
-                debug!("Skipping empty certificate - no transactions to finalize");
-                continue;
+                debug!("Processing empty certificate - will create empty block for consistent block times");
+            } else {
+                info!("Creating finalized batch with {} transactions from certificate", tx_count);
             }
-            
-            info!("Creating finalized batch with {} transactions from certificate", tx_count);
             
             // Check if we should create a new block based on chain state
             let current_state = self.chain_state.get_chain_state();

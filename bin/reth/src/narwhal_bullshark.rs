@@ -304,17 +304,17 @@ where
 
 /// Sets up real mempool integration with the consensus bridge
 /// Returns a handle that keeps the consensus running
-pub fn setup_mempool_integration<Pool, Provider, EvmConfig>(
+pub fn setup_mempool_integration<Pool, N, EvmConfig>(
     mut bridge: NarwhalRethBridge,
     transaction_pool: Arc<Pool>,
-    provider: Provider,
+    provider: BlockchainProvider<N>,
     evm_config: EvmConfig,
     task_executor: TaskExecutor,
 ) -> eyre::Result<tokio::task::JoinHandle<()>>
 where
     Pool: TransactionPool<Transaction = EthPooledTransaction> + TransactionPoolExt + Send + Sync + 'static,
-    Provider: DatabaseProviderFactory + reth_provider::StateProviderFactory + Clone + Send + Sync + 'static,
-    EvmConfig: ConfigureEvm<Header = reth_ethereum_primitives::Header> + Clone + Send + Sync + 'static,
+    N: ProviderNodeTypes<Primitives = reth_ethereum_primitives::EthPrimitives> + 'static,
+    EvmConfig: ConfigureEvm<Primitives = reth_ethereum_primitives::EthPrimitives> + Clone + Send + Sync + 'static,
 {
     info!(target: "reth::narwhal_bullshark", "Setting up real mempool integration");
     
@@ -325,11 +325,11 @@ where
     bridge.set_mempool_operations(mempool_ops)
         .map_err(|e| eyre::eyre!("Failed to set mempool operations: {}", e))?;
     
-    // Set up the real block executor
-    use crate::block_executor::ConsensusBlockExecutor;
+    // Set up the block executor
+    use crate::block_executor_batch::BatchConsensusBlockExecutor;
     use reth_chainspec::MAINNET;
     
-    let block_executor = Arc::new(ConsensusBlockExecutor::new(
+    let block_executor = Arc::new(BatchConsensusBlockExecutor::new(
         provider.clone(),
         MAINNET.clone(), // TODO: Get chain spec from node config
         evm_config.clone(),
@@ -392,7 +392,51 @@ where
                             error!(target: "reth::narwhal_bullshark", 
                                    "Failed to execute/persist block #{}: {}",
                                    sealed_block.number, e);
-                            // Continue processing next blocks despite error
+                            
+                            // If the block has invalid transactions, try to create an empty block instead
+                            if e.to_string().contains("InvalidTx") || e.to_string().contains("LackOfFundForMaxFee") || e.to_string().contains("NonceTooHigh") {
+                                warn!(target: "reth::narwhal_bullshark", 
+                                      "Block #{} contains invalid transactions, creating empty block instead",
+                                      sealed_block.number);
+                                
+                                // Create an empty block with the same header but no transactions
+                                let empty_body = reth_primitives::BlockBody {
+                                    transactions: vec![],
+                                    ommers: vec![],
+                                    withdrawals: sealed_block.body().withdrawals.clone(),
+                                };
+                                // Create a new block with empty transactions and recalculate hash
+                                let header = sealed_block.header().clone();
+                                let empty_block_unsealed = Block::new(header, empty_body);
+                                // Seal the block to calculate correct hash
+                                let empty_block = SealedBlock::seal_slow(empty_block_unsealed);
+                                
+                                // Try to execute the empty block
+                                match execute_and_persist_block(
+                                    empty_block.clone(),
+                                    provider.clone(),
+                                    evm_config.clone(),
+                                ).await {
+                                    Ok(()) => {
+                                        info!(target: "reth::narwhal_bullshark", 
+                                              "Successfully executed empty block #{}",
+                                              empty_block.number);
+                                        
+                                        // Update chain state to allow consensus to proceed
+                                        bridge.update_chain_state(empty_block.number, empty_block.hash()).await;
+                                        info!(target: "reth::narwhal_bullshark", 
+                                              "Updated consensus chain state to block {} (hash: {})",
+                                              empty_block.number, empty_block.hash());
+                                    }
+                                    Err(e2) => {
+                                        error!(target: "reth::narwhal_bullshark", 
+                                               "Failed to execute empty block #{}: {}",
+                                               empty_block.number, e2);
+                                        // Continue processing - consensus will eventually retry
+                                    }
+                                }
+                            }
+                            // For other errors, just continue processing next blocks
                         }
                     }
                 }
@@ -427,16 +471,16 @@ where
 }
 
 /// Execute a block through Reth's execution engine and persist it to the database
-async fn execute_and_persist_block<Provider, EvmConfig>(
+async fn execute_and_persist_block<N, EvmConfig>(
     sealed_block: SealedBlock,
-    provider: Provider,
+    provider: BlockchainProvider<N>,
     evm_config: EvmConfig,
 ) -> eyre::Result<()>
 where
-    Provider: DatabaseProviderFactory + reth_provider::StateProviderFactory + Clone + Send + Sync,
-    EvmConfig: ConfigureEvm<Header = reth_ethereum_primitives::Header> + Clone + Send + Sync,
+    N: ProviderNodeTypes<Primitives = reth_ethereum_primitives::EthPrimitives>,
+    EvmConfig: ConfigureEvm<Primitives = reth_ethereum_primitives::EthPrimitives> + Clone + Send + Sync,
 {
-    use crate::block_executor::RethBlockExecutor;
+    use crate::block_executor_batch::BatchBlockExecutor;
     use reth_chainspec::MAINNET;
     
     info!(target: "reth::narwhal_bullshark", 
@@ -448,13 +492,13 @@ where
 
     // Create the block executor
     // TODO: Get chain spec from node config instead of hardcoding MAINNET
-    let executor = RethBlockExecutor::new(
+    let executor = BatchBlockExecutor::new(
         provider,
         MAINNET.clone(),
         evm_config,
     );
     
-    // Execute and persist the block with full state execution
+    // Execute and persist the block
     executor.execute_and_persist_block(sealed_block).await
         .map_err(|e| eyre::eyre!("Block execution failed: {}", e))?;
     
