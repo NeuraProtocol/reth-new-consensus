@@ -313,8 +313,8 @@ pub fn setup_mempool_integration<Pool, Provider, EvmConfig>(
 ) -> eyre::Result<tokio::task::JoinHandle<()>>
 where
     Pool: TransactionPool<Transaction = EthPooledTransaction> + TransactionPoolExt + Send + Sync + 'static,
-    Provider: DatabaseProviderFactory + Clone + Send + Sync + 'static,
-    EvmConfig: ConfigureEvm + Clone + Send + Sync + 'static,
+    Provider: DatabaseProviderFactory + reth_provider::StateProviderFactory + Clone + Send + Sync + 'static,
+    EvmConfig: ConfigureEvm<Header = reth_ethereum_primitives::Header> + Clone + Send + Sync + 'static,
 {
     info!(target: "reth::narwhal_bullshark", "Setting up real mempool integration");
     
@@ -324,6 +324,19 @@ where
     // Set up mempool bridge with real pool operations
     bridge.set_mempool_operations(mempool_ops)
         .map_err(|e| eyre::eyre!("Failed to set mempool operations: {}", e))?;
+    
+    // Set up the real block executor
+    use crate::block_executor::ConsensusBlockExecutor;
+    use reth_chainspec::MAINNET;
+    
+    let block_executor = Arc::new(ConsensusBlockExecutor::new(
+        provider.clone(),
+        MAINNET.clone(), // TODO: Get chain spec from node config
+        evm_config.clone(),
+    ));
+    
+    bridge.set_block_executor(block_executor);
+    info!(target: "reth::narwhal_bullshark", "Real block executor configured");
     
     // Start the consensus bridge and keep it running
     let handle = task_executor.spawn(async move {
@@ -417,14 +430,14 @@ where
 async fn execute_and_persist_block<Provider, EvmConfig>(
     sealed_block: SealedBlock,
     provider: Provider,
-    _evm_config: EvmConfig,
+    evm_config: EvmConfig,
 ) -> eyre::Result<()>
 where
-    Provider: DatabaseProviderFactory + Send + Sync,
-    EvmConfig: ConfigureEvm + Send + Sync,
+    Provider: DatabaseProviderFactory + reth_provider::StateProviderFactory + Clone + Send + Sync,
+    EvmConfig: ConfigureEvm<Header = reth_ethereum_primitives::Header> + Clone + Send + Sync,
 {
-    use reth_db_api::transaction::DbTxMut;
-    use reth_db::tables;
+    use crate::block_executor::RethBlockExecutor;
+    use reth_chainspec::MAINNET;
     
     info!(target: "reth::narwhal_bullshark", 
           "Executing block #{} (hash: {}, parent: {}, {} txs)",
@@ -433,63 +446,17 @@ where
           sealed_block.parent_hash,
           sealed_block.body().transactions.len());
 
-    // Create a provider factory from the database provider
-    let provider_rw = provider.database_provider_rw()?;
+    // Create the block executor
+    // TODO: Get chain spec from node config instead of hardcoding MAINNET
+    let executor = RethBlockExecutor::new(
+        provider,
+        MAINNET.clone(),
+        evm_config,
+    );
     
-    // Insert the header
-    provider_rw.tx_ref().put::<tables::Headers>(
-        sealed_block.number,
-        sealed_block.header().clone()
-    )?;
-    
-    // Insert the block hash to number mapping
-    provider_rw.tx_ref().put::<tables::HeaderNumbers>(
-        sealed_block.hash(),
-        sealed_block.number
-    )?;
-    
-    // Mark it as canonical
-    provider_rw.tx_ref().put::<tables::CanonicalHeaders>(
-        sealed_block.number,
-        sealed_block.hash()
-    )?;
-    
-    // Insert block body (transactions)
-    if !sealed_block.body().transactions.is_empty() {
-        // Get the next transaction ID
-        let first_tx_num = provider_rw.tx_ref().entries::<tables::Transactions>()? as u64;
-        
-        // Insert body indices
-        let body_indices = StoredBlockBodyIndices {
-            first_tx_num,
-            tx_count: sealed_block.body().transactions.len() as u64,
-        };
-        provider_rw.tx_ref().put::<tables::BlockBodyIndices>(
-            sealed_block.number,
-            body_indices
-        )?;
-        
-        // Insert each transaction
-        for (i, tx) in sealed_block.body().transactions.iter().enumerate() {
-            let tx_id = first_tx_num + i as u64;
-            provider_rw.tx_ref().put::<tables::Transactions>(
-                tx_id,
-                tx.clone().into()
-            )?;
-            
-            // Insert transaction hash mapping
-            provider_rw.tx_ref().put::<tables::TransactionHashNumbers>(
-                *tx.hash(),
-                tx_id
-            )?;
-        }
-    }
-    
-    // Commit all changes
-    provider_rw.commit()?;
-    
-    info!(target: "reth::narwhal_bullshark", 
-          "✅ Block #{} successfully persisted to database", sealed_block.number);
+    // Execute and persist the block with full state execution
+    executor.execute_and_persist_block(sealed_block).await
+        .map_err(|e| eyre::eyre!("Block execution failed: {}", e))?;
     
     Ok(())
 }
