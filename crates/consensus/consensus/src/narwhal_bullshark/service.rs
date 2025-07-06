@@ -376,6 +376,9 @@ impl NarwhalBullsharkService {
             info!("🏭 Batch processor active: Bullshark → Reth");
 
             while let Some(internal_batch) = batch_receiver.recv().await {
+                info!("🎯 Batch processor received finalized batch: block #{} with {} transactions from round {}", 
+                      internal_batch.block_number, internal_batch.transactions.len(), internal_batch.round);
+                
                 // Convert Bullshark batch to Reth format
                 // Decode Narwhal transactions back to Reth transactions
                 let mut reth_transactions = Vec::new();
@@ -442,9 +445,12 @@ impl NarwhalBullsharkService {
                      internal_batch.transactions.len(),
                      decode_errors);
 
-                if finalized_sender.send(finalized_batch).is_err() {
+                if finalized_sender.send(finalized_batch.clone()).is_err() {
                     warn!("Failed to send finalized batch to Reth - channel closed");
                     break;
+                } else {
+                    info!("✅ Successfully sent finalized batch #{} to Reth integration", 
+                          finalized_batch.block_number);
                 }
             }
 

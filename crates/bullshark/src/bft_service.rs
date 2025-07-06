@@ -151,9 +151,9 @@ impl BftService {
         
         // Initialize block number from chain state
         let initial_state = self.chain_state.get_chain_state();
-        self.current_block_number = initial_state.block_number + 1;
-        info!("BFT service initialized with chain state: next block {} parent {}", 
-              self.current_block_number, initial_state.parent_hash);
+        self.current_block_number = initial_state.block_number;
+        info!("BFT service initialized with chain state: current block {} (will create block {}) parent {}", 
+              self.current_block_number, self.current_block_number + 1, initial_state.parent_hash);
         
         info!("BFT service waiting for certificates...");
 
@@ -222,12 +222,14 @@ impl BftService {
             certificate,
         )?;
 
-        info!("Consensus produced {} outputs for certificate round {}", consensus_outputs.len(), cert_round);
+        let outputs_count = consensus_outputs.len();
+        info!("Consensus produced {} outputs for certificate round {}", outputs_count, cert_round);
 
         let mut finalized_count = 0;
 
         // Process any finalized outputs
-        for output in consensus_outputs {
+        for (idx, output) in consensus_outputs.into_iter().enumerate() {
+            info!("Processing consensus output {} of {} for round {}", idx + 1, outputs_count, output.certificate.round());
             self.consensus_index = output.consensus_index + 1;
             
             // Extract all transactions from the finalized certificate
@@ -248,6 +250,9 @@ impl BftService {
             // Check if we should create a new block based on chain state
             let current_state = self.chain_state.get_chain_state();
             let next_block_number = current_state.block_number + 1;
+            
+            info!("BFT: Checking block creation - current_block_number: {}, chain_state.block_number: {}, next: {}", 
+                  self.current_block_number, current_state.block_number, next_block_number);
             
             // Only create a finalized batch if we haven't already created this block number
             if self.current_block_number == 0 || self.current_block_number < next_block_number {
@@ -280,7 +285,7 @@ impl BftService {
                 finalized_count += 1;
             } else {
                 // We're ahead of the chain state - skip this certificate
-                debug!("Skipping certificate - already created block {} (chain at block {})", 
+                info!("BFT: Skipping certificate - already created block {} (chain at block {})", 
                       self.current_block_number, current_state.block_number);
             }
         }

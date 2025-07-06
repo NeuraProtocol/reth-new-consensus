@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**Last Updated**: 2025-07-05 - Fixed multi-validator consensus participation. Transactions must be sent to ALL validators (not just one) for Bullshark BFT to work properly. With all validators creating certificates, consensus now advances through thousands of rounds and produces finalized batches.
+**Last Updated**: 2025-07-06 - BFT consensus is working! The system processes 72,230+ consensus outputs and creates finalized batches with transactions. However, blocks remain at 0 because the BlockExecutor trait needs to be implemented to actually execute transactions and persist blocks to Reth's database.
 
 ## Project Overview
 
@@ -42,6 +42,25 @@ pkill -f "reth.*node.*narwhal"    # Stop all nodes
 ```
 
 ## Recent Updates
+
+### 2025-07-06
+
+22. ✅ **BFT Consensus Processing** - WORKING
+    - ✅ BFT service processes 72,230+ consensus outputs from accumulated rounds
+    - ✅ Consensus outputs are properly ordered and processed
+    - ✅ Finalized batches created with transactions (323 transactions in batch #1)
+    - ✅ Batch processor receives finalized batches successfully
+    - ✅ Fixed BFT initialization to start at current block (was incorrectly incrementing)
+    - ❌ Blocks still at 0 - BlockExecutor trait not implemented
+    - Issue: BFT service updates `current_block_number` before confirmation, causing subsequent certificates to be skipped
+    - Location: `crates/bullshark/src/bft_service.rs:276`
+
+23. ❌ **Block Persistence** - NOT IMPLEMENTED
+    - ❌ Finalized batches are created but not executed
+    - ❌ BlockExecutor trait stub returns error "not implemented"
+    - ❌ No actual block creation or state updates in Reth database
+    - ❌ Chain state remains at block 0 despite finalized batches
+    - Next step: Implement BlockExecutor trait to execute transactions and persist blocks
 
 ### 2025-07-05
 
@@ -103,6 +122,7 @@ pkill -f "reth.*node.*narwhal"    # Stop all nodes
 - **DAG Service Spawning**: Must configure DAG service with batch digest receiver BEFORE spawning it
 - Ensure to review existing implementation thoroughly before making changes
 - Cross-reference with reference implementations before claiming completeness
+- **Reference Implementation**: Always consult `/home/peastew/src/reth-new-consensus/narwhal-reference-implementation` for guidance on implementation details and design choices
 
 ## Current Branch Status
 
@@ -192,3 +212,4 @@ Working on branch `v1.4.8-neura` with functional Narwhal+Bullshark consensus. Al
     - ❌ Blocks are NOT being produced at regular intervals
 
 ## Key Files to Understand
+```
