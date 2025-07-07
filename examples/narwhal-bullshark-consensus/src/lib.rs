@@ -11,12 +11,15 @@ pub mod types;
 pub mod validator_keys;
 pub mod chain_state;
 pub mod block_builder;
+pub mod block_executor;
 pub mod engine_integration;
+pub mod database_integration;
 pub mod simple_integration;
 pub mod simple_block_builder;
 pub mod test_integration;
 pub mod node_integration;
 pub mod mock_block_builder;
+pub mod test_block_submission;
 
 // Re-export key types
 pub use consensus_engine::NarwhalBullsharkEngine;

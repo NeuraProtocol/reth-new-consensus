@@ -53,6 +53,9 @@ reth-ethereum-engine-primitives.workspace = true
 reth-revm.workspace = true
 reth-execution-errors.workspace = true
 reth-rpc-layer.workspace = true
+reth-trie.workspace = true
+reth-trie-common.workspace = true
+reth-trie-db.workspace = true
 
 # Consensus algorithm dependencies
 narwhal = { path = "../../crates/narwhal" }

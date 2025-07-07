@@ -7,17 +7,14 @@ use crate::types::FinalizedBatch;
 use alloy_primitives::{B256, U256, Bytes, Bloom, BloomInput};
 use alloy_consensus::{Header, Typed2718};
 use reth_primitives::{
-    Block, SealedBlock, TransactionSigned, Receipt, TxType
+    Block, SealedBlock, Receipt, TxType
 };
 use reth_ethereum_primitives::BlockBody;
-use reth_provider::{BlockReaderIdExt, StateProviderFactory};
+use reth_provider::{BlockReaderIdExt, StateProviderFactory, DatabaseProviderFactory};
 use reth_evm::ConfigureEvm;
 use alloy_consensus::proofs::{calculate_receipt_root, calculate_transaction_root};
 use reth_chainspec::ChainSpec;
-use reth_execution_types::Chain;
-use reth_primitives_traits::{Block as BlockTrait, SignerRecoverable};
 use alloy_eips::eip4895::Withdrawals;
-use reth_revm::database::StateProviderDatabase;
 use std::sync::Arc;
 use tracing::{info, debug};
 use anyhow::Result;
@@ -34,7 +31,7 @@ pub struct NarwhalBlockBuilder<Provider, EvmConfig> {
 
 impl<Provider, EvmConfig> NarwhalBlockBuilder<Provider, EvmConfig>
 where
-    Provider: StateProviderFactory + BlockReaderIdExt + Clone + 'static,
+    Provider: StateProviderFactory + BlockReaderIdExt + DatabaseProviderFactory + Clone + 'static,
     EvmConfig: ConfigureEvm + Clone + 'static,
 {
     /// Create a new block builder
@@ -51,6 +48,9 @@ where
     }
 
     /// Build a block from a finalized batch
+    /// 
+    /// This simplified version creates a block without executing transactions,
+    /// using a temporary state root that will need to be corrected by the executor.
     pub fn build_block(&self, batch: FinalizedBatch) -> Result<SealedBlock> {
         debug!(
             "Building block #{} with {} transactions",
@@ -60,126 +60,72 @@ where
 
         // Get the parent block
         let parent_number = batch.block_number.saturating_sub(1);
-        let parent_hash = self.provider
-            .block_hash(parent_number)?
-            .ok_or_else(|| anyhow::anyhow!("Parent block {} not found", parent_number))?;
+        let parent_hash = if parent_number == 0 {
+            // Genesis parent
+            B256::ZERO
+        } else {
+            self.provider
+                .block_hash(parent_number)?
+                .ok_or_else(|| anyhow::anyhow!("Parent block {} not found", parent_number))?
+        };
 
-        let parent_block = self.provider
-            .block_by_hash(parent_hash)?
-            .ok_or_else(|| anyhow::anyhow!("Parent block not found"))?;
-        let parent_header = parent_block.header();
+        // Create simple receipts (execution will update these)
+        let mut cumulative_gas_used = 0u64;
+        let mut logs_bloom = Bloom::default();
+        let receipts = batch.transactions.iter().map(|tx| {
+            // Simple gas estimation
+            let gas_used = 21000u64; // Base transaction cost
+            cumulative_gas_used = cumulative_gas_used.saturating_add(gas_used);
+            
+            Receipt {
+                tx_type: TxType::try_from(tx.ty()).unwrap_or(TxType::Legacy),
+                success: true, // Assume success for now
+                cumulative_gas_used,
+                logs: vec![], // No logs for now
+            }
+        }).collect::<Vec<_>>();
 
-        // Create the new block header
-        let mut header = Header {
+        // Create the block header
+        let header = Header {
             parent_hash,
             ommers_hash: alloy_consensus::constants::EMPTY_OMMER_ROOT_HASH,
             beneficiary: batch.proposer,
-            state_root: B256::ZERO, // Will be set after execution
-            transactions_root: B256::ZERO, // Will be set after execution
-            receipts_root: B256::ZERO, // Will be set after execution
-            logs_bloom: Default::default(),
+            state_root: B256::random(), // Temporary - executor will update
+            transactions_root: calculate_transaction_root(&batch.transactions),
+            receipts_root: calculate_receipt_root(&receipts),
+            logs_bloom,
             difficulty: U256::ZERO,
             number: batch.block_number,
             gas_limit: 30_000_000,
-            gas_used: 0,
+            gas_used: cumulative_gas_used,
             timestamp: batch.timestamp,
             extra_data: Bytes::default(),
             mix_hash: B256::ZERO,
             nonce: alloy_primitives::FixedBytes::default(),
-            base_fee_per_gas: Some(1_000_000_000), // 1 gwei for now
+            base_fee_per_gas: Some(1_000_000_000), // 1 gwei
             withdrawals_root: Some(alloy_consensus::constants::EMPTY_WITHDRAWALS),
             blob_gas_used: Some(0),
-            excess_blob_gas: Some(0), // TODO: calculate from parent
+            excess_blob_gas: Some(0),
             parent_beacon_block_root: Some(B256::ZERO),
             requests_hash: None,
         };
 
-        // Create state provider at parent
-        let state_provider = self.provider.state_by_block_hash(parent_hash)?;
-        let db = StateProviderDatabase::new(state_provider);
-        let mut db = reth_revm::db::State::builder()
-            .with_database(db)
-            .with_bundle_update()
-            .build();
-
-        // Configure EVM
-        let mut evm = self.evm_config.evm_with_env(&mut db, Default::default());
-        // TODO: Configure block environment
-        // self.evm_config.fill_block_env requires specific trait bounds
-
-        // Execute transactions
-        let mut receipts = Vec::new();
-        let mut cumulative_gas_used = 0u64;
-
-        for tx in &batch.transactions {
-            // Get sender
-            let sender = match tx.recover_signer() {
-                Ok(signer) => signer,
-                Err(e) => anyhow::bail!("Failed to recover transaction sender: {}", e),
-            };
-
-            // Configure transaction environment
-            // TODO: Configure transaction environment
-            // self.evm_config.fill_tx_env requires specific trait bounds
-
-            // Execute transaction
-            // TODO: Fix EVM transact - requires proper trait bounds
-            // let result = evm.transact()
-            //     .map_err(|e| anyhow::anyhow!("Transaction execution failed: {:?}", e))?;
-            
-            // For now, skip actual execution
-            // Update gas used
-            cumulative_gas_used = cumulative_gas_used.saturating_add(21000); // Basic tx gas
-
-            // Create mock receipt
-            let receipt = Receipt {
-                tx_type: TxType::try_from(tx.ty()).unwrap_or(TxType::Legacy),
-                success: true,
-                cumulative_gas_used,
-                logs: vec![],
-            };
-
-            receipts.push(receipt);
-        }
-
-        // Skip taking bundle since we're not executing
-
-        // Update header with execution results
-        header.gas_used = cumulative_gas_used;
-        // Calculate logs bloom
-        let mut logs_bloom = Bloom::default();
-        for receipt in &receipts {
-            for log in &receipt.logs {
-                logs_bloom.accrue(BloomInput::Raw(log.address.as_slice()));
-                for topic in log.topics() {
-                    logs_bloom.accrue(BloomInput::Raw(topic.as_slice()));
-                }
-            }
-        }
-        header.logs_bloom = logs_bloom;
-        
-        // Calculate roots
-        // TODO: Calculate proper state root
-        // header.state_root = db.database.state_root(&bundle)?;
-        header.state_root = B256::random(); // Placeholder
-        header.transactions_root = calculate_transaction_root(&batch.transactions);
-        header.receipts_root = calculate_receipt_root(&receipts);
-
-        // Create the block
+        // Create the block body
         let body = BlockBody {
             transactions: batch.transactions,
             ommers: vec![],
             withdrawals: Some(Withdrawals::default()),
         };
 
+        // Create and seal the block
         let block = Block { header, body };
+        // Use the trait method to seal the block
         let sealed_block = block.seal_slow();
 
         info!(
-            "Built block #{} with {} transactions, gas used: {}, hash: {}",
+            "Built block #{} with {} transactions, hash: {}",
             sealed_block.number,
             sealed_block.body().transactions.len(),
-            sealed_block.gas_used,
             sealed_block.hash()
         );
 

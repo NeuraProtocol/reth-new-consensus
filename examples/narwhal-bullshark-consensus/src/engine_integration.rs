@@ -5,6 +5,7 @@
 use crate::{
     types::FinalizedBatch,
     block_builder::NarwhalBlockBuilder,
+    block_executor::NarwhalBlockExecutor,
 };
 use alloy_primitives::B256;
 use alloy_rpc_types::engine::{ForkchoiceState, PayloadStatusEnum};
@@ -12,7 +13,7 @@ use reth_node_api::EngineApiMessageVersion;
 use reth_primitives::SealedBlock;
 use reth_ethereum_engine_primitives::{EthEngineTypes, EthPayloadTypes};
 use reth_payload_primitives::PayloadTypes;
-use reth_provider::{BlockReaderIdExt, StateProviderFactory};
+use reth_provider::{BlockReaderIdExt, StateProviderFactory, DatabaseProviderFactory};
 use reth_evm::ConfigureEvm;
 use reth_chainspec::ChainSpec;
 use std::sync::Arc;
@@ -32,7 +33,7 @@ pub struct EngineIntegration<Provider, EvmConfig> {
 
 impl<Provider, EvmConfig> EngineIntegration<Provider, EvmConfig>
 where
-    Provider: StateProviderFactory + BlockReaderIdExt + Clone + Send + Sync + 'static,
+    Provider: StateProviderFactory + DatabaseProviderFactory + BlockReaderIdExt + Clone + Send + Sync + 'static,
     EvmConfig: ConfigureEvm + Clone + Send + Sync + 'static,
 {
     /// Create a new engine integration

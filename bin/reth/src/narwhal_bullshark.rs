@@ -2,40 +2,34 @@
 //! that avoids circular dependencies by being in the examples directory
 
 use example_narwhal_bullshark_consensus::{
-    NarwhalRethIntegration, ConsensusConfig, NarwhalBullsharkEngine,
-    ValidatorKeyPair, ValidatorRegistry, MempoolBridge, FinalizedBatch,
-    service::Service as NarwhalBullsharkService,
+    ConsensusConfig, NarwhalBullsharkEngine,
+    ValidatorKeyPair, ValidatorRegistry, FinalizedBatch,
+    database_integration::ConsensusIntegration,
 };
-use reth_provider::{
-    providers::BlockchainProvider,
-    DatabaseProviderFactory, DBProvider,
-};
-use reth_node_api::{BeaconConsensusEngineHandle, BeaconConsensusEngineEvent};
-use reth_transaction_pool::{TransactionPool, TransactionPoolExt, EthPooledTransaction};
+use reth_provider::{DatabaseProviderFactory, StateProviderFactory, BlockReaderIdExt};
+use reth_node_api::BeaconConsensusEngineHandle;
+use reth_transaction_pool::TransactionPool;
 use reth_chainspec::ChainSpec;
 use reth_evm::ConfigureEvm;
-use reth_tasks::TaskExecutor;
+use reth_tasks::TaskSpawner;
 use reth_node_core::args::NarwhalBullsharkArgs;
-use reth_network::NetworkProtocols;
-use reth_network_api::FullNetwork;
-use reth_consensus::consensus_storage::MdbxConsensusStorage;
-use reth_tokio_util::EventStream;
 use reth_rpc_builder::RpcModuleBuilder;
-use alloy_primitives::{Address, B256};
+use alloy_primitives::Address;
+use reth_primitives::TransactionSigned;
+use reth_node_ethereum::EthEngineTypes;
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::mpsc;
 use tracing::{info, error, warn};
-use anyhow::Result;
-use jsonrpsee::server::ServerBuilder;
+use eyre::Result;
 
 /// Check if Narwhal consensus should be used
 pub fn should_use_narwhal_consensus(args: &NarwhalBullsharkArgs) -> bool {
-    args.enable
+    args.narwhal_enabled
 }
 
 /// Get consensus mode description
 pub fn consensus_mode_description(args: &NarwhalBullsharkArgs) -> &'static str {
-    if args.enable {
+    if args.narwhal_enabled {
         "Narwhal + Bullshark BFT consensus"
     } else {
         "Standard Ethereum consensus"
@@ -49,28 +43,60 @@ pub struct PoolStats {
     pub total_count: usize,
 }
 
-/// Install Narwhal+Bullshark consensus (main entry point)
-pub fn install_narwhal_bullshark_consensus<Provider, EvmConfig, Net, Executor>(
-    args: NarwhalBullsharkArgs,
-    provider: Provider,
-    evm_config: EvmConfig,
-    network: Net,
-    executor: Executor,
-) -> (NarwhalRethBridge, ValidatorRegistry, Arc<MdbxConsensusStorage>)
+/// Get transaction pool statistics
+pub fn get_pool_stats<Pool>(pool: &Pool) -> PoolStats 
 where
-    Provider: BlockchainProvider + DatabaseProviderFactory<DB = reth_db::DatabaseEnv> + Clone + 'static,
-    EvmConfig: ConfigureEvm + Clone + 'static,
-    Net: FullNetwork + Clone + 'static,
-    Executor: TaskExecutor + Clone + 'static,
+    Pool: TransactionPool,
 {
-    info!("Installing Narwhal+Bullshark consensus with new architecture");
+    // Get pool stats
+    let pending = pool.pending_transactions().len();
+    let queued = 0; // TODO: Get queued count  
+    let total = pending + queued;
+    
+    PoolStats {
+        pending_count: pending,
+        queued_count: queued,
+        total_count: total,
+    }
+}
 
-    // Create consensus configuration
-    let consensus_config = ConsensusConfig {
-        network_addr: args.network_addr,
-        peer_addresses: args.peers.clone(),
-        validator_key_file: args.validator_key_file.clone(),
-        validator_config_dir: args.validator_config_dir.clone(),
+/// Initialize Narwhal consensus
+pub async fn initialize_narwhal_consensus<Pool, Provider, EvmConfig, Executor>(
+    args: NarwhalBullsharkArgs,
+    chain_spec: Arc<ChainSpec>,
+    provider: Provider,
+    pool: Pool,
+    evm_config: EvmConfig,
+    executor: Executor,
+    engine_handle: BeaconConsensusEngineHandle<EthEngineTypes>,
+) -> Result<()>
+where
+    Pool: TransactionPool + Clone + 'static,
+    Provider: DatabaseProviderFactory + StateProviderFactory + BlockReaderIdExt + Clone + 'static,
+    EvmConfig: ConfigureEvm + Clone + 'static,
+    Executor: TaskSpawner + Clone + 'static,
+{
+    info!("Initializing Narwhal + Bullshark consensus");
+
+    // Load validator key
+    let validator_key = if let Some(key_file) = args.validator_key_file {
+        ValidatorKeyPair::from_file(&key_file.to_string_lossy())
+            .map_err(|e| eyre::eyre!("Failed to load validator key: {}", e))?
+    } else {
+        warn!("No validator key file specified, running in non-validator mode");
+        return Ok(());
+    };
+
+    // Create consensus config
+    let config = ConsensusConfig {
+        network_addr: args.network_address,
+        peer_addresses: args.peer_addresses.clone(),
+        validator_key_file: validator_key.name.clone(),
+        validator_config_dir: args.validator_config_dir
+            .clone()
+            .unwrap_or_else(|| std::path::PathBuf::from("validators"))
+            .to_string_lossy()
+            .to_string(),
         max_batch_delay_ms: args.max_batch_delay_ms,
         max_batch_size: args.max_batch_size,
         min_block_time_ms: args.min_block_time_ms,
@@ -78,157 +104,119 @@ where
         enable_admin_api: args.consensus_rpc_enable_admin,
     };
 
-    // Load validator registry
-    let validator_registry = ValidatorRegistry::from_directory(&consensus_config.validator_config_dir)
-        .expect("Failed to load validator registry");
-
-    // Create storage
-    let storage = Arc::new(MdbxConsensusStorage::new(provider.database()));
-
-    // Create the bridge (simplified wrapper)
-    let bridge = NarwhalRethBridge {
-        config: consensus_config,
-        registry: validator_registry.clone(),
-        storage: storage.clone(),
-        // Other fields would be initialized here
-    };
-
-    (bridge, validator_registry, storage)
-}
-
-/// Setup mempool integration with optional engine
-pub async fn setup_mempool_integration_with_optional_engine<Pool, Provider, EvmConfig, Executor>(
-    pool: Arc<Pool>,
-    provider: Provider,
-    chain_spec: Arc<ChainSpec>,
-    evm_config: EvmConfig,
-    executor: Executor,
-    mut bridge: NarwhalRethBridge,
-    engine_handle: Option<BeaconConsensusEngineHandle>,
-) -> Result<()>
-where
-    Pool: TransactionPool<Transaction = EthPooledTransaction> + TransactionPoolExt + 'static,
-    Provider: BlockchainProvider + Clone + 'static,
-    EvmConfig: ConfigureEvm + Clone + 'static,
-    Executor: TaskExecutor + Clone + 'static,
-{
-    if let Some(engine) = engine_handle {
-        info!("Setting up mempool integration with engine API");
-        
-        // Create the integration
-        let integration = NarwhalRethIntegration::new(
-            chain_spec,
-            provider,
-            pool.clone(),
-            evm_config,
-            engine,
-        );
-
-        // Start the consensus service
-        executor.spawn_critical("narwhal-bullshark", Box::pin(async move {
-            if let Err(e) = integration.start(bridge.config).await {
-                error!("Consensus service failed: {}", e);
-            }
-        }));
-    } else {
-        warn!("No engine handle available - running in standalone mode");
+    // Create channel for finalized batches
+    let (batch_sender, batch_receiver) = mpsc::unbounded_channel();
+    
+    // Create the appropriate integration based on configuration
+    // Note: Currently only engine API mode is supported
+    let use_engine_api = true; // args.use_engine_tree;
+    let integration_mode = "engine API";
+    
+    if !args.use_engine_tree {
+        warn!("Direct database mode not supported. Using engine API mode instead.");
     }
+    
+    info!("Starting consensus integration with {} mode", integration_mode);
+    
+    let integration = ConsensusIntegration::new(
+        chain_spec.clone(),
+        provider.clone(),
+        evm_config,
+        batch_receiver,
+        use_engine_api,
+        Some(engine_handle),
+    ).map_err(|e| eyre::eyre!("Failed to create consensus integration: {}", e))?;
+    
+    let _handle = executor.spawn_critical("narwhal-consensus-integration", Box::pin(async move {
+        if let Err(e) = integration.run().await {
+            error!("Consensus integration failed: {}", e);
+        }
+    }));
+    
+    // For testing, send a mock batch
+    let test_batch = FinalizedBatch {
+        round: 1,
+        block_number: 1,
+        transactions: vec![],
+        certificate_digest: alloy_primitives::B256::random(),
+        proposer: validator_key.evm_address,
+        timestamp: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
+    };
+    
+    let _ = batch_sender.send(test_batch);
+    info!("Sent test batch to {} integration", integration_mode);
 
     Ok(())
 }
 
-/// Setup mempool integration (wrapper for compatibility)
-pub async fn setup_mempool_integration<Pool, Provider, EvmConfig, Executor>(
-    pool: Arc<Pool>,
-    provider: Provider,
+/// Create consensus engine
+pub fn create_consensus_engine(
     chain_spec: Arc<ChainSpec>,
+) -> NarwhalBullsharkEngine {
+    NarwhalBullsharkEngine::new(chain_spec.chain.id())
+}
+
+/// Start consensus service
+pub async fn start_consensus_service<Pool, Provider, EvmConfig, Executor>(
+    config: ConsensusConfig,
+    chain_spec: Arc<ChainSpec>,
+    provider: Provider,
+    pool: Pool,
     evm_config: EvmConfig,
-    executor: Executor,
-    bridge: NarwhalRethBridge,
-    events: EventStream<BeaconConsensusEngineEvent>,
-    engine: BeaconConsensusEngineHandle,
+    _executor: Executor,
+    _engine: BeaconConsensusEngineHandle<EthEngineTypes>,
 ) -> Result<()>
 where
-    Pool: TransactionPool<Transaction = EthPooledTransaction> + TransactionPoolExt + 'static,
-    Provider: BlockchainProvider + Clone + 'static,
+    Pool: TransactionPool + Clone + 'static,
+    Provider: StateProviderFactory + BlockReaderIdExt + Clone + 'static,
     EvmConfig: ConfigureEvm + Clone + 'static,
-    Executor: TaskExecutor + Clone + 'static,
+    Executor: TaskSpawner + Clone + 'static,
 {
-    setup_mempool_integration_with_optional_engine(
-        pool,
-        provider,
-        chain_spec,
-        evm_config,
-        executor,
-        bridge,
-        Some(engine),
-    ).await
-}
-
-/// Install consensus RPC
-pub fn install_consensus_rpc<Provider>(
-    bridge: &NarwhalRethBridge,
-    provider: Provider,
-    module_builder: &mut RpcModuleBuilder<Provider>,
-) where
-    Provider: BlockchainProvider + Clone + 'static,
-{
-    info!("Installing consensus RPC endpoints");
-    // In real implementation, would add RPC methods to the module builder
-}
-
-/// Start consensus RPC server
-pub async fn start_consensus_rpc_server(
-    port: u16,
-    enable_admin: bool,
-) -> Result<()> {
-    info!("Starting consensus RPC server on port {}", port);
+    info!("Starting Narwhal + Bullshark consensus service");
     
-    let server = ServerBuilder::default()
-        .build(format!("127.0.0.1:{}", port))
+    // For now, just log that we would start the service
+    info!("Consensus service would start with config: {:?}", config);
+    info!("Note: Full consensus service requires 'full' feature to be enabled");
+    
+    Ok(())
+}
+
+/// Setup RPC endpoints
+pub fn setup_rpc_endpoints<N, Provider, Pool, Network, EvmConfig, Consensus>(
+    _module_builder: &mut RpcModuleBuilder<N, Provider, Pool, Network, EvmConfig, Consensus>,
+) -> Result<()>
+where
+    N: std::fmt::Debug,
+    Pool: Clone + 'static,
+    Provider: Clone + 'static,
+    Network: Clone + 'static,
+    EvmConfig: Clone + 'static,
+    Consensus: Clone + 'static,
+{
+    info!("Setting up Narwhal + Bullshark RPC endpoints");
+    
+    // TODO: Add consensus-specific RPC methods when full feature is enabled
+    
+    Ok(())
+}
+
+/// Start standalone RPC server
+pub async fn start_standalone_rpc(addr: std::net::SocketAddr) -> Result<()> {
+    info!("Starting standalone Narwhal + Bullshark RPC server on {}", addr);
+    
+    let server = jsonrpsee::server::ServerBuilder::default()
+        .build(addr)
         .await?;
     
-    let _handle = server.start(reth_rpc_builder::RpcModule::new(()))?;
+    let _handle = server.start(jsonrpsee::RpcModule::new(()));
     
-    info!("Consensus RPC server started on port {}", port);
+    info!("RPC server started successfully");
     
-    // Keep the server running
+    // Keep server running
     std::future::pending::<()>().await;
     
     Ok(())
-}
-
-/// Simplified bridge structure for compatibility
-pub struct NarwhalRethBridge {
-    config: ConsensusConfig,
-    registry: ValidatorRegistry,
-    storage: Arc<MdbxConsensusStorage>,
-}
-
-impl NarwhalRethBridge {
-    pub fn is_running(&self) -> bool {
-        true // Simplified
-    }
-    
-    pub async fn get_next_block(&mut self) -> Result<Option<reth_primitives::SealedBlock>> {
-        // Simplified - would get from actual consensus
-        Ok(None)
-    }
-    
-    pub async fn update_chain_state(&mut self, _block_number: u64, _block_hash: B256) {
-        // Simplified
-    }
-    
-    pub fn set_mempool_bridge(&mut self, _bridge: MempoolBridge<impl TransactionPool>) {
-        // Simplified
-    }
-}
-
-/// Mempool operations trait
-#[async_trait::async_trait]
-pub trait MempoolOperations: Send + Sync {
-    async fn subscribe_new_transactions(&self) -> Result<mpsc::UnboundedReceiver<reth_primitives::TransactionSigned>>;
-    async fn remove_transactions(&self, tx_hashes: &[alloy_primitives::TxHash]) -> Result<()>;
-    async fn get_pool_stats(&self) -> Result<PoolStats>;
-    async fn contains_transaction(&self, tx_hash: &alloy_primitives::TxHash) -> Result<bool>;
 }

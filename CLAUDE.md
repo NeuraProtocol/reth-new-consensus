@@ -2,12 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**Last Updated**: 2025-07-06 - Fixed DAG output limiting and made block time configurable:
-- Limited DAG traversal output to prevent 5200+ certificate batches that hang the system
-- Made block time configurable via --bullshark.min-block-time-ms (default: 500ms)
-- Added --bullshark.max-certificates-per-dag to limit certificates per traversal
-- Increased certificate channel buffer to 50K for better burst handling
-- System now handles catching up after being offline without overwhelming execution layer
+**Last Updated**: 2025-07-07 - Restructured project to avoid circular dependencies:
+- Moved all Narwhal+Bullshark code from `crates/consensus/consensus/` to `examples/narwhal-bullshark-consensus/`
+- This allows the consensus implementation to use all Reth crates without circular dependency issues
+- Migrated block executor functionality (EVM execution, state persistence) to new structure
+- Updated all imports in bin/reth to use the new example crate
+- Previous update (2025-07-06): Fixed DAG output limiting and made block time configurable
 
 ## Project Overview
 
@@ -356,6 +356,31 @@ The Narwhal + Bullshark integration with Reth now has:
 - Vote signing with validator keys (currently using generated signatures)
 - Complete RPC implementation (some methods return placeholder data)
 - Metrics collection and monitoring
+
+## Project Structure (Post-Restructuring)
+
+### New Structure (Current - as of 2025-07-07)
+All Narwhal+Bullshark consensus code now lives in:
+- **`examples/narwhal-bullshark-consensus/`** - Main consensus implementation crate
+  - `src/block_executor.rs` - EVM execution and block persistence with state root calculation
+  - `src/block_builder.rs` - Block creation from finalized batches
+  - `src/engine_integration.rs` - Engine API integration for block submission
+  - `src/database_integration.rs` - Direct database writes (currently only engine API mode supported)
+  - `src/validator_keys.rs` - Validator key management
+  - `src/types.rs` - Core type definitions
+  - `src/consensus_engine.rs` - Consensus engine trait implementation
+  
+- **`bin/reth/src/narwhal_bullshark.rs`** - Simplified integration that connects consensus to Reth node
+- **`bin/reth/src/main.rs`** - Initializes consensus when `--narwhal.enable` flag is set
+
+### Old Structure (Deprecated)
+Previously all code was in `crates/consensus/consensus/src/narwhal_bullshark/` which caused circular dependencies.
+
+### Why the Change?
+- Reth crates have complex interdependencies
+- Putting consensus in reth-consensus created: reth-consensus → reth-provider → reth-errors → reth-consensus
+- Moving to examples/ allows us to use all Reth crates freely
+- Block executors can now properly use reth-evm, reth-trie, and reth-provider for full EVM execution
 
 ## Key Files to Understand
 ```

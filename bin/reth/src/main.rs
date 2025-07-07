@@ -8,20 +8,15 @@ use reth::{args::CombinedProtocolArgs, cli::Cli, ress::install_ress_subprotocol}
 use reth_ethereum_cli::chainspec::EthereumChainSpecParser;
 use reth_node_builder::NodeHandle;
 use reth_node_ethereum::EthereumNode;
-use tracing::{info, warn};
-use std::sync::{Arc, RwLock};
+use tracing::info;
+use std::sync::Arc;
 
 mod narwhal_bullshark;
-mod block_executor_simple;
-mod block_executor_batch;
 
 use narwhal_bullshark::{
-    install_narwhal_bullshark_consensus, 
-    setup_mempool_integration,
     should_use_narwhal_consensus,
     consensus_mode_description,
-    install_consensus_rpc,
-    start_consensus_rpc_server,
+    initialize_narwhal_consensus,
 };
 
 fn main() {
@@ -55,66 +50,21 @@ fn main() {
 
             // Install Narwhal + Bullshark consensus if enabled
             if should_use_narwhal_consensus(&combined_args.narwhal_bullshark) {
-                info!(target: "reth::cli", "Enabling Narwhal + Bullshark consensus instead of standard Ethereum consensus");
+                info!(target: "reth::cli", "Enabling Narwhal + Bullshark consensus mode: {}", 
+                      consensus_mode_description(&combined_args.narwhal_bullshark));
                 
-                // Step 1: Install basic consensus without mempool integration
-                let (mut consensus_bridge, validator_registry, storage) = install_narwhal_bullshark_consensus(
+                // Initialize consensus with the simplified integration
+                initialize_narwhal_consensus(
                     combined_args.narwhal_bullshark.clone(),
+                    node.chain_spec().clone(),
                     node.provider.clone(),
+                    node.pool.clone(),
                     node.evm_config.clone(),
-                    node.network.clone(),
                     node.task_executor.clone(),
-                    node.add_ons_handle.engine_events.new_listener(),
-                )?;
+                    node.add_ons_handle.beacon_engine_handle.clone(),
+                ).await?;
 
-                // Step 2: Configure RPC if port is specified
-                let consensus_rpc_port = combined_args.narwhal_bullshark.consensus_rpc_port;
-                if consensus_rpc_port > 0 {
-                    info!(target: "reth::cli", "Configuring consensus RPC on port {}", consensus_rpc_port);
-                    
-                    let rpc_config = reth_consensus::narwhal_bullshark::ConsensusRpcConfig {
-                        port: consensus_rpc_port,
-                        host: "127.0.0.1".to_string(),
-                        enable_admin: combined_args.narwhal_bullshark.consensus_rpc_enable_admin,
-                    };
-                    
-                    // Configure the bridge with RPC before starting
-                    consensus_bridge.with_rpc(rpc_config)
-                        .map_err(|e| eyre::eyre!("Failed to configure consensus RPC: {}", e))?;
-                    info!(target: "reth::cli", "✅ Consensus RPC configured - will start when consensus service starts");
-                } else {
-                    info!(target: "reth::cli", "💡 Tip: Use --consensus-rpc-port <PORT> to enable consensus RPC endpoints");
-                }
-
-                // Step 3: Set up real mempool integration (needs ownership of bridge)
-                let _consensus_handle = if combined_args.narwhal_bullshark.use_engine_tree {
-                    info!(target: "reth::cli", "Using engine API for canonical state updates");
-                    
-                    // Get the beacon engine handle from the node
-                    let engine_handle = node.add_ons_handle.beacon_engine_handle.clone();
-                    
-                    // Use engine API executor
-                    narwhal_bullshark::setup_mempool_integration_with_optional_engine(
-                        consensus_bridge,
-                        Arc::new(node.pool.clone()),
-                        node.provider.clone(),
-                        node.evm_config.clone(),
-                        node.task_executor.clone(),
-                        Some(engine_handle),
-                    )?
-                } else {
-                    info!(target: "reth::cli", "Using direct database writes (legacy mode)");
-                    setup_mempool_integration(
-                        consensus_bridge,
-                        Arc::new(node.pool.clone()),
-                        node.provider.clone(),
-                        node.evm_config.clone(),
-                        node.task_executor.clone(),
-                    )?
-                };
-                // Keep the handle alive to prevent the bridge from being dropped
-
-                info!(target: "reth::cli", "Narwhal + Bullshark consensus with mempool integration is now handling block production");
+                info!(target: "reth::cli", "✅ Narwhal + Bullshark consensus initialized");
             }
 
             node_exit_future.await

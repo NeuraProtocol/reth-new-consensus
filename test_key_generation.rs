@@ -1,4 +1,4 @@
-use reth_consensus::narwhal_bullshark::validator_keys::ValidatorKeyPair;
+use example_narwhal_bullshark_consensus::validator_keys::ValidatorKeyPair;
 use secp256k1::SecretKey;
 use fastcrypto::traits::EncodeDecodeBase64;
 
