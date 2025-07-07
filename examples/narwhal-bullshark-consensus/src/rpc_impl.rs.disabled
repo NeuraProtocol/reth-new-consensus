@@ -525,7 +525,8 @@ pub struct LogEntry {
 
 // ===== RPC IMPLEMENTATION =====
 
-use crate::narwhal_bullshark::{integration::NarwhalRethBridge, validator_keys::ValidatorRegistry};
+// Temporarily commented out - moved to example crate
+// use crate::narwhal_bullshark::{integration::NarwhalRethBridge, validator_keys::ValidatorRegistry};
 use crate::consensus_storage::{MdbxConsensusStorage, ConsensusDbStats};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -888,36 +889,8 @@ impl ConsensusApiServer for ConsensusRpcImpl {
         
         // Get real metrics from the metrics collector if available
         let (tps_recent, tps_total, certs_per_sec, batches_per_sec, peak_tps) = 
-            if let Some(m) = narwhal::metrics() {
-                // Get Prometheus metrics
-                use prometheus::core::Collector;
-                let registry = prometheus::default_registry();
-                let families = registry.gather();
-                
-                // Extract relevant metrics
-                let mut tps_recent = 0.0;
-                let mut tps_total = 0.0;
-                
-                for family in families {
-                    if family.get_name() == "narwhal_throughput_tps" {
-                        for metric in family.get_metric() {
-                            for label_pair in metric.get_label() {
-                                if label_pair.get_name() == "window" {
-                                    match label_pair.get_value() {
-                                        "1min" => tps_recent = metric.get_gauge().get_value(),
-                                        "total" => tps_total = metric.get_gauge().get_value(),
-                                        _ => {},
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                (tps_recent, tps_total, 0.0, 0.0, 0.0)
-            } else {
-                (0.0, 0.0, 0.0, 0.0, 0.0)
-            };
+            // TODO: Integrate with actual metrics when available
+            (0.0, 0.0, 0.0, 0.0, 0.0);
         
         Ok(ConsensusMetrics {
             throughput: ThroughputMetrics {

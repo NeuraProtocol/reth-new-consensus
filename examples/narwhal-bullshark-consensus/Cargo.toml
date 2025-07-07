@@ -1,0 +1,85 @@
+[package]
+name = "example-narwhal-bullshark-consensus"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "narwhal-bullshark-consensus"
+path = "src/main.rs"
+
+[[example]]
+name = "test_engine_submit"
+path = "examples/test_engine_submit.rs"
+
+[dependencies]
+# Reth core dependencies - we can now use ALL of them!
+# Note: We cannot depend on 'reth' binary crate as it would create circular dependency
+reth-db.workspace = true
+reth-provider.workspace = true
+reth-evm.workspace = true
+reth-payload-builder.workspace = true
+reth-transaction-pool.workspace = true
+reth-primitives.workspace = true
+reth-ethereum-primitives.workspace = true
+reth-execution-types.workspace = true
+reth-node-api.workspace = true
+reth-node-core.workspace = true
+reth-node-ethereum.workspace = true
+reth-node-builder.workspace = true
+reth-tasks.workspace = true
+reth-tokio-util.workspace = true
+reth-network.workspace = true
+reth-network-api.workspace = true
+reth-db-api.workspace = true
+reth-db-models.workspace = true
+reth-chainspec.workspace = true
+reth-consensus.workspace = true
+reth-errors.workspace = true
+reth-payload-primitives.workspace = true
+reth-rpc-eth-types.workspace = true
+reth-rpc-types-compat.workspace = true
+reth-engine-primitives.workspace = true
+reth-ethereum-engine-primitives.workspace = true
+reth-revm.workspace = true
+reth-execution-errors.workspace = true
+reth-rpc-layer.workspace = true
+
+# Consensus algorithm dependencies
+narwhal = { path = "../../crates/narwhal" }
+bullshark = { path = "../../crates/bullshark" }
+reth-narwhal-types = { path = "../../crates/consensus/narwhal-types" }
+
+# Alloy dependencies
+alloy-primitives.workspace = true
+alloy-consensus.workspace = true
+alloy-rpc-types.workspace = true
+
+# Async and utilities
+tokio.workspace = true
+futures.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+# Crypto
+fastcrypto.workspace = true
+
+# RPC
+jsonrpsee = { workspace = true, features = ["server", "macros"] }
+
+# Additional dependencies
+rand = "0.8"
+bincode = "1.3"
+hex = "0.4"
+alloy-rlp = { workspace = true }
+revm-primitives = { workspace = true }
+reth-primitives-traits = { workspace = true }
+
+[features]
+default = []
+full = []

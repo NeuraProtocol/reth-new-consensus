@@ -1,0 +1,19 @@
+[package]
+name = "reth-narwhal-types"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "Shared types for Narwhal+Bullshark consensus integration"
+
+[dependencies]
+# Basic dependencies
+alloy-primitives.workspace = true
+serde.workspace = true
+fastcrypto.workspace = true
+
+# Narwhal/Bullshark crates
+narwhal = { path = "../../narwhal" }
+bullshark = { path = "../../bullshark" }

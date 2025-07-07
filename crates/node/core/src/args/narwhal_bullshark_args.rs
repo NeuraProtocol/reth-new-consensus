@@ -40,19 +40,19 @@ pub struct NarwhalBullsharkArgs {
     // ===== VALIDATOR KEY MANAGEMENT =====
     
     /// Validator private key (hex string, 0x-prefixed or raw)
-    #[arg(long = "validator.private-key", env = "VALIDATOR_PRIVATE_KEY")]
+    #[arg(long = "validator.private-key")]
     pub validator_private_key: Option<String>,
     
     /// Path to validator key file (JSON format with evm_private_key field)
-    #[arg(long = "validator.key-file", env = "VALIDATOR_KEY_FILE")]
+    #[arg(long = "validator.key-file")]
     pub validator_key_file: Option<std::path::PathBuf>,
     
     /// Directory containing validator configuration files
-    #[arg(long = "validator.config-dir", env = "VALIDATOR_CONFIG_DIR")]
+    #[arg(long = "validator.config-dir")]
     pub validator_config_dir: Option<std::path::PathBuf>,
     
     /// Committee configuration file with validator public keys
-    #[arg(long = "validator.committee-config", env = "COMMITTEE_CONFIG_FILE")]
+    #[arg(long = "validator.committee-config")]
     pub committee_config_file: Option<std::path::PathBuf>,
     
     /// Use deterministic consensus key derivation from EVM key
@@ -60,7 +60,7 @@ pub struct NarwhalBullsharkArgs {
     pub deterministic_consensus_key: bool,
     
     /// Validator index in committee (0-based, can also use VALIDATOR_INDEX env var)
-    #[arg(long = "validator.index", env = "VALIDATOR_INDEX")]
+    #[arg(long = "validator.index")]
     pub validator_index: Option<usize>,
     
     // ===== HASHICORP VAULT INTEGRATION =====
@@ -70,7 +70,7 @@ pub struct NarwhalBullsharkArgs {
     pub vault_enabled: bool,
     
     /// Vault server address (e.g., https://vault.example.com:8200)
-    #[arg(long = "vault.addr", env = "VAULT_ADDR")]
+    #[arg(long = "vault.addr")]
     pub vault_address: Option<String>,
     
     /// Vault mount path for validator keys (default: secret)
@@ -78,11 +78,11 @@ pub struct NarwhalBullsharkArgs {
     pub vault_mount_path: String,
     
     /// Vault key path for this validator's private key
-    #[arg(long = "vault.key-path", env = "VAULT_KEY_PATH")]
+    #[arg(long = "vault.key-path")]
     pub vault_key_path: Option<String>,
     
     /// Vault authentication token (not recommended, use VAULT_TOKEN env var)
-    #[arg(long = "vault.token", env = "VAULT_TOKEN")]
+    #[arg(long = "vault.token")]
     pub vault_token: Option<String>,
 
     /// Maximum batch size for transaction batching
@@ -223,6 +223,12 @@ pub struct NarwhalBullsharkArgs {
     /// Worker bind address (default: same as primary network address)
     #[arg(long = "narwhal.worker-bind-address")]
     pub worker_bind_address: Option<String>,
+    
+    // ===== ENGINE INTEGRATION =====
+    
+    /// Use engine tree executor for proper canonical state updates
+    #[arg(long = "narwhal.use-engine-tree", action = ArgAction::SetTrue, help = "Use Reth's internal engine tree for block execution instead of direct DB writes. This ensures canonical state is updated correctly.")]
+    pub use_engine_tree: bool,
 }
 
 impl Default for NarwhalBullsharkArgs {
@@ -274,14 +280,15 @@ impl Default for NarwhalBullsharkArgs {
             min_block_time_ms: 500,
             worker_base_port: 19000,
             worker_bind_address: None,
+            use_engine_tree: false,
         }
     }
 }
 
 impl NarwhalBullsharkArgs {
     /// Convert CLI arguments to ValidatorKeyConfig
-    pub fn to_validator_key_config(&self) -> reth_consensus::narwhal_bullshark::validator_keys::ValidatorKeyConfig {
-        use reth_consensus::narwhal_bullshark::validator_keys::{ValidatorKeyConfig, KeyManagementStrategy};
+    pub fn to_validator_key_config(&self) -> reth_narwhal_types::ValidatorKeyConfig {
+        use reth_narwhal_types::{ValidatorKeyConfig, KeyManagementStrategy};
         
         let strategy = if self.vault_enabled {
             KeyManagementStrategy::External
@@ -370,9 +377,11 @@ impl NarwhalBullsharkArgs {
         config
     }
 
+    // TODO: This method needs to be moved to the example crate where it has access to full validator key details
+    /*
     /// Convert to Bullshark configuration
     /// ✅ FIX: Now uses real validator key instead of dummy random key
-    pub fn to_bullshark_config(&self, validator_keypair: &reth_consensus::narwhal_bullshark::validator_keys::ValidatorKeyPair) -> bullshark::BftConfig {
+    pub fn to_bullshark_config(&self, validator_keypair: &reth_narwhal_types::ValidatorKeyPair) -> bullshark::BftConfig {
         bullshark::BftConfig {
             node_key: validator_keypair.consensus_keypair.public().clone(),
             gc_depth: self.gc_depth,
@@ -384,10 +393,13 @@ impl NarwhalBullsharkArgs {
             max_certificates_per_dag: self.max_certificates_per_dag,
         }
     }
+    */
 
+    // TODO: This also needs to be moved to the example crate
+    /*
     /// Convert to Reth integration configuration
-    pub fn to_integration_config(&self) -> reth_consensus::narwhal_bullshark::integration::RethIntegrationConfig {
-        reth_consensus::narwhal_bullshark::integration::RethIntegrationConfig {
+    pub fn to_integration_config(&self) -> reth_narwhal_types::RethIntegrationConfig {
+        reth_narwhal_types::RethIntegrationConfig {
             network_address: self.network_address,
             enable_networking: true, // Enable networking for production use
             max_pending_transactions: 10000,
@@ -396,6 +408,7 @@ impl NarwhalBullsharkArgs {
             peer_addresses: self.peer_addresses.clone(),
         }
     }
+    */
 
     /// Get peer addresses for committee setup
     pub fn get_peer_addresses(&self) -> &[SocketAddr] {

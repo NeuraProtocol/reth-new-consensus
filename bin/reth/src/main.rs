@@ -87,13 +87,31 @@ fn main() {
                 }
 
                 // Step 3: Set up real mempool integration (needs ownership of bridge)
-                let _consensus_handle = setup_mempool_integration(
-                    consensus_bridge,
-                    Arc::new(node.pool.clone()),
-                    node.provider.clone(),
-                    node.evm_config.clone(),
-                    node.task_executor.clone(),
-                )?;
+                let _consensus_handle = if combined_args.narwhal_bullshark.use_engine_tree {
+                    info!(target: "reth::cli", "Using engine API for canonical state updates");
+                    
+                    // Get the beacon engine handle from the node
+                    let engine_handle = node.add_ons_handle.beacon_engine_handle.clone();
+                    
+                    // Use engine API executor
+                    narwhal_bullshark::setup_mempool_integration_with_optional_engine(
+                        consensus_bridge,
+                        Arc::new(node.pool.clone()),
+                        node.provider.clone(),
+                        node.evm_config.clone(),
+                        node.task_executor.clone(),
+                        Some(engine_handle),
+                    )?
+                } else {
+                    info!(target: "reth::cli", "Using direct database writes (legacy mode)");
+                    setup_mempool_integration(
+                        consensus_bridge,
+                        Arc::new(node.pool.clone()),
+                        node.provider.clone(),
+                        node.evm_config.clone(),
+                        node.task_executor.clone(),
+                    )?
+                };
                 // Keep the handle alive to prevent the bridge from being dropped
 
                 info!(target: "reth::cli", "Narwhal + Bullshark consensus with mempool integration is now handling block production");

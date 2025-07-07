@@ -3820,6 +3820,63 @@ dependencies = [
 ]
 
 [[package]]
+name = "example-narwhal-bullshark-consensus"
+version = "0.0.0"
+dependencies = [
+ "alloy-consensus",
+ "alloy-primitives",
+ "alloy-rlp",
+ "alloy-rpc-types",
+ "anyhow",
+ "async-trait",
+ "bincode 1.3.3",
+ "bullshark",
+ "fastcrypto",
+ "futures",
+ "hex",
+ "jsonrpsee",
+ "narwhal",
+ "rand 0.8.5",
+ "reth-chainspec",
+ "reth-consensus",
+ "reth-db",
+ "reth-db-api",
+ "reth-db-models",
+ "reth-engine-primitives",
+ "reth-errors",
+ "reth-ethereum-engine-primitives",
+ "reth-ethereum-primitives",
+ "reth-evm",
+ "reth-execution-errors",
+ "reth-execution-types",
+ "reth-narwhal-types",
+ "reth-network",
+ "reth-network-api",
+ "reth-node-api",
+ "reth-node-builder",
+ "reth-node-core",
+ "reth-node-ethereum",
+ "reth-payload-builder",
+ "reth-payload-primitives",
+ "reth-primitives",
+ "reth-primitives-traits",
+ "reth-provider",
+ "reth-revm",
+ "reth-rpc-eth-types",
+ "reth-rpc-layer",
+ "reth-rpc-types-compat",
+ "reth-tasks",
+ "reth-tokio-util",
+ "reth-transaction-pool",
+ "revm-primitives",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.3.19",
+]
+
+[[package]]
 name = "example-network"
 version = "0.0.0"
 dependencies = [
@@ -7649,7 +7706,9 @@ version = "1.4.8"
 dependencies = [
  "alloy-consensus",
  "alloy-primitives",
+ "alloy-rlp",
  "alloy-rpc-types",
+ "alloy-rpc-types-engine",
  "anyhow",
  "aquamarine",
  "async-trait",
@@ -7658,6 +7717,7 @@ dependencies = [
  "bincode 1.3.3",
  "bullshark",
  "clap",
+ "example-narwhal-bullshark-consensus",
  "eyre",
  "fastcrypto",
  "futures",
@@ -7673,6 +7733,7 @@ dependencies = [
  "reth-db",
  "reth-db-api",
  "reth-db-models",
+ "reth-engine-primitives",
  "reth-ethereum-cli",
  "reth-ethereum-payload-builder",
  "reth-ethereum-primitives",
@@ -7684,6 +7745,7 @@ dependencies = [
  "reth-node-core",
  "reth-node-ethereum",
  "reth-node-metrics",
+ "reth-node-types",
  "reth-payload-builder",
  "reth-payload-primitives",
  "reth-primitives",
@@ -9155,6 +9217,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "reth-narwhal-types"
+version = "1.4.8"
+dependencies = [
+ "alloy-primitives",
+ "bullshark",
+ "fastcrypto",
+ "narwhal",
+ "serde",
+]
+
+[[package]]
 name = "reth-net-banlist"
 version = "1.4.8"
 dependencies = [
@@ -9445,6 +9518,7 @@ dependencies = [
  "reth-discv5",
  "reth-engine-primitives",
  "reth-ethereum-forks",
+ "reth-narwhal-types",
  "reth-net-nat",
  "reth-network",
  "reth-network-p2p",

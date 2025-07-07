@@ -21,6 +21,7 @@ members = [
     "crates/consensus/common/",
     "crates/consensus/consensus/",
     "crates/consensus/debug-client/",
+    "crates/consensus/narwhal-types/",
     "crates/narwhal/",
     "crates/bullshark/",
     "crates/e2e-test-utils/",
@@ -164,6 +165,7 @@ members = [
     "examples/precompile-cache/",
     "examples/txpool-tracing/",
     "examples/custom-beacon-withdrawals",
+    "examples/narwhal-bullshark-consensus",
     "testing/ef-tests/",
     "testing/testing-utils",
     "crates/tracing-otlp",
@@ -335,6 +337,7 @@ reth-config = { path = "crates/config", default-features = false }
 reth-consensus = { path = "crates/consensus/consensus", default-features = false }
 reth-consensus-common = { path = "crates/consensus/common", default-features = false }
 reth-consensus-debug-client = { path = "crates/consensus/debug-client" }
+reth-narwhal-types = { path = "crates/consensus/narwhal-types" }
 reth-db = { path = "crates/storage/db", default-features = false }
 reth-db-api = { path = "crates/storage/db-api" }
 reth-db-common = { path = "crates/storage/db-common" }

@@ -14,6 +14,7 @@ workspace = true
 # reth
 reth-chainspec.workspace = true
 reth-consensus.workspace = true
+reth-narwhal-types = { path = "../../consensus/narwhal-types" }
 reth-primitives-traits = { workspace = true, features = ["rayon"] }
 reth-cli-util.workspace = true
 reth-db = { workspace = true, features = ["mdbx"] }

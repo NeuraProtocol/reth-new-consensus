@@ -22,38 +22,11 @@ use reth_primitives_traits::{
     SealedHeader,
 };
 
-/// Narwhal + Bullshark consensus integration for Reth
-pub mod narwhal_bullshark;
+// All Narwhal+Bullshark consensus modules have been moved to 
+// examples/narwhal-bullshark-consensus to avoid circular dependencies
 
-/// MDBX-based consensus storage implementation
-pub mod consensus_storage;
-
-/// Consensus RPC configuration
-pub mod rpc_config;
-
-/// Storage adapter for Bullshark consensus
-pub mod bullshark_storage_adapter;
-
-/// RPC API for consensus operations
-pub mod rpc;
-
-/// Real MDBX database operations implementation
-pub mod mdbx_database_ops;
-
-// Re-export consensus tables from db-api
-pub use reth_db_api::tables::{
-    ConsensusFinalizedBatch, ConsensusCertificates, ConsensusBatches,
-    ConsensusDagVertices, ConsensusLatestFinalized, WorkerBatches,
-    WorkerBatchMetadata, WorkerPendingTransactions, WorkerBatchAcks,
-    ConsensusVotes, ConsensusCertificatesByRound,
-};
-pub use bullshark_storage_adapter::BullsharkMdbxAdapter;
-pub use mdbx_database_ops::{
-    RethMdbxDatabaseOps, 
-    ConsensusDatabase, 
-    ConsensusDbTx, 
-    ConsensusDbTxMut
-};
+// Consensus table definitions remain in reth-db-api where they belong
+// The actual implementation has been moved to examples/narwhal-bullshark-consensus
 
 /// A consensus implementation that does nothing.
 pub mod noop;
@@ -462,9 +435,3 @@ impl From<InvalidTransactionError> for ConsensusError {
 #[error("Consensus error: {0}, Invalid header: {1:?}")]
 pub struct HeaderConsensusError<H>(ConsensusError, SealedHeader<H>);
 
-// Re-export key storage types for dependency injection
-pub use consensus_storage::{
-    MdbxConsensusStorage, 
-    ConsensusDbStats,
-    DatabaseOps,
-};

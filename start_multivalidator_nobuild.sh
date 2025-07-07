@@ -51,7 +51,6 @@ sleep 2
 # Build the binary once (release mode for performance) - unless --no-build is set
 if [ "$BUILD_ENABLED" = true ]; then
     echo "🔨 Building Reth with Narwhal + Bullshark consensus..."
-    cd /srv/tank/src/reth-new-consensus && cargo build --release --bin reth
     if [ $? -ne 0 ]; then
         echo "❌ Build failed! Exiting."
         exit 1
@@ -423,7 +422,6 @@ echo "💡 If nodes fail to start, check for:"
 echo "  • Missing validator key files in test_validators/ directory"
 echo "  • Invalid JSON format in validator key files"
 echo "  • Port conflicts (netstat -tlnp | grep 900[1-4])"
-echo "  • Build issues (cargo build --release --bin reth)" 
 echo ""
 echo "🔍 Validator Configuration Files:"
 echo "  • validator-0.json: Node 1 - Primary: 9001, Workers: 19000-19003"

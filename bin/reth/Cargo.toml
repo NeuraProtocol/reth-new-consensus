@@ -48,12 +48,19 @@ reth-node-metrics.workspace = true
 reth-consensus.workspace = true
 reth-tokio-util.workspace = true
 reth-ress-protocol.workspace = true
+
+# Narwhal+Bullshark consensus example
+example-narwhal-bullshark-consensus = { path = "../../examples/narwhal-bullshark-consensus" }
 reth-ress-provider.workspace = true
+reth-engine-primitives.workspace = true
+reth-node-types.workspace = true
 
 # alloy
 alloy-rpc-types = { workspace = true, features = ["engine"] }
+alloy-rpc-types-engine.workspace = true
 alloy-primitives.workspace = true
 alloy-consensus.workspace = true
+alloy-rlp.workspace = true
 
 # tracing
 tracing.workspace = true
