@@ -17,6 +17,10 @@ path = "examples/test_engine_submit.rs"
 name = "simple_test"
 path = "examples/simple_test.rs"
 
+[[example]]
+name = "minimal_test"
+path = "examples/minimal_test.rs"
+
 [dependencies]
 # Reth core dependencies - we can now use ALL of them!
 # Note: We cannot depend on 'reth' binary crate as it would create circular dependency
