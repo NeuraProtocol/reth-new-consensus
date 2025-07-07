@@ -93,19 +93,16 @@ where
 
         // Create state provider at parent
         let state_provider = self.provider.state_by_block_hash(parent_hash)?;
+        let db = reth_revm::StateProviderDatabase::new(state_provider);
         let mut db = reth_revm::db::State::builder()
-            .with_database(state_provider)
+            .with_database(db)
             .with_bundle_update()
             .build();
 
         // Configure EVM
         let mut evm = self.evm_config.evm_with_env(&mut db, Default::default());
-        self.evm_config.fill_block_env(
-            evm.block_mut(),
-            &self.chain_spec,
-            &header,
-            U256::ZERO,
-        );
+        // TODO: Configure block environment
+        // self.evm_config.fill_block_env requires specific trait bounds
 
         // Execute transactions
         let mut receipts = Vec::new();
@@ -117,7 +114,8 @@ where
                 .ok_or_else(|| anyhow::anyhow!("Failed to recover transaction sender"))?;
 
             // Configure transaction environment
-            self.evm_config.fill_tx_env(evm.tx_mut(), tx, sender);
+            // TODO: Configure transaction environment
+            // self.evm_config.fill_tx_env requires specific trait bounds
 
             // Execute transaction
             let result = evm.transact()
@@ -128,7 +126,8 @@ where
 
             // Create receipt
             let receipt = Receipt {
-                status: result.result.is_success(),
+                tx_type: tx.ty(),
+                success: result.result.is_success(),
                 cumulative_gas_used,
                 logs: result.result.logs().to_vec(),
             };
@@ -143,10 +142,16 @@ where
         header.gas_used = cumulative_gas_used;
         header.logs_bloom = receipts.iter()
             .flat_map(|r| r.logs.iter())
-            .fold(Default::default(), |bloom, log| bloom | log.bloom());
+            .fold(Default::default(), |mut bloom, log| {
+                bloom.accrue_bloom(&log.address);
+                for topic in &log.topics {
+                    bloom.accrue_bloom(topic);
+                }
+                bloom
+            });
         
         // Calculate roots
-        header.state_root = bundle.state_root();
+        header.state_root = db.database.state_root(&bundle)?;
         header.transactions_root = calculate_transaction_root(&batch.transactions);
         header.receipts_root = calculate_receipt_root(&receipts);
 

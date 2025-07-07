@@ -15,6 +15,8 @@ pub mod engine_integration;
 pub mod simple_integration;
 pub mod simple_block_builder;
 pub mod test_integration;
+pub mod node_integration;
+pub mod mock_block_builder;
 
 // Re-export key types
 pub use consensus_engine::NarwhalBullsharkEngine;

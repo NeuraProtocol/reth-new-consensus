@@ -55,6 +55,7 @@ reth-narwhal-types = { path = "../../crates/consensus/narwhal-types" }
 alloy-primitives.workspace = true
 alloy-consensus.workspace = true
 alloy-rpc-types.workspace = true
+alloy-eips.workspace = true
 
 # Async and utilities
 tokio.workspace = true

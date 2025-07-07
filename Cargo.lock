@@ -3824,6 +3824,7 @@ name = "example-narwhal-bullshark-consensus"
 version = "0.0.0"
 dependencies = [
  "alloy-consensus",
+ "alloy-eips",
  "alloy-primitives",
  "alloy-rlp",
  "alloy-rpc-types",

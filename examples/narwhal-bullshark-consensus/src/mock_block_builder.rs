@@ -1,73 +1,61 @@
-//! Simple block builder that creates blocks without full state execution
+//! Mock block builder for testing
 //! 
-//! This is a temporary solution to test block submission while we work
-//! on proper state execution integration.
+//! This creates blocks without actual state execution, suitable for testing
+//! the engine API integration.
 
 use crate::types::FinalizedBatch;
 use alloy_primitives::{B256, U256, Bytes, FixedBytes};
 use alloy_consensus::Header;
 use reth_primitives::{Block, SealedBlock};
 use reth_ethereum_primitives::BlockBody;
-use reth_provider::{BlockReaderIdExt, StateProviderFactory};
-use reth_chainspec::ChainSpec;
+use reth_provider::BlockReaderIdExt;
 use reth_primitives_traits::Block as BlockTrait;
 use alloy_eips::eip4895::Withdrawals;
-use std::sync::Arc;
 use tracing::{info, debug};
 use anyhow::Result;
 
-/// Builds blocks without full state execution
-/// 
-/// Note: This builder creates blocks with empty state roots and receipts.
-/// It's meant for testing the integration layer, not for production use.
-pub struct SimpleBlockBuilder<Provider> {
-    /// Chain specification
-    chain_spec: Arc<ChainSpec>,
+/// Mock block builder that creates blocks without state execution
+pub struct MockBlockBuilder<Provider> {
     /// Database provider
     provider: Provider,
 }
 
-impl<Provider> SimpleBlockBuilder<Provider>
+impl<Provider> MockBlockBuilder<Provider>
 where
-    Provider: StateProviderFactory + BlockReaderIdExt + Clone + 'static,
+    Provider: BlockReaderIdExt + Clone + 'static,
 {
-    /// Create a new simple block builder
-    pub fn new(chain_spec: Arc<ChainSpec>, provider: Provider) -> Self {
-        Self { chain_spec, provider }
+    /// Create a new mock block builder
+    pub fn new(provider: Provider) -> Self {
+        Self { provider }
     }
 
     /// Build a block from a finalized batch
     pub fn build_block(&self, batch: FinalizedBatch) -> Result<SealedBlock> {
         debug!(
-            "Building block #{} with {} transactions",
+            "Mock building block #{} with {} transactions",
             batch.block_number,
             batch.transactions.len()
         );
 
-        // Get the parent block
+        // Get parent info
         let parent_number = batch.block_number.saturating_sub(1);
         let parent_hash = self.provider
             .block_hash(parent_number)?
-            .ok_or_else(|| anyhow::anyhow!("Parent block {} not found", parent_number))?;
+            .unwrap_or(B256::ZERO);
 
-        let parent_block = self.provider
-            .block_by_hash(parent_hash)?
-            .ok_or_else(|| anyhow::anyhow!("Parent block not found"))?;
-        let parent_header = parent_block.header();
-
-        // Calculate basic block properties
+        // Calculate basic properties
         let gas_used: u64 = batch.transactions.iter()
-            .map(|tx| 21000u64) // Basic transaction cost
+            .map(|_| 21000u64) // Basic gas cost
             .sum();
 
-        // Create the header
+        // Create header with mock values
         let header = Header {
             parent_hash,
             ommers_hash: alloy_consensus::constants::EMPTY_OMMER_ROOT_HASH,
             beneficiary: batch.proposer,
-            state_root: B256::random(), // Placeholder - would be calculated by EVM
+            state_root: B256::random(), // Mock state root
             transactions_root: alloy_consensus::proofs::calculate_transaction_root(&batch.transactions),
-            receipts_root: alloy_consensus::constants::EMPTY_RECEIPTS,
+            receipts_root: B256::random(), // Mock receipts root
             logs_bloom: Default::default(),
             difficulty: U256::ZERO,
             number: batch.block_number,
@@ -85,21 +73,21 @@ where
             requests_hash: None,
         };
 
-        // Create the block
+        // Create block body
         let body = BlockBody {
             transactions: batch.transactions,
             ommers: vec![],
             withdrawals: Some(Withdrawals::default()),
         };
 
+        // Create and seal block
         let block = Block { header, body };
         let sealed_block = block.seal_slow();
 
         info!(
-            "Built block #{} with {} transactions, gas used: {}, hash: {}",
+            "Mock built block #{} with {} transactions, hash: {}",
             sealed_block.number,
-            sealed_block.body.transactions.len(),
-            sealed_block.gas_used,
+            sealed_block.transaction_count(),
             sealed_block.hash()
         );
 

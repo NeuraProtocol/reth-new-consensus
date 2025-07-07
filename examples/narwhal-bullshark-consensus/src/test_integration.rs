@@ -3,15 +3,10 @@
 //! This module provides a minimal test implementation to verify
 //! we can submit blocks to the engine API.
 
-use crate::types::FinalizedBatch;
-use alloy_primitives::{B256, U256, Bytes};
+use crate::{types::FinalizedBatch, mock_block_builder::MockBlockBuilder};
 use alloy_rpc_types::engine::{ForkchoiceState, PayloadStatusEnum};
 use reth_ethereum_engine_primitives::{EthEngineTypes, EthPayloadTypes};
-use reth_primitives::{Block, SealedBlock};
-use reth_ethereum_primitives::BlockBody;
-use alloy_consensus::Header;
-use alloy_consensus::Withdrawals;
-use reth_primitives_traits::Block as BlockTrait;
+use reth_primitives::SealedBlock;
 use reth_node_api::EngineApiMessageVersion;
 use reth_payload_primitives::PayloadTypes;
 use reth_provider::BlockReaderIdExt;
@@ -21,8 +16,8 @@ use anyhow::Result;
 
 /// Test integration that submits simple blocks
 pub struct TestIntegration<Provider> {
-    /// Provider for reading blockchain data
-    provider: Provider,
+    /// Mock block builder
+    block_builder: MockBlockBuilder<Provider>,
     /// Engine API handle
     engine_handle: reth_node_api::BeaconConsensusEngineHandle<EthEngineTypes>,
     /// Channel for receiving finalized batches
@@ -40,7 +35,7 @@ where
         batch_receiver: mpsc::UnboundedReceiver<FinalizedBatch>,
     ) -> Self {
         Self {
-            provider,
+            block_builder: MockBlockBuilder::new(provider),
             engine_handle,
             batch_receiver,
         }
@@ -67,48 +62,8 @@ where
             batch.transactions.len()
         );
 
-        // Get parent block info
-        let parent_number = batch.block_number.saturating_sub(1);
-        let parent_hash = self.provider
-            .block_hash(parent_number)?
-            .unwrap_or(B256::ZERO);
-
-        // Create a minimal header
-        let header = Header {
-            parent_hash,
-            ommers_hash: alloy_consensus::constants::EMPTY_OMMER_ROOT_HASH,
-            beneficiary: batch.proposer,
-            state_root: B256::random(), // Placeholder
-            transactions_root: B256::random(), // Placeholder
-            receipts_root: B256::random(), // Placeholder
-            logs_bloom: Default::default(),
-            difficulty: U256::ZERO,
-            number: batch.block_number,
-            gas_limit: 30_000_000,
-            gas_used: 21000 * batch.transactions.len() as u64,
-            timestamp: batch.timestamp,
-            extra_data: Bytes::default(),
-            mix_hash: B256::ZERO,
-            nonce: Default::default(),
-            base_fee_per_gas: Some(1_000_000_000),
-            withdrawals_root: Some(alloy_consensus::constants::EMPTY_WITHDRAWALS),
-            blob_gas_used: Some(0),
-            excess_blob_gas: Some(0),
-            parent_beacon_block_root: Some(B256::ZERO),
-            requests_hash: None,
-        };
-
-        // Create block
-        let body = BlockBody {
-            transactions: batch.transactions,
-            ommers: vec![],
-            withdrawals: Some(Withdrawals::default()),
-        };
-
-        let block = Block { header, body };
-        
-        // Seal the block
-        let sealed_block = block.seal_slow();
+        // Build block using mock builder
+        let sealed_block = self.block_builder.build_block(batch)?;
 
         // Submit to engine
         self.submit_block(sealed_block).await
