@@ -7,11 +7,11 @@ use reth_chainspec::ChainSpec;
 use std::fmt;
 use reth_evm::{execute::{BlockExecutionOutput, ExecutionOutcome, Executor}, ConfigureEvm};
 use reth_evm::block::BlockExecutionResult;
-use reth_primitives::SealedBlock;
+use reth_primitives::{SealedBlock, SealedHeader};
 use reth_provider::{
     providers::{BlockchainProvider, ProviderNodeTypes}, 
     ProviderError, DatabaseProviderFactory, StateProviderFactory,
-    BlockWriter, BlockNumReader, BlockHashReader, DBProvider, HeaderProvider, StorageLocation,
+    BlockWriter, BlockNumReader, BlockHashReader, DBProvider, BlockReader, StorageLocation,
 };
 use reth_revm::database::StateProviderDatabase;
 use reth_trie_common::{HashedPostState, KeccakKeyHasher};
@@ -149,6 +149,22 @@ where
         if sealed_block.body().transactions.is_empty() {
             info!("Block #{} has no transactions, using simplified persistence", sealed_block.number);
             
+            // Check if this block already exists
+            if let Ok(Some(existing_block)) = provider_rw.block_by_number(sealed_block.number) {
+                // Block already exists - check if it's the same block
+                let existing_hash = SealedHeader::seal_slow(existing_block.header).hash();
+                if existing_hash == sealed_block.hash() {
+                    info!("Block #{} already exists with same hash, skipping", sealed_block.number);
+                    return Ok(());
+                } else {
+                    // Different block at same height - this is a problem
+                    return Err(ProviderError::other(BlockExecutionError(
+                        format!("Block #{} already exists with different hash: existing={:?}, new={:?}", 
+                                sealed_block.number, existing_hash, sealed_block.hash())
+                    )));
+                }
+            }
+            
             // For empty blocks, just insert the block without executing
             // Create the recovered block for persistence
             let recovered_block = reth_primitives::RecoveredBlock::new_unhashed(
@@ -201,6 +217,22 @@ where
             computed_state_root,
             sealed_block.state_root
         );
+        
+        // Check if this block already exists before persisting
+        if let Ok(Some(existing_block)) = provider_rw.block_by_number(sealed_block.number) {
+            // Block already exists - check if it's the same block
+            let existing_hash = existing_block.header.hash_slow();
+            if existing_hash == sealed_block.hash() {
+                info!("Block #{} already exists with same hash, skipping", sealed_block.number);
+                return Ok(());
+            } else {
+                // Different block at same height - this is a problem
+                return Err(ProviderError::other(BlockExecutionError(
+                    format!("Block #{} already exists with different hash: existing={:?}, new={:?}", 
+                            sealed_block.number, existing_hash, sealed_block.hash())
+                )));
+            }
+        }
         
         // Create the recovered block for persistence
         let recovered_block = reth_primitives::RecoveredBlock::new_unhashed(

@@ -305,12 +305,23 @@ Working on branch `v1.4.8-neura` with functional Narwhal+Bullshark consensus pro
     - ✅ Finalized batches use block numbers (incrementing from 0 to 1)
     - ❌ Parent hash tracking requires BlockExecutor connection
 
-15. ⚠️ **Empty Block Production** - NEEDS TESTING
+15. ✅ **Empty Block Production** - COMPLETED
     - ✅ Updated batch_maker to always seal batches on timer expiry
     - ✅ DAG service creates headers when timer expires even without transactions
     - ✅ BFT service processes empty certificates for consistent block times
-    - ✅ Fixed timing configuration (2 second intervals)
-    - ⚠️ Needs testing to verify empty blocks are produced at regular intervals
+    - ✅ Fixed timing configuration (configurable, default 500ms)
+    - ✅ Blocks are produced at regular intervals even without transactions
+
+16. ❌ **eth_blockNumber Returns 0x0** - CRITICAL ISSUE
+    - ✅ Blocks are being created and executed (logs show up to block #79)
+    - ✅ Blocks are persisted to the database ("Successfully executed and persisted")
+    - ❌ `eth_blockNumber` RPC returns 0x0
+    - ❌ Blocks aren't visible to Reth's RPC layer
+    - Root cause: Blocks are written to database but not to `canonical_in_memory_state`
+    - The BlockchainProvider reads from canonical in-memory state, not database
+    - Our custom consensus bypasses Reth's engine API flow
+    - Proper fix requires integrating with engine API or canonical state notifications
+    - Workaround: Could potentially restart nodes to reload state from DB (not ideal)
 
 ## Summary of Working Features
 
@@ -338,7 +349,8 @@ The Narwhal + Bullshark integration with Reth now has:
 - Chain state tracking between layers
 
 ### ❌ Still TODO
-- Test empty block production at regular intervals
+- Fix eth_blockNumber returning 0x0 (blocks in DB but not in canonical state)
+- Integrate with Reth's engine API for proper canonical chain updates
 - Proper BLS signature aggregation for consensus seals
 - Vote signing with validator keys (currently using generated signatures)
 - Complete RPC implementation (some methods return placeholder data)

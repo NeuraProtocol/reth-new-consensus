@@ -3,6 +3,13 @@
 # Neura Multivalidator Test Script with REAL Validator Key Management
 # Starts 4 validator nodes with their own private keys and shared committee configuration
 
+# Check for --no-build flag
+BUILD_ENABLED=true
+if [[ "$1" == "--no-build" ]]; then
+    BUILD_ENABLED=false
+    echo "🏃 Skipping build step (--no-build flag detected)"
+fi
+
 echo "🚀 Starting Neura Multivalidator Test (Chain ID: 266, Coin: ANKR)"
 echo "🔑 Using REAL Validator Key Management (No Random Keys!)"
 echo "🏛️ Committee loaded from test_validators/ directory"
@@ -15,14 +22,18 @@ echo "=================================================================="
 pkill -f "reth.*node.*narwhal" || true
 sleep 2
 
-# Build the binary once (release mode for performance)
-echo "🔨 Building Reth with Narwhal + Bullshark consensus..."
-cd /srv/tank/src/reth-new-consensus && cargo build --release --bin reth
-if [ $? -ne 0 ]; then
-    echo "❌ Build failed! Exiting."
-    exit 1
+# Build the binary once (release mode for performance) - unless --no-build is set
+if [ "$BUILD_ENABLED" = true ]; then
+    echo "🔨 Building Reth with Narwhal + Bullshark consensus..."
+    cd /srv/tank/src/reth-new-consensus && cargo build --release --bin reth
+    if [ $? -ne 0 ]; then
+        echo "❌ Build failed! Exiting."
+        exit 1
+    fi
+    echo "✅ Build completed successfully"
+else
+    echo "📦 Using existing binary (build skipped)"
 fi
-echo "✅ Build completed successfully"
 
 # Copy the binary to the expected location
 cp /srv/tank/src/reth-new-consensus/target/release/reth /home/peastew/src/reth-new-consensus/target/release/reth 2>/dev/null || true

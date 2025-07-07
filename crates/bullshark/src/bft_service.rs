@@ -319,13 +319,14 @@ impl BftService {
                 // Update last block time
                 self.last_block_time = Instant::now();
                 
-                // DO NOT update current_block_number here - wait for chain confirmation
-                // This prevents skipping certificates when the block hasn't been persisted yet
+                // Update current_block_number immediately to prevent duplicate blocks
+                // We must do this BEFORE sending to prevent race conditions
                 let batch_block_number = finalized_batch.block_number;
+                self.current_block_number = batch_block_number;
+                info!("Updated current_block_number to {} to prevent duplicates", self.current_block_number);
 
                 // Send to Reth integration
-                info!("Sending finalized batch {} to Reth integration (current_block_number remains {})", 
-                      batch_block_number, self.current_block_number);
+                info!("Sending finalized batch {} to Reth integration", batch_block_number);
                 if self.finalized_batch_sender.send(finalized_batch).is_err() {
                     warn!("Failed to send finalized batch to Reth - channel closed");
                     return Err(BullsharkError::Network("Reth channel closed".to_string()));
