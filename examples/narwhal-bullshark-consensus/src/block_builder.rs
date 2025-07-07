@@ -4,8 +4,8 @@
 //! ensuring proper state execution and hash calculation.
 
 use crate::types::FinalizedBatch;
-use alloy_primitives::{B256, U256, Bytes};
-use alloy_consensus::Header;
+use alloy_primitives::{B256, U256, Bytes, Bloom};
+use alloy_consensus::{Header, Typed2718};
 use reth_primitives::{
     Block, SealedBlock, TransactionSigned, Receipt
 };
@@ -15,6 +15,9 @@ use reth_evm::ConfigureEvm;
 use alloy_consensus::proofs::{calculate_receipt_root, calculate_transaction_root};
 use reth_chainspec::ChainSpec;
 use reth_execution_types::Chain;
+use reth_primitives_traits::{Block as BlockTrait, SignerRecoverable};
+use alloy_eips::eip4895::Withdrawals;
+use reth_revm::database::StateProviderDatabase;
 use std::sync::Arc;
 use tracing::{info, debug};
 use anyhow::Result;
@@ -64,7 +67,7 @@ where
         let parent_block = self.provider
             .block_by_hash(parent_hash)?
             .ok_or_else(|| anyhow::anyhow!("Parent block not found"))?;
-        let parent_header = &parent_block.header;
+        let parent_header = parent_block.header();
 
         // Create the new block header
         let mut header = Header {
@@ -83,17 +86,17 @@ where
             extra_data: Bytes::default(),
             mix_hash: B256::ZERO,
             nonce: alloy_primitives::FixedBytes::default(),
-            base_fee_per_gas: Some(parent_header.next_block_base_fee(self.chain_spec.base_fee_params_at_timestamp(batch.timestamp))?),
+            base_fee_per_gas: Some(1_000_000_000), // 1 gwei for now
             withdrawals_root: Some(alloy_consensus::constants::EMPTY_WITHDRAWALS),
             blob_gas_used: Some(0),
-            excess_blob_gas: Some(parent_header.next_block_excess_blob_gas()),
+            excess_blob_gas: Some(0), // TODO: calculate from parent
             parent_beacon_block_root: Some(B256::ZERO),
             requests_hash: None,
         };
 
         // Create state provider at parent
         let state_provider = self.provider.state_by_block_hash(parent_hash)?;
-        let db = reth_revm::StateProviderDatabase::new(state_provider);
+        let db = StateProviderDatabase::new(state_provider);
         let mut db = reth_revm::db::State::builder()
             .with_database(db)
             .with_bundle_update()
@@ -110,8 +113,10 @@ where
 
         for tx in &batch.transactions {
             // Get sender
-            let sender = tx.recover_signer()
-                .ok_or_else(|| anyhow::anyhow!("Failed to recover transaction sender"))?;
+            let sender = match tx.recover_signer() {
+                Some(signer) => signer,
+                None => anyhow::bail!("Failed to recover transaction sender"),
+            };
 
             // Configure transaction environment
             // TODO: Configure transaction environment
@@ -126,7 +131,7 @@ where
 
             // Create receipt
             let receipt = Receipt {
-                tx_type: tx.ty(),
+                tx_type: tx.ty() as u8,
                 success: result.result.is_success(),
                 cumulative_gas_used,
                 logs: result.result.logs().to_vec(),
@@ -143,10 +148,7 @@ where
         header.logs_bloom = receipts.iter()
             .flat_map(|r| r.logs.iter())
             .fold(Default::default(), |mut bloom, log| {
-                bloom.accrue_bloom(&log.address);
-                for topic in &log.topics {
-                    bloom.accrue_bloom(topic);
-                }
+                bloom.accrue_bloom(&log.bloom())
                 bloom
             });
         
@@ -159,7 +161,7 @@ where
         let body = BlockBody {
             transactions: batch.transactions,
             ommers: vec![],
-            withdrawals: Some(vec![]),
+            withdrawals: Some(Withdrawals::default()),
         };
 
         let block = Block { header, body };

@@ -63,7 +63,7 @@ where
         // Start the test integration that submits blocks
         let test_integration = TestIntegration::new(
             self.provider.clone(),
-            self.engine_handle,
+            self.engine_handle.clone(),
             batch_receiver,
         );
 
@@ -114,18 +114,8 @@ where
             let next_block = current_block + 1;
 
             // Get pending transactions from the pool
-            let pending_txs = self.pool.pooled_transactions();
-            let transactions: Vec<TransactionSigned> = pending_txs
-                .into_iter()
-                .take(self.config.max_batch_size as usize / 1000) // Rough estimate
-                .filter_map(|tx| {
-                    // Extract the signed transaction from the pool transaction
-                    match tx.transaction.clone().into_transaction() {
-                        Some(signed) => Some(signed),
-                        None => None,
-                    }
-                })
-                .collect();
+            // For now, create an empty block since we don't know the exact pool transaction type
+            let transactions: Vec<TransactionSigned> = vec![];
 
             debug!(
                 "Mock consensus round {} creating block #{} with {} transactions",

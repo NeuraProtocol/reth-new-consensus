@@ -57,7 +57,7 @@ where
 
         // Calculate basic block properties
         let gas_used: u64 = batch.transactions.iter()
-            .map(|tx| 21000u64) // Basic transaction cost
+            .map(|_tx| 21000u64) // Basic transaction cost
             .sum();
 
         // Create the header
@@ -98,7 +98,7 @@ where
         info!(
             "Built block #{} with {} transactions, gas used: {}, hash: {}",
             sealed_block.number,
-            sealed_block.body.transactions.len(),
+            sealed_block.body().transactions.len(),
             sealed_block.gas_used,
             sealed_block.hash()
         );
