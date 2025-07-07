@@ -4,7 +4,7 @@
 //! ensuring proper state execution and hash calculation.
 
 use crate::types::FinalizedBatch;
-use alloy_primitives::{B256, U256, Bytes, Bloom};
+use alloy_primitives::{B256, U256, Bytes, Bloom, BloomInput};
 use alloy_consensus::{Header, Typed2718};
 use reth_primitives::{
     Block, SealedBlock, TransactionSigned, Receipt, TxType
@@ -150,9 +150,9 @@ where
         let mut logs_bloom = Bloom::default();
         for receipt in &receipts {
             for log in &receipt.logs {
-                logs_bloom.accrue(log.address.as_slice());
+                logs_bloom.accrue(BloomInput::Raw(log.address.as_slice()));
                 for topic in log.topics() {
-                    logs_bloom.accrue(topic.as_slice());
+                    logs_bloom.accrue(BloomInput::Raw(topic.as_slice()));
                 }
             }
         }

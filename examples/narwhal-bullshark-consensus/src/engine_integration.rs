@@ -8,8 +8,10 @@ use crate::{
 };
 use alloy_primitives::B256;
 use alloy_rpc_types::engine::{ForkchoiceState, PayloadStatusEnum};
-use reth_node_api::{EngineApiMessageVersion, EngineTypes, PayloadTypes};
+use reth_node_api::EngineApiMessageVersion;
 use reth_primitives::SealedBlock;
+use reth_ethereum_engine_primitives::{EthEngineTypes, EthPayloadTypes};
+use reth_payload_primitives::PayloadTypes;
 use reth_provider::{BlockReaderIdExt, StateProviderFactory};
 use reth_evm::ConfigureEvm;
 use reth_chainspec::ChainSpec;
@@ -18,24 +20,19 @@ use tokio::sync::mpsc;
 use tracing::{info, error, warn};
 use anyhow::Result;
 
-/// Handles the integration with Reth's engine API
-pub struct EngineIntegration<Provider, Engine, EvmConfig> 
-where
-    Engine: EngineTypes,
-{
+/// Handles the integration with Reth's engine API for EVM-compatible chains
+pub struct EngineIntegration<Provider, EvmConfig> {
     /// Block builder
     block_builder: Arc<NarwhalBlockBuilder<Provider, EvmConfig>>,
-    /// Engine API handle
-    engine_handle: reth_node_api::BeaconConsensusEngineHandle<Engine>,
+    /// Engine API handle for EVM-compatible chains
+    engine_handle: reth_node_api::BeaconConsensusEngineHandle<reth_ethereum_engine_primitives::EthEngineTypes>,
     /// Channel for receiving finalized batches
     batch_receiver: mpsc::UnboundedReceiver<FinalizedBatch>,
 }
 
-impl<Provider, Engine, EvmConfig> EngineIntegration<Provider, Engine, EvmConfig>
+impl<Provider, EvmConfig> EngineIntegration<Provider, EvmConfig>
 where
     Provider: StateProviderFactory + BlockReaderIdExt + Clone + Send + Sync + 'static,
-    Engine: EngineTypes + PayloadTypes + Send + Sync + 'static,
-    Engine::PayloadAttributes: Send + Sync,
     EvmConfig: ConfigureEvm + Clone + Send + Sync + 'static,
 {
     /// Create a new engine integration
@@ -43,7 +40,7 @@ where
         chain_spec: Arc<ChainSpec>,
         provider: Provider,
         evm_config: EvmConfig,
-        engine_handle: reth_node_api::BeaconConsensusEngineHandle<Engine>,
+        engine_handle: reth_node_api::BeaconConsensusEngineHandle<reth_ethereum_engine_primitives::EthEngineTypes>,
         batch_receiver: mpsc::UnboundedReceiver<FinalizedBatch>,
     ) -> Self {
         let block_builder = Arc::new(NarwhalBlockBuilder::new(
@@ -95,8 +92,10 @@ where
             block.hash()
         );
 
-        // Convert block to execution payload
-        let payload = Engine::block_to_payload(block.clone());
+        // Convert block to execution payload for EVM-compatible chain
+        use reth_ethereum_engine_primitives::EthPayloadTypes;
+        use reth_payload_primitives::PayloadTypes;
+        let payload = EthPayloadTypes::block_to_payload(block.clone());
 
         // Submit new payload
         let status = self.engine_handle
