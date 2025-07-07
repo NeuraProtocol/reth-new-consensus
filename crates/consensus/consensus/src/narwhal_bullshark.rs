@@ -32,6 +32,10 @@ pub mod chain_state_adapter;
 pub mod mock_executor;
 /// Real block executor that integrates with Reth's database
 pub mod reth_block_executor;
+/// Workaround for updating canonical state after DB writes
+pub mod canonical_state_fix;
+/// Proper engine tree integration (future work)
+pub mod engine_integration;
 
 // Re-export key types for easier access
 pub use types::{FinalizedBatch, NarwhalBullsharkConfig, ConsensusRpcConfig, ConsensusSeal};

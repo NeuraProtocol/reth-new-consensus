@@ -321,7 +321,8 @@ Working on branch `v1.4.8-neura` with functional Narwhal+Bullshark consensus pro
     - The BlockchainProvider reads from canonical in-memory state, not database
     - Our custom consensus bypasses Reth's engine API flow
     - Proper fix requires integrating with engine API or canonical state notifications
-    - Workaround: Could potentially restart nodes to reload state from DB (not ideal)
+    - See `CONSENSUS_INTEGRATION_OPTIONS.md` for detailed explanation of solutions
+    - See `engine_api_integration_example.rs` for example implementation
 
 ## Summary of Working Features
 
