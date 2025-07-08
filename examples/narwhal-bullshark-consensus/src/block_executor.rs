@@ -5,8 +5,9 @@
 //! production systems require.
 
 use reth_chainspec::ChainSpec;
-use reth_primitives::{SealedBlock, Block, TransactionSigned, Receipt};
-use alloy_primitives::B256;
+use reth_primitives::{SealedBlock, Block, TransactionSigned, Receipt, Log};
+use alloy_consensus::Transaction;
+use alloy_primitives::{B256, U256, TxKind};
 use reth_provider::{
     providers::BlockchainProvider, 
     StateProviderFactory, StateProviderBox, BlockNumReader, BlockHashReader,
@@ -14,10 +15,19 @@ use reth_provider::{
 use reth_ethereum_primitives::EthPrimitives;
 use reth_node_ethereum::EthEvmConfig;
 use reth_execution_types::ExecutionOutcome;
-use reth_revm::database::StateProviderDatabase;
+use reth_revm::{
+    database::StateProviderDatabase,
+};
+use reth_evm::{ConfigureEvm, EvmEnv, EvmFor, Evm};
+use reth_evm_ethereum::revm_spec;
+use revm::{
+    context::result::ExecutionResult,
+    database::BundleState,
+};
+use reth_primitives_traits::SignerRecoverable;
 use alloy_primitives::Bloom;
 use std::sync::Arc;
-use tracing::{info, debug, error};
+use tracing::{info, debug, error, warn};
 use anyhow::Result;
 
 /// Result of executing a block
@@ -29,6 +39,8 @@ struct BlockExecutionResult {
     total_gas_used: u64,
     /// Execution outcome with state changes
     execution_outcome: ExecutionOutcome,
+    /// Bundle state with account and storage changes
+    bundle_state: BundleState,
 }
 
 /// Production block executor using Reth's standard Ethereum execution
@@ -122,31 +134,52 @@ where
     ) -> Result<BlockExecutionResult> {
         let mut receipts: Vec<Receipt> = Vec::new();
         let mut cumulative_gas_used = 0u64;
+        let mut bundle_state = BundleState::default();
         
         // Create database from state provider
-        let db = StateProviderDatabase::new(state_provider);
+        let mut db = StateProviderDatabase::new(state_provider);
         
-        // Create EVM configuration
-        let evm_config = self.evm_config.clone();
+        // Create EVM with configuration
+        let mut evm = self.evm_config.evm_with_env(&mut db, self.create_evm_env(block)?);
+        
+        info!(
+            "Starting EVM execution for block #{} with {} transactions",
+            block.number,
+            block.body().transactions.len()
+        );
         
         // Execute each transaction
         for (tx_index, tx) in block.body().transactions.iter().enumerate() {
-            debug!("Executing transaction {}/{}", tx_index + 1, block.body().transactions.len());
+            debug!("Executing transaction {}/{}: {:?}", 
+                tx_index + 1, 
+                block.body().transactions.len(),
+                tx.hash()
+            );
             
-            match self.execute_single_transaction(tx, &db, &evm_config, cumulative_gas_used).await {
-                Ok(receipt) => {
-                    // Gas used is calculated as difference in cumulative gas
-                    let gas_used = if receipts.is_empty() {
-                        receipt.cumulative_gas_used
-                    } else {
-                        receipt.cumulative_gas_used - receipts.last().unwrap().cumulative_gas_used
-                    };
+            match self.execute_single_transaction(
+                tx, 
+                &mut evm, 
+                tx_index, 
+                cumulative_gas_used,
+                block
+            ).await {
+                Ok((receipt, tx_bundle)) => {
                     cumulative_gas_used = receipt.cumulative_gas_used;
                     receipts.push(receipt);
+                    
+                    // Merge transaction state changes
+                    bundle_state.extend(tx_bundle);
+                    
+                    debug!("Transaction {} executed successfully, cumulative gas: {}", 
+                        tx_index + 1, cumulative_gas_used);
                 }
                 Err(e) => {
-                    error!("Transaction execution failed: {}", e);
-                    // Create a failed receipt
+                    error!("Transaction {} execution failed: {}", tx_index + 1, e);
+                    
+                    // Create a failed receipt with gas used up to gas limit
+                    let gas_used = tx.gas_limit().min(block.header().gas_limit - cumulative_gas_used);
+                    cumulative_gas_used += gas_used;
+                    
                     let failed_receipt = Receipt {
                         tx_type: tx.tx_type(),
                         success: false,
@@ -158,38 +191,132 @@ where
             }
         }
         
-        // Create execution outcome (simplified)
-        let execution_outcome = ExecutionOutcome::default();
+        // Create execution outcome from bundle state
+        let execution_outcome = ExecutionOutcome::new(
+            bundle_state.clone(),
+            vec![], // No reverts for now
+            block.number,
+            vec![], // No requests for now
+        );
+        
+        info!(
+            "Block #{} execution completed: {} transactions, {} gas used",
+            block.number,
+            receipts.len(),
+            cumulative_gas_used
+        );
         
         Ok(BlockExecutionResult {
             receipts,
             total_gas_used: cumulative_gas_used,
             execution_outcome,
+            bundle_state,
         })
     }
     
-    /// Execute a single transaction
+    /// Execute a single transaction using revm
     async fn execute_single_transaction(
         &self,
         tx: &TransactionSigned,
-        _db: &StateProviderDatabase<StateProviderBox>,
-        _evm_config: &EthEvmConfig,
+        evm: &mut EvmFor<EthEvmConfig, &mut StateProviderDatabase<StateProviderBox>>,
+        tx_index: usize,
         cumulative_gas_used: u64,
-    ) -> Result<Receipt> {
-        // For now, create a basic receipt
-        // TODO: Implement actual EVM execution using revm
-        let _gas_used = 21000; // Basic transaction gas
+        block: &SealedBlock,
+    ) -> Result<(Receipt, BundleState)> {
+        // Create transaction environment from recovered transaction
+        let recovered_tx = tx.clone().try_into_recovered().map_err(|e| {
+            anyhow::anyhow!("Failed to recover transaction: {}", e)
+        })?;
+        let tx_env = self.evm_config.tx_env(&recovered_tx);
         
-        let receipt = Receipt {
-            tx_type: tx.tx_type(),
-            success: true,
-            cumulative_gas_used: cumulative_gas_used + _gas_used,
-            logs: vec![],
+        debug!("Executing transaction with gas limit: {}", tx.gas_limit());
+        
+        // Execute the transaction
+        let execution_result = evm.transact(tx_env)?;
+        
+        // Extract the bundle state (account and storage changes)
+        // TODO: Properly convert revm state to BundleState
+        let bundle_state = BundleState::default();
+        
+        // Calculate gas used
+        let gas_used = match &execution_result.result {
+            ExecutionResult::Success { gas_used, .. } => gas_used,
+            ExecutionResult::Revert { gas_used, .. } => gas_used,
+            ExecutionResult::Halt { gas_used, .. } => gas_used,
         };
         
-        debug!("Transaction executed successfully, gas used: {}", _gas_used);
+        // Determine if transaction was successful
+        let (success, logs) = match &execution_result.result {
+            ExecutionResult::Success { logs, .. } => {
+                debug!("Transaction {} succeeded, gas used: {}", tx_index + 1, gas_used);
+                (true, self.convert_logs(&logs))
+            }
+            ExecutionResult::Revert { output, .. } => {
+                warn!("Transaction {} reverted: {:?}", tx_index + 1, output);
+                (false, vec![])
+            }
+            ExecutionResult::Halt { reason, .. } => {
+                warn!("Transaction {} halted: {:?}", tx_index + 1, reason);
+                (false, vec![])
+            }
+        };
         
-        Ok(receipt)
+        // Create receipt
+        let receipt = Receipt {
+            tx_type: tx.tx_type(),
+            success,
+            cumulative_gas_used: cumulative_gas_used + gas_used,
+            logs,
+        };
+        
+        debug!(
+            "Transaction {} execution complete: success={}, gas_used={}, cumulative_gas={}",
+            tx_index + 1,
+            success,
+            gas_used,
+            receipt.cumulative_gas_used
+        );
+        
+        Ok((receipt, bundle_state))
+    }
+    
+    /// Create EVM environment for block execution
+    fn create_evm_env(&self, block: &SealedBlock) -> Result<EvmEnv> {
+        let mut env = EvmEnv::default();
+        
+        // Set block environment
+        env.block_env.number = block.number;
+        env.block_env.beneficiary = block.header().beneficiary;
+        env.block_env.timestamp = block.header().timestamp;
+        env.block_env.gas_limit = block.header().gas_limit;
+        env.block_env.basefee = block.header().base_fee_per_gas.unwrap_or_default();
+        env.block_env.difficulty = block.header().difficulty;
+        env.block_env.prevrandao = Some(block.header().mix_hash);
+        
+        // Set chain configuration
+        env.cfg_env.chain_id = self.chain_spec.chain.id();
+        env.cfg_env.spec = revm_spec(&self.chain_spec, block.header());
+        
+        debug!(
+            "Created EVM environment for block #{}: gas_limit={}, basefee={}, chain_id={}",
+            block.number,
+            block.header().gas_limit,
+            block.header().base_fee_per_gas.unwrap_or_default(),
+            env.cfg_env.chain_id
+        );
+        
+        Ok(env)
+    }
+    
+    
+    /// Convert revm logs to reth logs
+    fn convert_logs(&self, revm_logs: &[alloy_primitives::Log]) -> Vec<Log> {
+        revm_logs.iter().map(|log| {
+            Log {
+                address: log.address,
+                data: log.data.clone(),
+            }
+        }).collect()
     }
     
     /// Calculate state root from execution outcome

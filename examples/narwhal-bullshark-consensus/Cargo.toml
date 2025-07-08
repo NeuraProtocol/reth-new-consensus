@@ -52,6 +52,7 @@ reth-engine-primitives.workspace = true
 reth-ethereum-engine-primitives.workspace = true
 reth-revm.workspace = true
 reth-execution-errors.workspace = true
+reth-evm-ethereum.workspace = true
 reth-rpc-layer.workspace = true
 reth-trie.workspace = true
 reth-trie-common.workspace = true
@@ -91,6 +92,8 @@ hex = "0.4"
 base64 = "0.21"
 alloy-rlp = { workspace = true }
 revm-primitives = { workspace = true }
+revm = { workspace = true }
+alloy-evm = { workspace = true }
 reth-primitives-traits = { workspace = true }
 
 [features]
