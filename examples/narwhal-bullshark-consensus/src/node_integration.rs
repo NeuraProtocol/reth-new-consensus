@@ -6,6 +6,7 @@
 use crate::{
     types::{FinalizedBatch, ConsensusConfig},
     test_integration::TestIntegration,
+    real_consensus_integration::RealConsensusIntegration,
     validator_keys::ValidatorKeyPair,
 };
 use alloy_primitives::{B256, Address};
@@ -18,11 +19,15 @@ use tracing::{info, error, debug};
 use anyhow::Result;
 
 /// Integration that connects Narwhal+Bullshark consensus to a Reth node
-pub struct NodeIntegration<Provider, Pool> {
+pub struct NodeIntegration<Provider, Pool, EvmConfig> {
+    /// Chain spec
+    chain_spec: std::sync::Arc<reth_chainspec::ChainSpec>,
     /// Provider for reading blockchain data
     provider: Provider,
     /// Transaction pool
     pool: Pool,
+    /// EVM configuration
+    evm_config: EvmConfig,
     /// Engine API handle
     engine_handle: reth_node_api::BeaconConsensusEngineHandle<reth_ethereum_engine_primitives::EthEngineTypes>,
     /// Validator key
@@ -31,22 +36,27 @@ pub struct NodeIntegration<Provider, Pool> {
     config: ConsensusConfig,
 }
 
-impl<Provider, Pool> NodeIntegration<Provider, Pool>
+impl<Provider, Pool, EvmConfig> NodeIntegration<Provider, Pool, EvmConfig>
 where
-    Provider: BlockReaderIdExt + Clone + Send + Sync + 'static,
+    Provider: reth_provider::StateProviderFactory + reth_provider::DatabaseProviderFactory + BlockReaderIdExt + Clone + Send + Sync + 'static,
     Pool: TransactionPool + Clone + Send + Sync + 'static,
+    EvmConfig: reth_evm::ConfigureEvm + Clone + Send + Sync + 'static,
 {
     /// Create a new node integration
     pub fn new(
+        chain_spec: std::sync::Arc<reth_chainspec::ChainSpec>,
         provider: Provider,
         pool: Pool,
+        evm_config: EvmConfig,
         engine_handle: reth_node_api::BeaconConsensusEngineHandle<reth_ethereum_engine_primitives::EthEngineTypes>,
         validator_key: ValidatorKeyPair,
         config: ConsensusConfig,
     ) -> Self {
         Self {
+            chain_spec,
             provider,
             pool,
+            evm_config,
             engine_handle,
             validator_key,
             config,
@@ -56,42 +66,66 @@ where
     /// Run the integration
     pub async fn run(self) -> Result<()> {
         info!("Starting Narwhal+Bullshark node integration");
+        
+        // Check if we should use real consensus or mock
+        let use_real_consensus = std::env::var("USE_REAL_CONSENSUS")
+            .unwrap_or_else(|_| "false".to_string())
+            .parse::<bool>()
+            .unwrap_or(false);
+            
+        if use_real_consensus {
+            info!("Using REAL Narwhal+Bullshark consensus");
+            
+            // Create and run real consensus integration
+            let real_consensus = RealConsensusIntegration::new(
+                self.chain_spec,
+                self.provider,
+                self.evm_config,
+                self.validator_key,
+                self.config,
+                self.engine_handle,
+            );
+            
+            real_consensus.run().await
+        } else {
+            info!("Using MOCK consensus for testing");
+            
+            // Create channels for batch communication
+            let (batch_sender, batch_receiver) = mpsc::unbounded_channel();
 
-        // Create channels for batch communication
-        let (batch_sender, batch_receiver) = mpsc::unbounded_channel();
+            // Start the test integration that submits blocks
+            let test_integration = TestIntegration::new(
+                self.provider.clone(),
+                self.engine_handle.clone(),
+                batch_receiver,
+            );
 
-        // Start the test integration that submits blocks
-        let test_integration = TestIntegration::new(
-            self.provider.clone(),
-            self.engine_handle.clone(),
-            batch_receiver,
-        );
+            // Spawn the integration task
+            let integration_handle = tokio::spawn(async move {
+                if let Err(e) = test_integration.run().await {
+                    error!("Test integration failed: {}", e);
+                }
+            });
 
-        // Spawn the integration task
-        let integration_handle = tokio::spawn(async move {
-            if let Err(e) = test_integration.run().await {
-                error!("Test integration failed: {}", e);
-            }
-        });
+            // Start the mock consensus that produces batches
+            let consensus_handle = tokio::spawn(self.run_mock_consensus(batch_sender));
 
-        // Start the mock consensus that produces batches
-        let consensus_handle = tokio::spawn(self.run_mock_consensus(batch_sender));
-
-        // Wait for tasks
-        tokio::select! {
-            res = integration_handle => {
-                if let Err(e) = res {
-                    error!("Integration task failed: {}", e);
+            // Wait for tasks
+            tokio::select! {
+                res = integration_handle => {
+                    if let Err(e) = res {
+                        error!("Integration task failed: {}", e);
+                    }
+                }
+                res = consensus_handle => {
+                    if let Err(e) = res {
+                        error!("Consensus task failed: {}", e);
+                    }
                 }
             }
-            res = consensus_handle => {
-                if let Err(e) = res {
-                    error!("Consensus task failed: {}", e);
-                }
-            }
+
+            Ok(())
         }
-
-        Ok(())
     }
 
     /// Run a mock consensus that produces batches

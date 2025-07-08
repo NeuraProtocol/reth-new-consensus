@@ -4,7 +4,7 @@
 use example_narwhal_bullshark_consensus::{
     ConsensusConfig, NarwhalBullsharkEngine,
     ValidatorKeyPair, ValidatorRegistry, FinalizedBatch,
-    database_integration::ConsensusIntegration,
+    node_integration::NodeIntegration,
 };
 use reth_provider::{DatabaseProviderFactory, StateProviderFactory, BlockReaderIdExt};
 use reth_node_api::BeaconConsensusEngineHandle;
@@ -18,7 +18,6 @@ use alloy_primitives::Address;
 use reth_primitives::TransactionSigned;
 use reth_node_ethereum::EthEngineTypes;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 use tracing::{info, error, warn};
 use eyre::Result;
 
@@ -101,53 +100,38 @@ where
         max_batch_size: args.max_batch_size,
         min_block_time_ms: args.min_block_time_ms,
         consensus_rpc_port: args.consensus_rpc_port,
+        consensus_port: args.network_address.port(),
         enable_admin_api: args.consensus_rpc_enable_admin,
     };
 
-    // Create channel for finalized batches
-    let (batch_sender, batch_receiver) = mpsc::unbounded_channel();
-    
-    // Create the appropriate integration based on configuration
-    // Note: Currently only engine API mode is supported
-    let use_engine_api = true; // args.use_engine_tree;
-    let integration_mode = "engine API";
-    
-    if !args.use_engine_tree {
-        warn!("Direct database mode not supported. Using engine API mode instead.");
-    }
-    
-    info!("Starting consensus integration with {} mode", integration_mode);
-    
-    let integration = ConsensusIntegration::new(
+    // Create the node integration
+    let node_integration = NodeIntegration::new(
         chain_spec.clone(),
         provider.clone(),
+        pool,
         evm_config,
-        batch_receiver,
-        use_engine_api,
-        Some(engine_handle),
-    ).map_err(|e| eyre::eyre!("Failed to create consensus integration: {}", e))?;
+        engine_handle,
+        validator_key,
+        config,
+    );
     
-    let _handle = executor.spawn_critical("narwhal-consensus-integration", Box::pin(async move {
-        if let Err(e) = integration.run().await {
+    // Check if we should use real consensus
+    let use_real_consensus = std::env::var("USE_REAL_CONSENSUS")
+        .unwrap_or_else(|_| "false".to_string())
+        .parse::<bool>()
+        .unwrap_or(false);
+        
+    if use_real_consensus {
+        info!("Starting REAL Narwhal+Bullshark consensus");
+    } else {
+        info!("Starting MOCK consensus for testing (set USE_REAL_CONSENSUS=true for real consensus)");
+    }
+    
+    let _handle = executor.spawn_critical("narwhal-consensus", Box::pin(async move {
+        if let Err(e) = node_integration.run().await {
             error!("Consensus integration failed: {}", e);
         }
     }));
-    
-    // For testing, send a mock batch
-    let test_batch = FinalizedBatch {
-        round: 1,
-        block_number: 1,
-        transactions: vec![],
-        certificate_digest: alloy_primitives::B256::random(),
-        proposer: validator_key.evm_address,
-        timestamp: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs(),
-    };
-    
-    let _ = batch_sender.send(test_batch);
-    info!("Sent test batch to {} integration", integration_mode);
 
     Ok(())
 }

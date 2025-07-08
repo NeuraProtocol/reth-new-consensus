@@ -40,6 +40,8 @@ pub struct ConsensusConfig {
     pub min_block_time_ms: u64,
     /// RPC port for consensus API
     pub consensus_rpc_port: u16,
+    /// Port for consensus P2P network
+    pub consensus_port: u16,
     /// Whether to enable admin API
     pub enable_admin_api: bool,
 }
@@ -55,6 +57,7 @@ impl Default for ConsensusConfig {
             max_batch_size: 100_000,
             min_block_time_ms: 500,
             consensus_rpc_port: 10000,
+            consensus_port: 9000,
             enable_admin_api: false,
         }
     }
