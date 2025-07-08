@@ -7,9 +7,9 @@
 use crate::{
     types::FinalizedBatch,
     block_builder::NarwhalBlockBuilder,
-    block_executor::NarwhalBlockExecutor,
+    simple_block_executor::SimpleBlockExecutor,
 };
-use reth_provider::{providers::{BlockchainProvider, ProviderNodeTypes}, BlockReaderIdExt, StateProviderFactory, BlockNumReader, BlockHashReader, BlockWriter};
+use reth_provider::{providers::{BlockchainProvider, ProviderNodeTypes}, BlockReaderIdExt, StateProviderFactory, BlockNumReader, BlockHashReader, BlockWriter, DatabaseProviderFactory};
 use reth_evm::ConfigureEvm;
 use reth_chainspec::ChainSpec;
 use std::sync::Arc;
@@ -25,7 +25,7 @@ where
     /// Block builder
     block_builder: Arc<NarwhalBlockBuilder<BlockchainProvider<N>, EvmConfig>>,
     /// Block executor
-    block_executor: Arc<NarwhalBlockExecutor<N, EvmConfig>>,
+    block_executor: Arc<SimpleBlockExecutor<BlockchainProvider<N>>>,
     /// Channel for receiving finalized batches
     batch_receiver: mpsc::UnboundedReceiver<FinalizedBatch>,
 }
@@ -33,8 +33,7 @@ where
 impl<N, EvmConfig> DatabaseIntegration<N, EvmConfig>
 where
     N: ProviderNodeTypes<Primitives = reth_ethereum_primitives::EthPrimitives>,
-    N::Provider: BlockNumReader + BlockHashReader,
-    N::ProviderRW: BlockWriter<Block = reth_primitives::Block>,
+    BlockchainProvider<N>: StateProviderFactory + DatabaseProviderFactory + BlockReaderIdExt + Clone,
     EvmConfig: ConfigureEvm<Primitives = reth_ethereum_primitives::EthPrimitives> + Clone + Send + Sync + 'static,
 {
     /// Create a new database integration
@@ -50,10 +49,9 @@ where
             evm_config.clone(),
         ));
 
-        let block_executor = Arc::new(NarwhalBlockExecutor::new(
+        let block_executor = Arc::new(SimpleBlockExecutor::new(
             provider,
             chain_spec,
-            evm_config,
         ));
 
         Self {
@@ -104,7 +102,7 @@ pub enum ConsensusIntegration<Provider, EvmConfig> {
 
 impl<Provider, EvmConfig> ConsensusIntegration<Provider, EvmConfig>
 where
-    Provider: StateProviderFactory + BlockReaderIdExt + Clone + Send + Sync + 'static,
+    Provider: StateProviderFactory + BlockReaderIdExt + DatabaseProviderFactory + Clone + Send + Sync + 'static,
     EvmConfig: ConfigureEvm + Clone + Send + Sync + 'static,
 {
     /// Create a new integration based on configuration

@@ -11,7 +11,8 @@ pub mod types;
 pub mod validator_keys;
 pub mod chain_state;
 pub mod block_builder;
-pub mod block_executor;
+// pub mod block_executor;  // Using simple_block_executor instead
+pub mod simple_block_executor;
 pub mod engine_integration;
 pub mod database_integration;
 pub mod simple_integration;

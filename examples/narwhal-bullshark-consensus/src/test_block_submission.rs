@@ -38,10 +38,12 @@ where
     
     // Create a test batch with no transactions (simplest case)
     let batch1 = FinalizedBatch {
+        round: 1,
         block_number: 1,
         timestamp: 1000,
         proposer: Address::random(),
         transactions: vec![],
+        certificate_digest: B256::random(),
     };
     
     // Build the block
@@ -56,10 +58,12 @@ where
     // Create a test batch with some transactions
     // For now, we'll use empty transactions vector since we need valid transactions
     let batch2 = FinalizedBatch {
+        round: 2,
         block_number: 2,
         timestamp: 2000,
         proposer: Address::random(),
         transactions: vec![], // TODO: Add test transactions
+        certificate_digest: B256::random(),
     };
     
     let block2 = builder.build_block(batch2)?;

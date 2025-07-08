@@ -11,10 +11,11 @@ use crate::{
     chain_state::ChainStateTracker,
 };
 use narwhal::{
-    DagService, Primary, Worker, 
+    DagService, Primary, Worker,
     types::{Committee, PublicKey as NarwhalPublicKey, Authority},
-    NetworkConfig, PrimaryConfiguration, WorkerConfiguration,
+    config::{NarwhalConfig, NetworkConfig as NarwhalNetworkConfig},
 };
+use fastcrypto::traits::ToFromBytes;
 use bullshark::{BftService, BftConfig, ChainStateProvider};
 use alloy_primitives::Address;
 use reth_chainspec::ChainSpec;
@@ -22,7 +23,7 @@ use reth_provider::{BlockReaderIdExt, StateProviderFactory, DatabaseProviderFact
 use reth_evm::ConfigureEvm;
 use reth_node_api::BeaconConsensusEngineHandle;
 use reth_ethereum_engine_primitives::EthEngineTypes;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tracing::{info, error, debug};
 use anyhow::Result;
 use std::{sync::Arc, collections::HashMap, net::SocketAddr};
@@ -96,10 +97,14 @@ where
         let committee = self.create_committee()?;
         
         // Start Narwhal (DAG construction)
-        let narwhal_handle = self.start_narwhal(&committee).await?;
+        let (narwhal_handle, certificate_sender) = self.start_narwhal(&committee).await?;
         
         // Start Bullshark (BFT consensus)
-        let bullshark_handle = self.start_bullshark(committee, batch_sender).await?;
+        let bullshark_handle = self.start_bullshark(
+            committee, 
+            certificate_sender,  // Already a receiver
+            batch_sender
+        ).await?;
         
         // Start block submission task
         let submission_handle = tokio::spawn({
@@ -167,63 +172,93 @@ where
         // In production, this would load from configuration
         let mut authorities = HashMap::new();
         
+        // Parse the base64 public key
+        let public_key = NarwhalPublicKey::from_bytes(
+            &base64::decode(&self.validator_key.consensus_public_key)
+                .map_err(|e| anyhow::anyhow!("Failed to decode public key: {}", e))?
+        ).map_err(|e| anyhow::anyhow!("Failed to parse public key: {}", e))?;
+        
         let authority = Authority {
             stake: 1, // Equal stake for now
-            primary_address: format!("127.0.0.1:{}", self.config.consensus_port)
-                .parse::<SocketAddr>()?,
-            network_public_key: self.validator_key.consensus_public_key.clone(),
-        };
-        
-        authorities.insert(
-            NarwhalPublicKey::from_bytes(&self.validator_key.consensus_public_key)?,
-            authority
-        );
-        
-        Ok(Committee::new(authorities))
-    }
-    
-    /// Start the Narwhal DAG service
-    async fn start_narwhal(&self, committee: &Committee) -> Result<tokio::task::JoinHandle<()>> {
-        let config = PrimaryConfiguration {
-            id: 0, // Single validator for now
-            committee: committee.clone(),
-            parameters: Default::default(),
-            network_config: NetworkConfig {
-                primary_address: format!("127.0.0.1:{}", self.config.consensus_port)
-                    .parse()?,
-                worker_address: format!("127.0.0.1:{}", self.config.consensus_port + 1)
-                    .parse()?,
+            primary_address: format!("127.0.0.1:{}", self.config.consensus_port),
+            network_key: public_key.clone(),
+            workers: narwhal::types::WorkerConfiguration {
+                num_workers: 0,
+                base_port: 5000,
+                base_address: "127.0.0.1".to_string(),
+                worker_ports: None,
             },
         };
         
-        // TODO: Start actual Narwhal primary and workers
-        // For now, return a dummy handle
-        Ok(tokio::spawn(async move {
-            info!("Narwhal DAG service would run here");
+        authorities.insert(public_key, authority);
+        
+        Ok(Committee::new(0, authorities))  // Epoch 0 for now
+    }
+    
+    /// Start the Narwhal DAG service
+    async fn start_narwhal(
+        &self, 
+        committee: &Committee
+    ) -> Result<(tokio::task::JoinHandle<()>, mpsc::Receiver<narwhal::types::Certificate>)> {
+        info!("Starting Narwhal DAG service");
+        
+        // For now, create a simple channel to receive certificates
+        let (tx_certificates, rx_certificates) = mpsc::channel::<narwhal::types::Certificate>(1000);
+        
+        // TODO: Properly instantiate and connect the existing DAG service
+        // The existing implementation requires:
+        // 1. Network setup with Anemo
+        // 2. Worker services
+        // 3. Storage backend
+        // 4. Proper configuration
+        
+        let handle = tokio::spawn(async move {
+            info!("Narwhal DAG service placeholder running");
+            // In production, this would run the actual DAG service from crates/narwhal/src/dag_service.rs
             tokio::time::sleep(tokio::time::Duration::from_secs(u64::MAX)).await;
-        }))
+        });
+        
+        Ok((handle, rx_certificates))
     }
     
     /// Start the Bullshark BFT service
     async fn start_bullshark(
         &self,
         committee: Committee,
+        certificate_receiver: mpsc::Receiver<narwhal::types::Certificate>,
         batch_sender: mpsc::UnboundedSender<FinalizedBatch>,
     ) -> Result<tokio::task::JoinHandle<()>> {
+        use std::time::Duration;
+        
+        info!("Starting Bullshark BFT service");
+        
+        // Parse the public key
+        let node_key = NarwhalPublicKey::from_bytes(
+            &base64::decode(&self.validator_key.consensus_public_key)
+                .map_err(|e| anyhow::anyhow!("Failed to decode public key: {}", e))?
+        ).map_err(|e| anyhow::anyhow!("Failed to parse public key: {}", e))?;
+        
         let config = BftConfig {
-            committee,
+            node_key,
             gc_depth: 50,
+            finalization_timeout: Duration::from_secs(10),
+            max_certificates_per_round: 1000,
+            leader_rotation_frequency: 10,
+            max_certificates_per_dag: 10000,
+            min_block_time: Duration::from_secs(1),
+            min_leader_round: 1,
         };
         
-        // TODO: Create and start actual BftService
-        // For now, return a dummy handle
+        // TODO: Properly instantiate the existing BftService from crates/bullshark/src/bft_service.rs
+        // For now, just send test batches
         Ok(tokio::spawn(async move {
-            info!("Bullshark BFT service would run here");
+            info!("Bullshark BFT service placeholder running");
             
-            // Temporary: Send a test batch after 5 seconds
-            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            // Send a test batch after 5 seconds
+            tokio::time::sleep(Duration::from_secs(5)).await;
             
             let test_batch = FinalizedBatch {
+                round: 1,
                 block_number: 1,
                 timestamp: std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -231,12 +266,14 @@ where
                     .as_secs(),
                 proposer: Address::random(),
                 transactions: vec![],
+                certificate_digest: alloy_primitives::B256::random(),
             };
             
             let _ = batch_sender.send(test_batch);
+            info!("Sent test batch");
             
             // Keep running
-            tokio::time::sleep(tokio::time::Duration::from_secs(u64::MAX)).await;
+            tokio::time::sleep(Duration::from_secs(u64::MAX)).await;
         }))
     }
 }

@@ -119,8 +119,8 @@ where
 
         // Create and seal the block
         let block = Block { header, body };
-        // Use the trait method to seal the block
-        let sealed_block = block.seal_slow();
+        // Seal the block by computing its hash
+        let sealed_block = SealedBlock::seal_slow(block);
 
         info!(
             "Built block #{} with {} transactions, hash: {}",

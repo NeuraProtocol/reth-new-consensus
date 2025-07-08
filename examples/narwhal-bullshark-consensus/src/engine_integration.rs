@@ -5,7 +5,6 @@
 use crate::{
     types::FinalizedBatch,
     block_builder::NarwhalBlockBuilder,
-    block_executor::NarwhalBlockExecutor,
 };
 use alloy_primitives::B256;
 use alloy_rpc_types::engine::{ForkchoiceState, PayloadStatusEnum};

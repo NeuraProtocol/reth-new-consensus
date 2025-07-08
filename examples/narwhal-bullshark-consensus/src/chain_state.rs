@@ -41,8 +41,15 @@ pub struct ChainStateTracker {
 }
 
 impl ChainStateTracker {
-    /// Create a new chain state tracker
-    pub fn new(initial_state: ChainState) -> Self {
+    /// Create a new chain state tracker with default state
+    pub fn new() -> Self {
+        Self {
+            state: Arc::new(RwLock::new(ChainState::default())),
+        }
+    }
+    
+    /// Create a new chain state tracker with initial state
+    pub fn with_state(initial_state: ChainState) -> Self {
         Self {
             state: Arc::new(RwLock::new(initial_state)),
         }
@@ -78,7 +85,23 @@ impl ChainStateTracker {
         self.state.read().await.block_hash
     }
 
-    /// Update just the block number and hash
+    /// Update just the block number and hash (synchronous version)
+    pub fn update(&self, block_number: u64, block_hash: B256) {
+        // Use try_write for non-blocking update
+        if let Ok(mut state) = self.state.try_write() {
+            state.parent_hash = state.block_hash;
+            state.block_number = block_number;
+            state.block_hash = block_hash;
+            
+            debug!(
+                "Updated chain tip to block {} ({})",
+                block_number,
+                block_hash
+            );
+        }
+    }
+    
+    /// Update just the block number and hash (async version)
     pub async fn update_tip(&self, block_number: u64, block_hash: B256) {
         let mut state = self.state.write().await;
         state.parent_hash = state.block_hash;
