@@ -1,19 +1,20 @@
 //! Engine API integration for Narwhal+Bullshark consensus
 //!
-//! This module handles the submission of blocks to Reth's engine API.
+//! This module handles the submission of execution payloads to Reth's engine API,
+//! using Path B approach: letting Reth handle execution and state root calculation.
 
 use crate::{
     types::FinalizedBatch,
-    block_builder::NarwhalBlockBuilder,
+    block_builder::NarwhalPayloadBuilder,
+    block_executor::NarwhalBlockExecutor,
 };
 use alloy_primitives::B256;
 use alloy_rpc_types::engine::{ForkchoiceState, PayloadStatusEnum};
 use reth_node_api::EngineApiMessageVersion;
-use reth_primitives::SealedBlock;
 use reth_ethereum_engine_primitives::{EthEngineTypes, EthPayloadTypes};
 use reth_payload_primitives::PayloadTypes;
-use reth_provider::{BlockReaderIdExt, StateProviderFactory, DatabaseProviderFactory};
-use reth_evm::ConfigureEvm;
+use reth_primitives::SealedBlock;
+use reth_provider::{BlockReaderIdExt, StateProviderFactory};
 use reth_chainspec::ChainSpec;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -21,36 +22,46 @@ use tracing::{info, error, warn};
 use anyhow::Result;
 
 /// Handles the integration with Reth's engine API for EVM-compatible chains
-pub struct EngineIntegration<Provider, EvmConfig> {
-    /// Block builder
-    block_builder: Arc<NarwhalBlockBuilder<Provider, EvmConfig>>,
+pub struct EngineIntegration<N> 
+where
+    N: reth_provider::providers::ProviderNodeTypes<Primitives = reth_ethereum_primitives::EthPrimitives>,
+{
+    /// Payload builder
+    payload_builder: Arc<NarwhalPayloadBuilder<reth_provider::providers::BlockchainProvider<N>>>,
+    /// Block executor for full EVM execution
+    block_executor: Arc<NarwhalBlockExecutor<N>>,
     /// Engine API handle for EVM-compatible chains
     engine_handle: reth_node_api::BeaconConsensusEngineHandle<reth_ethereum_engine_primitives::EthEngineTypes>,
     /// Channel for receiving finalized batches
     batch_receiver: mpsc::UnboundedReceiver<FinalizedBatch>,
 }
 
-impl<Provider, EvmConfig> EngineIntegration<Provider, EvmConfig>
+impl<N> EngineIntegration<N>
 where
-    Provider: StateProviderFactory + DatabaseProviderFactory + BlockReaderIdExt + Clone + Send + Sync + 'static,
-    EvmConfig: ConfigureEvm + Clone + Send + Sync + 'static,
+    N: reth_provider::providers::ProviderNodeTypes<Primitives = reth_ethereum_primitives::EthPrimitives>,
 {
     /// Create a new engine integration
     pub fn new(
         chain_spec: Arc<ChainSpec>,
-        provider: Provider,
-        evm_config: EvmConfig,
+        provider: reth_provider::providers::BlockchainProvider<N>,
+        evm_config: reth_node_ethereum::EthEvmConfig,
         engine_handle: reth_node_api::BeaconConsensusEngineHandle<reth_ethereum_engine_primitives::EthEngineTypes>,
         batch_receiver: mpsc::UnboundedReceiver<FinalizedBatch>,
     ) -> Self {
-        let block_builder = Arc::new(NarwhalBlockBuilder::new(
-            chain_spec,
+        let payload_builder = Arc::new(NarwhalPayloadBuilder::new(
+            chain_spec.clone(),
+            provider.clone(),
+        ));
+        
+        let block_executor = Arc::new(NarwhalBlockExecutor::new(
             provider,
+            chain_spec,
             evm_config,
         ));
 
         Self {
-            block_builder,
+            payload_builder,
+            block_executor,
             engine_handle,
             batch_receiver,
         }
@@ -77,27 +88,29 @@ where
             batch.transactions.len()
         );
 
-        // Build the block
-        let block = self.block_builder.build_block(batch)?;
+        // Build the basic block from consensus batch
+        let basic_block = self.payload_builder.build_block(batch).await?;
 
-        // Submit to engine API
-        self.submit_block(block).await
+        // Execute the block with full EVM execution
+        let executed_block = self.block_executor.execute_block(basic_block).await?;
+
+        // Submit the fully executed block to engine API for canonical updates
+        self.submit_block(executed_block).await
     }
 
-    /// Submit a block to the engine API
+    /// Submit a sealed block to the engine API
     async fn submit_block(&self, block: SealedBlock) -> Result<()> {
         info!(
-            "Submitting block #{} (hash: {}) to engine API",
+            "Submitting sealed block #{} (hash: {}) with {} transactions to engine API",
             block.number,
-            block.hash()
+            block.hash(),
+            block.body().transactions.len()
         );
 
-        // Convert block to execution payload for EVM-compatible chain
-        use reth_ethereum_engine_primitives::EthPayloadTypes;
-        use reth_payload_primitives::PayloadTypes;
+        // Convert sealed block to execution payload
         let payload = EthPayloadTypes::block_to_payload(block.clone());
 
-        // Submit new payload
+        // Submit new payload - this should properly execute and update canonical state
         let status = self.engine_handle
             .new_payload(payload.clone())
             .await?;
@@ -119,22 +132,22 @@ where
 
                 match fc_response.payload_status.status {
                     PayloadStatusEnum::Valid => {
-                        info!("Block #{} is now canonical", block.number);
+                        info!("Block #{} is now canonical and should update eth_blockNumber", block.number);
                     }
                     status => {
                         error!("Fork choice update failed with status: {:?}", status);
                     }
                 }
             }
-            PayloadStatusEnum::Invalid { .. } => {
+            PayloadStatusEnum::Invalid { validation_error } => {
                 error!(
                     "Block #{} rejected as INVALID: {:?}",
                     block.number,
-                    "invalid payload"
+                    validation_error
                 );
                 return Err(anyhow::anyhow!(
                     "Block rejected: {:?}",
-                    "invalid payload"
+                    validation_error
                 ));
             }
             PayloadStatusEnum::Syncing => {

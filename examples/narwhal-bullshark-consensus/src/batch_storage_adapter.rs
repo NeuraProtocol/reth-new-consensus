@@ -1,7 +1,8 @@
 //! Storage adapter for Narwhal worker batches
 
 use crate::consensus_storage::MdbxConsensusStorage;
-use narwhal::BatchDigest;
+use narwhal::{BatchDigest, Batch};
+use fastcrypto::Hash;
 use std::sync::Arc;
 use tracing::{debug, error};
 
@@ -20,12 +21,12 @@ impl BatchStorageAdapter {
     pub fn store_batch(&self, digest: &BatchDigest, data: &[u8]) -> anyhow::Result<()> {
         debug!(
             "Storing batch {} ({} bytes)",
-            hex::encode(digest),
+            hex::encode(&digest.0),
             data.len()
         );
         
         // Use the batch digest as key
-        let key = digest.to_vec();
+        let key = digest.0.to_vec();
         
         // Store in MDBX
         self.storage.store_batch(&key, data)?;
@@ -35,16 +36,16 @@ impl BatchStorageAdapter {
 
     /// Retrieve a batch by digest
     pub fn get_batch(&self, digest: &BatchDigest) -> anyhow::Result<Option<Vec<u8>>> {
-        let key = digest.to_vec();
+        let key = digest.0.to_vec();
         self.storage.get_batch(&key)
     }
 
     /// Delete a batch
     pub fn delete_batch(&self, digest: &BatchDigest) -> anyhow::Result<()> {
-        let key = digest.to_vec();
-        self.storage.delete_batch(&key)?;
+        let key = digest.0.to_vec();
+        self.storage.delete_worker_batch(&key)?;
         
-        debug!("Deleted batch {}", hex::encode(digest));
+        debug!("Deleted batch {}", hex::encode(&digest.0));
         Ok(())
     }
 
@@ -76,8 +77,13 @@ pub struct WorkerBatch {
 impl WorkerBatch {
     /// Create a new worker batch
     pub fn new(transactions: Vec<Vec<u8>>, worker_id: u32) -> Self {
-        let data = bincode::serialize(&transactions).unwrap();
-        let digest = BatchDigest::new(&data);
+        // Create a Batch from transactions and compute its digest
+        let narwhal_transactions: Vec<narwhal::Transaction> = transactions
+            .iter()
+            .map(|tx| narwhal::Transaction::from_bytes(tx.clone()))
+            .collect();
+        let batch = Batch(narwhal_transactions);
+        let digest = batch.digest();
         
         Self {
             digest,

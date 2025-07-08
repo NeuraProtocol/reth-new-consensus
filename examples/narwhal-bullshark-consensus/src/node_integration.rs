@@ -5,14 +5,15 @@
 
 use crate::{
     types::{FinalizedBatch, ConsensusConfig},
-    test_integration::TestIntegration,
+    // test_integration::TestIntegration, // Disabled - focusing on production
     real_consensus_integration::RealConsensusIntegration,
     validator_keys::ValidatorKeyPair,
+    mempool_bridge::MempoolBridge,
 };
 use alloy_primitives::{B256, Address};
 use reth_primitives::TransactionSigned;
 use reth_provider::BlockReaderIdExt;
-use reth_transaction_pool::TransactionPool;
+use reth_transaction_pool::{TransactionPool, TransactionPoolExt, PoolTransaction};
 use tokio::sync::mpsc;
 use tokio::time::{interval, Duration};
 use tracing::{info, error, debug};
@@ -39,7 +40,8 @@ pub struct NodeIntegration<Provider, Pool, EvmConfig> {
 impl<Provider, Pool, EvmConfig> NodeIntegration<Provider, Pool, EvmConfig>
 where
     Provider: reth_provider::StateProviderFactory + reth_provider::DatabaseProviderFactory + BlockReaderIdExt + Clone + Send + Sync + 'static,
-    Pool: TransactionPool + Clone + Send + Sync + 'static,
+    Pool: TransactionPool + TransactionPoolExt + Clone + Send + Sync + 'static,
+    <Pool::Transaction as PoolTransaction>::Consensus: Into<TransactionSigned> + Send,
     EvmConfig: reth_evm::ConfigureEvm + Clone + Send + Sync + 'static,
 {
     /// Create a new node integration
@@ -93,7 +95,13 @@ where
             // Create channels for batch communication
             let (batch_sender, batch_receiver) = mpsc::unbounded_channel();
 
+            // Create mempool bridge to get transactions
+            let mempool_bridge = MempoolBridge::new(std::sync::Arc::new(self.pool.clone()));
+            let tx_receiver = mempool_bridge.start();
+
             // Start the test integration that submits blocks
+            // TODO: Implement proper test integration or remove this path
+            /*
             let test_integration = TestIntegration::new(
                 self.provider.clone(),
                 self.engine_handle.clone(),
@@ -106,17 +114,15 @@ where
                     error!("Test integration failed: {}", e);
                 }
             });
+            */
+            
+            return Err(anyhow::anyhow!("Test integration disabled - use real consensus instead"));
 
             // Start the mock consensus that produces batches
-            let consensus_handle = tokio::spawn(self.run_mock_consensus(batch_sender));
+            let consensus_handle = tokio::spawn(self.run_mock_consensus(batch_sender, tx_receiver));
 
             // Wait for tasks
             tokio::select! {
-                res = integration_handle => {
-                    if let Err(e) = res {
-                        error!("Integration task failed: {}", e);
-                    }
-                }
                 res = consensus_handle => {
                     if let Err(e) = res {
                         error!("Consensus task failed: {}", e);
@@ -133,48 +139,61 @@ where
     async fn run_mock_consensus(
         self,
         batch_sender: mpsc::UnboundedSender<FinalizedBatch>,
+        mut tx_receiver: mpsc::UnboundedReceiver<<Pool::Transaction as PoolTransaction>::Consensus>,
     ) -> Result<()> {
         info!("Starting mock consensus (produces a block every {} ms)", self.config.min_block_time_ms);
 
         let mut ticker = interval(Duration::from_millis(self.config.min_block_time_ms));
         let mut round = 0u64;
+        let mut pending_txs: Vec<TransactionSigned> = Vec::new();
 
         loop {
-            ticker.tick().await;
-            round += 1;
+            tokio::select! {
+                // Collect new transactions as they arrive
+                Some(tx) = tx_receiver.recv() => {
+                    // Convert from pool consensus type to TransactionSigned
+                    let tx_signed: TransactionSigned = tx.into();
+                    debug!("Received transaction: {}", tx_signed.hash());
+                    pending_txs.push(tx_signed);
+                }
+                
+                // Create blocks on timer
+                _ = ticker.tick() => {
+                    round += 1;
 
-            // Get current block number
-            let current_block = self.provider.best_block_number()?;
-            let next_block = current_block + 1;
+                    // Get current block number
+                    let current_block = self.provider.best_block_number()?;
+                    let next_block = current_block + 1;
 
-            // Get pending transactions from the pool
-            // For now, create an empty block since we don't know the exact pool transaction type
-            let transactions: Vec<TransactionSigned> = vec![];
+                    // Take all pending transactions for this block
+                    let transactions = std::mem::take(&mut pending_txs);
 
-            debug!(
-                "Mock consensus round {} creating block #{} with {} transactions",
-                round,
-                next_block,
-                transactions.len()
-            );
+                    debug!(
+                        "Mock consensus round {} creating block #{} with {} transactions",
+                        round,
+                        next_block,
+                        transactions.len()
+                    );
 
-            // Create a finalized batch
-            let batch = FinalizedBatch {
-                round,
-                block_number: next_block,
-                transactions,
-                certificate_digest: B256::random(),
-                proposer: self.validator_key.evm_address,
-                timestamp: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs(),
-            };
+                    // Create a finalized batch
+                    let batch = FinalizedBatch {
+                        round,
+                        block_number: next_block,
+                        transactions,
+                        certificate_digest: B256::random(),
+                        proposer: self.validator_key.evm_address,
+                        timestamp: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs(),
+                    };
 
-            // Send to integration
-            if batch_sender.send(batch).is_err() {
-                info!("Integration closed, stopping consensus");
-                break;
+                    // Send to integration
+                    if batch_sender.send(batch).is_err() {
+                        info!("Integration closed, stopping consensus");
+                        break;
+                    }
+                }
             }
         }
 

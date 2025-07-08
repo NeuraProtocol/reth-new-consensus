@@ -2,6 +2,7 @@
 
 use crate::consensus_storage::MdbxConsensusStorage;
 use narwhal::types::{Certificate, CertificateDigest};
+use fastcrypto::Hash;
 type Round = u64;
 use bullshark::dag::Dag;
 use alloy_primitives::B256;
@@ -26,7 +27,7 @@ impl DagStorageAdapter {
         
         debug!(
             "Storing certificate {} at round {}",
-            hex::encode(&digest),
+            hex::encode(digest.as_bytes()),
             round
         );
         
@@ -34,10 +35,10 @@ impl DagStorageAdapter {
         let data = bincode::serialize(certificate)?;
         
         // Store in MDBX via consensus storage
-        self.storage.store_certificate(digest.as_ref(), &data)?;
+        self.storage.store_certificate(digest.as_bytes(), data)?;
         
         // Also index by round for efficient queries
-        self.storage.add_certificate_to_round(round, digest.as_ref())?;
+        self.storage.index_certificate_by_round(round, digest.as_bytes())?;
         
         Ok(())
     }

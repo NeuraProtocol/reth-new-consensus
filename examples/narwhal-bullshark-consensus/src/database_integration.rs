@@ -6,8 +6,8 @@
 
 use crate::{
     types::FinalizedBatch,
-    block_builder::NarwhalBlockBuilder,
-    simple_block_executor::SimpleBlockExecutor,
+    block_builder::NarwhalPayloadBuilder,
+    block_executor::NarwhalBlockExecutor,
 };
 use reth_provider::{providers::{BlockchainProvider, ProviderNodeTypes}, BlockReaderIdExt, StateProviderFactory, BlockNumReader, BlockHashReader, BlockWriter, DatabaseProviderFactory};
 use reth_evm::ConfigureEvm;
@@ -18,44 +18,43 @@ use tracing::{info, error, warn};
 use anyhow::Result;
 
 /// Handles direct database persistence of blocks from consensus
-pub struct DatabaseIntegration<N, EvmConfig> 
+pub struct DatabaseIntegration<N> 
 where
     N: ProviderNodeTypes<Primitives = reth_ethereum_primitives::EthPrimitives>,
 {
-    /// Block builder
-    block_builder: Arc<NarwhalBlockBuilder<BlockchainProvider<N>, EvmConfig>>,
-    /// Block executor
-    block_executor: Arc<SimpleBlockExecutor<BlockchainProvider<N>>>,
+    /// Payload builder for creating blocks from batches
+    payload_builder: Arc<NarwhalPayloadBuilder<BlockchainProvider<N>>>,
+    /// Block executor for direct database persistence
+    block_executor: Arc<crate::block_executor::NarwhalBlockExecutor<N>>,
     /// Channel for receiving finalized batches
     batch_receiver: mpsc::UnboundedReceiver<FinalizedBatch>,
 }
 
-impl<N, EvmConfig> DatabaseIntegration<N, EvmConfig>
+impl<N> DatabaseIntegration<N>
 where
     N: ProviderNodeTypes<Primitives = reth_ethereum_primitives::EthPrimitives>,
     BlockchainProvider<N>: StateProviderFactory + DatabaseProviderFactory + BlockReaderIdExt + Clone,
-    EvmConfig: ConfigureEvm<Primitives = reth_ethereum_primitives::EthPrimitives> + Clone + Send + Sync + 'static,
 {
     /// Create a new database integration
     pub fn new(
         chain_spec: Arc<ChainSpec>,
         provider: BlockchainProvider<N>,
-        evm_config: EvmConfig,
+        evm_config: reth_node_ethereum::EthEvmConfig,
         batch_receiver: mpsc::UnboundedReceiver<FinalizedBatch>,
     ) -> Self {
-        let block_builder = Arc::new(NarwhalBlockBuilder::new(
+        let payload_builder = Arc::new(NarwhalPayloadBuilder::new(
             chain_spec.clone(),
             provider.clone(),
-            evm_config.clone(),
         ));
 
-        let block_executor = Arc::new(SimpleBlockExecutor::new(
+        let block_executor = Arc::new(crate::block_executor::NarwhalBlockExecutor::new(
             provider,
             chain_spec,
+            evm_config,
         ));
 
         Self {
-            block_builder,
+            payload_builder,
             block_executor,
             batch_receiver,
         }
@@ -82,33 +81,35 @@ where
             batch.transactions.len()
         );
 
-        // Build the block
-        let block = self.block_builder.build_block(batch)?;
+        // Build the sealed block
+        let sealed_block = self.payload_builder.build_block(batch).await?;
 
         // Execute and persist directly to database
-        self.block_executor.execute_and_persist_block(block).await?;
+        self.block_executor.execute_and_persist_block(sealed_block).await?;
 
         Ok(())
     }
 }
 
 /// Simple wrapper to provide both engine and database integration options
-pub enum ConsensusIntegration<Provider, EvmConfig> {
+pub enum ConsensusIntegration<Provider, Pool, EvmConfig> {
     /// Use engine API for block submission
-    Engine(crate::engine_integration::EngineIntegration<Provider, EvmConfig>),
+    Engine(crate::engine_integration::EngineIntegration<Provider>),
     /// Use direct database writes - for providers that are BlockchainProvider<N>
     Database(Box<dyn std::any::Any + Send>),
 }
 
-impl<Provider, EvmConfig> ConsensusIntegration<Provider, EvmConfig>
+impl<Provider, Pool, EvmConfig> ConsensusIntegration<Provider, Pool, EvmConfig>
 where
-    Provider: StateProviderFactory + BlockReaderIdExt + DatabaseProviderFactory + Clone + Send + Sync + 'static,
-    EvmConfig: ConfigureEvm + Clone + Send + Sync + 'static,
+    Provider: StateProviderFactory + BlockReaderIdExt + Clone + Send + Sync + Unpin + 'static,
+    Pool: reth_transaction_pool::TransactionPool + Clone + Unpin + 'static,
+    EvmConfig: reth_evm::ConfigureEvm + Clone + Unpin + 'static,
 {
     /// Create a new integration based on configuration
     pub fn new(
         chain_spec: Arc<ChainSpec>,
         provider: Provider,
+        pool: Pool,
         evm_config: EvmConfig,
         batch_receiver: mpsc::UnboundedReceiver<FinalizedBatch>,
         use_engine_api: bool,
@@ -119,7 +120,6 @@ where
                 Ok(Self::Engine(crate::engine_integration::EngineIntegration::new(
                     chain_spec,
                     provider,
-                    evm_config,
                     engine,
                     batch_receiver,
                 )))

@@ -1,16 +1,14 @@
 //! Bridge between Reth's transaction pool and Narwhal+Bullshark consensus
 
-use reth_transaction_pool::{TransactionPool, TransactionPoolExt};
+use reth_transaction_pool::{TransactionPool, TransactionPoolExt, PoolTransaction};
 use reth_primitives::TransactionSigned;
 use tokio::sync::mpsc;
-use futures::StreamExt;
 use tracing::{info, debug, warn};
 use std::sync::Arc;
 
 /// Bridge that forwards transactions from Reth's pool to consensus
 pub struct MempoolBridge<Pool> {
     pool: Arc<Pool>,
-    tx_sender: mpsc::UnboundedSender<TransactionSigned>,
 }
 
 impl<Pool> MempoolBridge<Pool>
@@ -18,30 +16,14 @@ where
     Pool: TransactionPool + TransactionPoolExt + Send + Sync + 'static,
 {
     /// Create a new mempool bridge
-    pub fn new(pool: Arc<Pool>) -> (Self, mpsc::UnboundedReceiver<TransactionSigned>) {
-        let (tx_sender, tx_receiver) = mpsc::unbounded_channel();
-        
+    pub fn new(pool: Arc<Pool>) -> Self {
         Self {
             pool,
-            tx_sender,
         }
-        .into_parts()
-    }
-
-    /// Split into bridge and receiver
-    fn into_parts(self) -> (Self, mpsc::UnboundedReceiver<TransactionSigned>) {
-        let (tx_sender, tx_receiver) = mpsc::unbounded_channel();
-        
-        let bridge = Self {
-            pool: self.pool,
-            tx_sender,
-        };
-        
-        (bridge, tx_receiver)
     }
 
     /// Start the bridge
-    pub fn start(self) -> mpsc::UnboundedReceiver<TransactionSigned> {
+    pub fn start(self) -> mpsc::UnboundedReceiver<<Pool::Transaction as PoolTransaction>::Consensus> {
         let (tx_sender, tx_receiver) = mpsc::unbounded_channel();
         let pool = self.pool;
 
@@ -52,7 +34,10 @@ where
             info!("Forwarding {} existing pending transactions to consensus", pending.len());
             
             for tx in pending {
-                let tx_signed = tx.to_consensus().into_inner();
+                // to_consensus() returns Recovered<TransactionSigned>
+                // We need to extract the TransactionSigned from the Recovered wrapper
+                let recovered_tx = tx.to_consensus();
+                let (tx_signed, _signer) = recovered_tx.into_parts();
                 if tx_sender.send(tx_signed).is_err() {
                     warn!("Failed to forward transaction - consensus stopped");
                     return;
@@ -62,10 +47,13 @@ where
             // Then listen for new transactions
             let mut new_txs = pool.new_transactions_listener();
             
-            while let Some(event) = new_txs.next().await {
+            while let Some(event) = new_txs.recv().await {
                 debug!("New transaction in pool: {}", event.transaction.hash());
                 
-                let tx_signed = event.transaction.to_consensus().into_inner();
+                // to_consensus() returns Recovered<TransactionSigned>
+                // We need to extract the TransactionSigned from the Recovered wrapper
+                let recovered_tx = event.transaction.to_consensus();
+                let (tx_signed, _signer) = recovered_tx.into_parts();
                 if tx_sender.send(tx_signed).is_err() {
                     warn!("Failed to forward transaction - consensus stopped");
                     break;

@@ -5,7 +5,7 @@
 
 use crate::{
     types::{FinalizedBatch, ConsensusConfig},
-    payload_builder::NarwhalPayloadBuilder,
+    block_builder::NarwhalPayloadBuilder,
 };
 use alloy_primitives::{B256, Address};
 use reth_provider::{
@@ -43,7 +43,7 @@ pub struct NarwhalRethIntegration<Provider, Pool, EvmConfig> {
     /// Channel for sending finalized batches to consensus
     batch_sender: mpsc::UnboundedSender<FinalizedBatch>,
     /// Payload builder for creating blocks
-    payload_builder: Arc<NarwhalPayloadBuilder<Provider, Pool, EvmConfig>>,
+    payload_builder: Arc<NarwhalPayloadBuilder<Provider>>,
     /// Current chain state
     chain_state: Arc<RwLock<ChainState>>,
 }
@@ -80,13 +80,10 @@ where
         }));
 
         // Create payload builder
-        let (_, builder_receiver) = mpsc::unbounded_channel();
+        let (_, builder_receiver): (mpsc::UnboundedSender<()>, mpsc::UnboundedReceiver<()>) = mpsc::unbounded_channel();
         let payload_builder = Arc::new(NarwhalPayloadBuilder::new(
             chain_spec.clone(),
             provider.clone(),
-            pool.clone(),
-            evm_config.clone(),
-            builder_receiver,
         ));
 
         Self {
@@ -137,7 +134,7 @@ where
         );
 
         // Build the block using our payload builder
-        let block = self.payload_builder.build_payload(batch.clone()).await
+        let block = self.payload_builder.build_block(batch.clone()).await
             .map_err(|e| anyhow::anyhow!("Failed to build payload: {:?}", e))?;
 
         // Submit to engine API

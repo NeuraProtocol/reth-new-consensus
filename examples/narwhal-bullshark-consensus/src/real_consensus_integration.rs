@@ -6,7 +6,7 @@
 
 use crate::{
     types::{FinalizedBatch, ConsensusConfig},
-    block_builder::NarwhalBlockBuilder,
+    block_builder::NarwhalPayloadBuilder,
     validator_keys::ValidatorKeyPair,
     chain_state::ChainStateTracker,
 };
@@ -77,12 +77,8 @@ where
     pub async fn run(self) -> Result<()> {
         info!("Starting real Narwhal+Bullshark consensus");
         
-        // Create block builder
-        let block_builder = Arc::new(NarwhalBlockBuilder::new(
-            self.chain_spec.clone(),
-            self.provider.clone(),
-            self.evm_config.clone(),
-        ));
+        // Note: Block builder is now created inside the integration layers
+        // that handle the actual block submission (engine or database integration)
         
         // Create channels for batch communication
         let (batch_sender, mut batch_receiver) = mpsc::unbounded_channel::<FinalizedBatch>();
@@ -110,8 +106,16 @@ where
         let submission_handle = tokio::spawn({
             let engine_handle = self.engine_handle.clone();
             let chain_state = self.chain_state.clone();
+            let chain_spec = self.chain_spec.clone();
+            let provider = self.provider.clone();
             
             async move {
+                // Create payload builder inside the task
+                let payload_builder = NarwhalPayloadBuilder::new(
+                    chain_spec,
+                    provider,
+                );
+                
                 while let Some(batch) = batch_receiver.recv().await {
                     debug!(
                         "Received finalized batch for block #{} with {} transactions",
@@ -120,7 +124,7 @@ where
                     );
                     
                     // Build the block
-                    match block_builder.build_block(batch.clone()) {
+                    match payload_builder.build_block(batch.clone()).await {
                         Ok(sealed_block) => {
                             info!(
                                 "Built block #{} with hash: {}",
@@ -168,30 +172,89 @@ where
     
     /// Create committee from validator configuration
     fn create_committee(&self) -> Result<Committee> {
-        // For now, create a single-validator committee
-        // In production, this would load from configuration
+        info!("Loading committee from validator configuration directory: {}", self.config.validator_config_dir);
+        
         let mut authorities = HashMap::new();
+        let config_dir = std::path::Path::new(&self.config.validator_config_dir);
         
-        // Parse the base64 public key
-        let public_key = NarwhalPublicKey::from_bytes(
-            &base64::decode(&self.validator_key.consensus_public_key)
-                .map_err(|e| anyhow::anyhow!("Failed to decode public key: {}", e))?
-        ).map_err(|e| anyhow::anyhow!("Failed to parse public key: {}", e))?;
+        // Load all validator JSON files from the config directory
+        let validator_files = std::fs::read_dir(config_dir)
+            .map_err(|e| anyhow::anyhow!("Failed to read validator config dir: {}", e))?;
+            
+        for entry in validator_files {
+            let entry = entry?;
+            let path = entry.path();
+            
+            // Only process .json files
+            if path.extension().and_then(|s| s.to_str()) != Some("json") {
+                continue;
+            }
+            
+            // Skip if this is committee.json or other non-validator files
+            let filename = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+            if !filename.starts_with("validator-") {
+                continue;
+            }
+            
+            info!("Loading validator from: {}", path.display());
+            
+            // Load the validator configuration
+            let validator_key = ValidatorKeyPair::from_file(&path.to_string_lossy())
+                .map_err(|e| anyhow::anyhow!("Failed to load validator {}: {}", path.display(), e))?;
+                
+            // Skip inactive validators
+            if !validator_key.active {
+                info!("Skipping inactive validator: {}", validator_key.name);
+                continue;
+            }
+            
+            // Parse the public key
+            let consensus_public_key = validator_key.consensus_public_key.as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Validator {} has no consensus public key", validator_key.name))?;
+            let public_key = NarwhalPublicKey::from_bytes(
+                &base64::decode(consensus_public_key)
+                    .map_err(|e| anyhow::anyhow!("Failed to decode public key: {}", e))?
+            ).map_err(|e| anyhow::anyhow!("Failed to parse public key: {}", e))?;
+            
+            // Parse worker port range
+            let (worker_base_port, num_workers) = if let Some(port_range) = &validator_key.worker_port_range {
+                let parts: Vec<&str> = port_range.split(':').collect();
+                if parts.len() == 2 {
+                    let start_port = parts[0].parse::<u16>()
+                        .map_err(|e| anyhow::anyhow!("Invalid worker port range: {}", e))?;
+                    let end_port = parts[1].parse::<u16>()
+                        .map_err(|e| anyhow::anyhow!("Invalid worker port range: {}", e))?;
+                    (start_port, (end_port - start_port + 1) as usize)
+                } else {
+                    (5000, 4) // Default
+                }
+            } else {
+                (5000, 4) // Default
+            };
+            
+            let authority = Authority {
+                stake: validator_key.stake,
+                primary_address: validator_key.network_address.clone(),
+                network_key: public_key.clone(),
+                workers: narwhal::types::WorkerConfiguration {
+                    num_workers: num_workers as u32,
+                    base_port: worker_base_port,
+                    base_address: validator_key.network_address.split(':').next().unwrap_or("127.0.0.1").to_string(),
+                    worker_ports: None,
+                },
+            };
+            
+            info!("Added validator {} to committee with stake {} and {} workers", 
+                validator_key.name, validator_key.stake, num_workers);
+            
+            authorities.insert(public_key, authority);
+        }
         
-        let authority = Authority {
-            stake: 1, // Equal stake for now
-            primary_address: format!("127.0.0.1:{}", self.config.consensus_port),
-            network_key: public_key.clone(),
-            workers: narwhal::types::WorkerConfiguration {
-                num_workers: 0,
-                base_port: 5000,
-                base_address: "127.0.0.1".to_string(),
-                worker_ports: None,
-            },
-        };
+        if authorities.is_empty() {
+            return Err(anyhow::anyhow!("No active validators found in configuration directory"));
+        }
         
-        authorities.insert(public_key, authority);
-        
+        info!("Created committee with {} validators", authorities.len());
         Ok(Committee::new(0, authorities))  // Epoch 0 for now
     }
     
@@ -233,8 +296,10 @@ where
         info!("Starting Bullshark BFT service");
         
         // Parse the public key
+        let consensus_public_key = self.validator_key.consensus_public_key.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Validator has no consensus public key"))?;
         let node_key = NarwhalPublicKey::from_bytes(
-            &base64::decode(&self.validator_key.consensus_public_key)
+            &base64::decode(consensus_public_key)
                 .map_err(|e| anyhow::anyhow!("Failed to decode public key: {}", e))?
         ).map_err(|e| anyhow::anyhow!("Failed to parse public key: {}", e))?;
         
