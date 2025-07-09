@@ -71,7 +71,7 @@ pub async fn initialize_narwhal_consensus<Pool, Provider, EvmConfig, Executor>(
 ) -> Result<()>
 where
     Pool: TransactionPool + Clone + 'static,
-    Provider: DatabaseProviderFactory + StateProviderFactory + BlockReaderIdExt + Clone + 'static,
+    Provider: DatabaseProviderFactory + StateProviderFactory + BlockReaderIdExt + Clone + 'static + std::fmt::Debug,
     EvmConfig: ConfigureEvm + Clone + 'static,
     Executor: TaskSpawner + Clone + 'static,
 {
@@ -89,14 +89,20 @@ where
     // Create consensus config
     let config = ConsensusConfig {
         network_addr: args.network_address,
-        peer_addresses: args.peer_addresses.clone(),
         validator_key_file: validator_key.name.clone(),
         validator_config_dir: args.validator_config_dir
             .clone()
             .unwrap_or_else(|| std::path::PathBuf::from("validators"))
             .to_string_lossy()
             .to_string(),
+        committee_config_file: args.committee_config_file
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string()),
         max_batch_delay_ms: args.max_batch_delay_ms,
+        node_public_key: validator_key.public_key()
+            .map_err(|e| eyre::eyre!("Failed to get public key: {}", e))?,
+        consensus_private_key_bytes: validator_key.private_key_bytes()
+            .map_err(|e| eyre::eyre!("Failed to get private key bytes: {}", e))?,
         max_batch_size: args.max_batch_size,
         min_block_time_ms: args.min_block_time_ms,
         consensus_rpc_port: args.consensus_rpc_port,
