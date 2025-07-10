@@ -853,7 +853,7 @@ impl NarwhalRethBridge {
     }
     
     /// Update chain state with full block information for proper parent caching
-    pub async fn update_chain_state_with_block_info(&self, block_number: u64, block_hash: B256, gas_limit: u64, gas_used: u64, base_fee: u64) {
+    pub async fn update_chain_state_with_block_info(&self, block_number: u64, block_hash: B256, gas_limit: u64, gas_used: u64, base_fee: u64, timestamp: u64) {
         // Cache this block's info as the parent for the next block
         if let Ok(mut guard) = self.parent_block_info.lock() {
             *guard = Some((gas_limit, gas_used, base_fee));
@@ -861,10 +861,10 @@ impl NarwhalRethBridge {
         
         info!("Updated parent block cache: gas_limit={}, gas_used={}, base_fee={}", gas_limit, gas_used, base_fee);
         
-        // Update the consensus service chain state
+        // Update the consensus service chain state with timestamp
         if let Some(ref service) = self.service {
-            service.update_chain_state(block_number, block_hash).await;
-            info!("Updated consensus service chain state: block {} hash {}", block_number, block_hash);
+            service.update_chain_state_with_timestamp(block_number, block_hash, timestamp).await;
+            info!("Updated consensus service chain state: block {} hash {} timestamp {}", block_number, block_hash, timestamp);
         }
     }
     

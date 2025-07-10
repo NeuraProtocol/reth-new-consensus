@@ -12,6 +12,8 @@ pub struct ChainState {
     pub block_number: u64,
     /// Current parent hash
     pub parent_hash: B256,
+    /// Parent block timestamp (to ensure monotonic timestamps)
+    pub parent_timestamp: u64,
 }
 
 impl Default for ChainState {
@@ -19,6 +21,7 @@ impl Default for ChainState {
         Self {
             block_number: 0,
             parent_hash: B256::ZERO,
+            parent_timestamp: 0,
         }
     }
 }

@@ -310,9 +310,10 @@ where
                             block.hash(),
                             block.gas_limit,
                             block.gas_used,
-                            block.base_fee_per_gas.unwrap_or(875_000_000)
+                            block.base_fee_per_gas.unwrap_or(875_000_000),
+                            block.timestamp
                         ).await;
-                        info!("Updated consensus chain state to block {} hash {} with parent info", block.number, block.hash());
+                        info!("Updated consensus chain state to block {} hash {} timestamp {}", block.number, block.hash(), block.timestamp);
                     }
                     _ => {
                         tracing::error!("Fork choice update failed for block #{}", block.number);

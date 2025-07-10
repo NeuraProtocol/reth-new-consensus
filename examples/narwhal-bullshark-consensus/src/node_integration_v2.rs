@@ -124,7 +124,7 @@ where
                         batch.block_number, batch.transactions.len());
                     
                     // Build block using Reth's execution engine
-                    match self.build_and_submit_block(batch, &payload_builder).await {
+                    match self.build_and_submit_block(batch, &payload_builder, &bridge).await {
                         Ok(()) => info!("Successfully built and submitted block"),
                         Err(e) => error!("Failed to build/submit block: {}", e),
                     }
@@ -148,6 +148,7 @@ where
         &self,
         batch: FinalizedBatch,
         payload_builder: &RethPayloadBuilderIntegration<Provider, EvmConfig>,
+        bridge: &NarwhalRethBridge,
     ) -> Result<()> {
         // Use Reth's block executor to build the block
         let sealed_block = payload_builder.build_block_from_batch(batch).await
@@ -182,6 +183,17 @@ where
                 match fc_response.payload_status.status {
                     PayloadStatusEnum::Valid => {
                         info!("Block #{} is now canonical", sealed_block.number);
+                        
+                        // CRITICAL: Update consensus chain state so it knows to produce the next block
+                        bridge.update_chain_state_with_block_info(
+                            sealed_block.number,
+                            sealed_block.hash(),
+                            sealed_block.gas_limit,
+                            sealed_block.gas_used,
+                            sealed_block.base_fee_per_gas.unwrap_or(875_000_000),
+                            sealed_block.timestamp
+                        ).await;
+                        info!("Updated consensus chain state to block {} hash {} timestamp {}", sealed_block.number, sealed_block.hash(), sealed_block.timestamp);
                     }
                     _ => {
                         error!("Fork choice update failed for block #{}", sealed_block.number);

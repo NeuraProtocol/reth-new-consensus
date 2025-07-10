@@ -791,6 +791,22 @@ impl NarwhalBullsharkService {
         }
     }
     
+    /// Update chain state with timestamp from external source
+    pub async fn update_chain_state_with_timestamp(&self, block_number: u64, parent_hash: B256, timestamp: u64) {
+        // Update the full chain state including timestamp
+        let mut state = self.chain_state.get_state().await;
+        state.parent_hash = state.block_hash;
+        state.block_number = block_number;
+        state.block_hash = parent_hash;
+        state.timestamp = timestamp;
+        self.chain_state.update_state(state).await;
+        
+        // Also update the chain state adapter with timestamp
+        if let Some(ref adapter) = self.chain_state_adapter {
+            adapter.update_with_timestamp(block_number, parent_hash, timestamp);
+        }
+    }
+    
     /// Update chain state synchronously (for non-async contexts)
     pub fn update_chain_state_sync(&self, block_number: u64, parent_hash: B256) {
         let chain_state = self.chain_state.clone();

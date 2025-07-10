@@ -25,6 +25,15 @@ impl ChainStateAdapter {
         }
     }
     
+    /// Update the chain state with timestamp
+    pub fn update_with_timestamp(&self, block_number: u64, parent_hash: alloy_primitives::B256, timestamp: u64) {
+        if let Ok(mut state) = self.state.lock() {
+            state.block_number = block_number;
+            state.parent_hash = parent_hash;
+            state.timestamp = timestamp;
+        }
+    }
+    
     /// Get a clone of the Arc for sharing
     pub fn clone_arc(&self) -> Arc<Mutex<ChainState>> {
         self.state.clone()
@@ -38,6 +47,7 @@ impl ChainStateProvider for ChainStateAdapter {
         BullsharkChainState {
             block_number: state.block_number,
             parent_hash: state.parent_hash,
+            parent_timestamp: state.timestamp,
         }
     }
 }

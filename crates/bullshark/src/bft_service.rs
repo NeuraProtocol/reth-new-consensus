@@ -418,17 +418,19 @@ impl BftService {
         round: u64,
         certificates: Vec<Certificate>,
     ) -> BullsharkResult<FinalizedBatchInternal> {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-
         // Get chain state
         let chain_state = self.chain_state.get_chain_state();
         let parent_hash = chain_state.parent_hash;
         // The chain state contains the last created block number
         // The next block should be block_number + 1
         let block_number = chain_state.block_number + 1;
+        
+        // Ensure monotonic timestamps - must be strictly greater than parent
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let timestamp = current_time.max(chain_state.parent_timestamp + 1);
 
         let batch = FinalizedBatchInternal {
             block_number,

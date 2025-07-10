@@ -98,7 +98,7 @@ where
                     timestamp: batch.timestamp,
                     suggested_fee_recipient: batch.proposer,
                     prev_randao: B256::random(), // For post-merge
-                    gas_limit: 30_000_000, // Standard gas limit
+                    gas_limit: parent_header.gas_limit(), // Use parent's gas limit to avoid validation errors
                     parent_beacon_block_root: Some(B256::ZERO),
                     withdrawals: Some(vec![].into()),
                 },
