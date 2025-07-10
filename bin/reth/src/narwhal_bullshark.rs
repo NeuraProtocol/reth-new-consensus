@@ -4,13 +4,14 @@
 use example_narwhal_bullshark_consensus::{
     ConsensusConfig, NarwhalBullsharkEngine,
     ValidatorKeyPair, ValidatorRegistry, FinalizedBatch,
-    node_integration::NodeIntegration,
+    node_integration_v2::NodeIntegrationV2,
 };
-use reth_provider::{DatabaseProviderFactory, StateProviderFactory, BlockReaderIdExt};
+use reth_provider::{DatabaseProviderFactory, StateProviderFactory, BlockReaderIdExt, HeaderProvider};
 use reth_node_api::BeaconConsensusEngineHandle;
 use reth_transaction_pool::TransactionPool;
 use reth_chainspec::ChainSpec;
-use reth_evm::ConfigureEvm;
+use reth_evm::{ConfigureEvm, NextBlockEnvAttributes};
+use reth_primitives::EthPrimitives;
 use reth_tasks::TaskSpawner;
 use reth_node_core::args::NarwhalBullsharkArgs;
 use reth_rpc_builder::RpcModuleBuilder;
@@ -70,9 +71,9 @@ pub async fn initialize_narwhal_consensus<Pool, Provider, EvmConfig, Executor>(
     engine_handle: BeaconConsensusEngineHandle<EthEngineTypes>,
 ) -> Result<()>
 where
-    Pool: TransactionPool + Clone + 'static,
-    Provider: DatabaseProviderFactory + StateProviderFactory + BlockReaderIdExt + Clone + 'static + std::fmt::Debug,
-    EvmConfig: ConfigureEvm + Clone + 'static,
+    Pool: TransactionPool + Clone + Send + Sync + 'static,
+    Provider: DatabaseProviderFactory + StateProviderFactory + BlockReaderIdExt + reth_provider::HeaderProvider<Header = alloy_consensus::Header> + Clone + Send + Sync + 'static + std::fmt::Debug,
+    EvmConfig: ConfigureEvm<NextBlockEnvCtx = reth_evm::NextBlockEnvAttributes, Primitives = reth_primitives::EthPrimitives> + Clone + Send + Sync + 'static,
     Executor: TaskSpawner + Clone + 'static,
 {
     info!("Initializing Narwhal + Bullshark consensus");
@@ -110,8 +111,8 @@ where
         enable_admin_api: args.consensus_rpc_enable_admin,
     };
 
-    // Create the node integration
-    let node_integration = NodeIntegration::new(
+    // Create the node integration (V2 with Reth payload builder)
+    let node_integration = NodeIntegrationV2::new(
         chain_spec.clone(),
         provider.clone(),
         pool,
