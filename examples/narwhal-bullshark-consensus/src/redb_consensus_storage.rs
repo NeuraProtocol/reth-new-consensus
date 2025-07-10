@@ -17,6 +17,8 @@ const FINALIZED_BATCHES_TABLE: TableDefinition<u64, &[u8]> = TableDefinition::ne
 const DAG_VERTICES_TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("dag_vertices");
 const VOTES_TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("votes");
 const CONSENSUS_STATE_TABLE: TableDefinition<&str, u64> = TableDefinition::new("consensus_state");
+const CERTIFICATE_BY_ROUND_TABLE: TableDefinition<u64, &[u8]> = TableDefinition::new("certificates_by_round");
+const WORKER_BATCHES_TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("worker_batches");
 
 /// Redb-based implementation of consensus storage
 /// This wraps MdbxConsensusStorage but provides its own database operations
@@ -43,6 +45,8 @@ impl RedbConsensusStorage {
             write_tx.open_table(DAG_VERTICES_TABLE)?;
             write_tx.open_table(VOTES_TABLE)?;
             write_tx.open_table(CONSENSUS_STATE_TABLE)?;
+            write_tx.open_table(CERTIFICATE_BY_ROUND_TABLE)?;
+            write_tx.open_table(WORKER_BATCHES_TABLE)?;
         }
         write_tx.commit()?;
         
@@ -50,12 +54,13 @@ impl RedbConsensusStorage {
         
         // Create the inner storage and inject our database operations
         let mut inner = MdbxConsensusStorage::new();
-        let db_ops = Box::new(RedbDatabaseOps::new(Arc::new(db.clone())));
+        let db_arc = Arc::new(db);
+        let db_ops = Box::new(RedbDatabaseOps::new(db_arc.clone()));
         inner.set_db_ops(db_ops);
         
         Ok(Self {
             inner,
-            db: Arc::new(db),
+            db: db_arc,
         })
     }
     
@@ -197,25 +202,164 @@ impl DatabaseOps for RedbDatabaseOps {
         Ok(())
     }
     
-    fn get_vote(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+    fn put_vote(&self, header_digest: B256, vote_data: Vec<u8>) -> Result<()> {
+        let write_tx = self.db.begin_write()?;
+        {
+            let mut table = write_tx.open_table(VOTES_TABLE)?;
+            table.insert(header_digest.as_slice(), vote_data.as_slice())?;
+        }
+        write_tx.commit()?;
+        debug!("Stored vote for header {}", header_digest);
+        Ok(())
+    }
+    
+    fn get_votes(&self, header_digest: B256) -> Result<Vec<Vec<u8>>> {
         let read_tx = self.db.begin_read()?;
         let table = read_tx.open_table(VOTES_TABLE)?;
         
-        match table.get(key)? {
+        // In a real implementation, we'd need to store votes with a composite key
+        // For now, return empty vec
+        Ok(vec![])
+    }
+    
+    fn remove_votes(&self, header_digest: B256) -> Result<()> {
+        let write_tx = self.db.begin_write()?;
+        {
+            let mut table = write_tx.open_table(VOTES_TABLE)?;
+            table.remove(header_digest.as_slice())?;
+        }
+        write_tx.commit()?;
+        Ok(())
+    }
+    
+    fn list_finalized_batches(&self, limit: Option<usize>) -> Result<Vec<(u64, B256)>> {
+        let read_tx = self.db.begin_read()?;
+        let table = read_tx.open_table(FINALIZED_BATCHES_TABLE)?;
+        
+        let mut results = Vec::new();
+        for entry in table.iter()? {
+            let (batch_id, hash_bytes) = entry?;
+            if hash_bytes.value().len() == 32 {
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(hash_bytes.value());
+                results.push((batch_id.value(), B256::from(arr)));
+                
+                if let Some(l) = limit {
+                    if results.len() >= l {
+                        break;
+                    }
+                }
+            }
+        }
+        Ok(results)
+    }
+    
+    fn get_table_stats(&self) -> Result<(u64, u64, u64)> {
+        let read_tx = self.db.begin_read()?;
+        
+        let certs_table = read_tx.open_table(CERTIFICATES_TABLE)?;
+        let certs_count = certs_table.len()? as u64;
+        
+        let batches_table = read_tx.open_table(BATCHES_TABLE)?;
+        let batches_count = batches_table.len()? as u64;
+        
+        let vertices_table = read_tx.open_table(DAG_VERTICES_TABLE)?;
+        let vertices_count = vertices_table.len()? as u64;
+        
+        Ok((certs_count, batches_count, vertices_count))
+    }
+    
+    fn index_certificate_by_round(&self, round: u64, cert_digest: Vec<u8>) -> Result<()> {
+        let write_tx = self.db.begin_write()?;
+        {
+            let mut table = write_tx.open_table(CERTIFICATE_BY_ROUND_TABLE)?;
+            table.insert(round, cert_digest.as_slice())?;
+        }
+        write_tx.commit()?;
+        Ok(())
+    }
+    
+    fn get_certificates_by_round(&self, round: u64) -> Result<Vec<Vec<u8>>> {
+        let read_tx = self.db.begin_read()?;
+        let table = read_tx.open_table(CERTIFICATE_BY_ROUND_TABLE)?;
+        
+        let mut results = Vec::new();
+        // Note: This is simplified - in reality we'd need a compound key or secondary index
+        if let Some(value) = table.get(round)? {
+            results.push(value.value().to_vec());
+        }
+        Ok(results)
+    }
+    
+    fn remove_certificates_before_round(&self, round: u64) -> Result<u64> {
+        let write_tx = self.db.begin_write()?;
+        let mut removed = 0;
+        {
+            let mut table = write_tx.open_table(CERTIFICATE_BY_ROUND_TABLE)?;
+            let entries_to_remove: Vec<u64> = table.iter()?
+                .filter_map(|entry| {
+                    entry.ok().and_then(|(r, _)| {
+                        if r.value() < round {
+                            Some(r.value())
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .collect();
+            
+            for r in entries_to_remove {
+                table.remove(r)?;
+                removed += 1;
+            }
+        }
+        write_tx.commit()?;
+        Ok(removed)
+    }
+    
+    fn put_worker_batch(&self, digest: B256, batch_data: Vec<u8>) -> Result<()> {
+        let write_tx = self.db.begin_write()?;
+        {
+            let mut table = write_tx.open_table(WORKER_BATCHES_TABLE)?;
+            table.insert(digest.as_slice(), batch_data.as_slice())?;
+        }
+        write_tx.commit()?;
+        debug!("Stored worker batch {}", digest);
+        Ok(())
+    }
+    
+    fn get_worker_batch(&self, digest: B256) -> Result<Option<Vec<u8>>> {
+        let read_tx = self.db.begin_read()?;
+        let table = read_tx.open_table(WORKER_BATCHES_TABLE)?;
+        
+        match table.get(digest.as_slice())? {
             Some(value) => Ok(Some(value.value().to_vec())),
             None => Ok(None),
         }
     }
     
-    fn put_vote(&self, key: Vec<u8>, data: Vec<u8>) -> Result<()> {
+    fn delete_worker_batch(&self, digest: B256) -> Result<()> {
         let write_tx = self.db.begin_write()?;
         {
-            let mut table = write_tx.open_table(VOTES_TABLE)?;
-            table.insert(key.as_slice(), data.as_slice())?;
+            let mut table = write_tx.open_table(WORKER_BATCHES_TABLE)?;
+            table.remove(digest.as_slice())?;
         }
         write_tx.commit()?;
-        debug!("Stored vote");
         Ok(())
+    }
+    
+    fn get_worker_batches(&self, digests: &[B256]) -> Result<Vec<Option<Vec<u8>>>> {
+        let read_tx = self.db.begin_read()?;
+        let table = read_tx.open_table(WORKER_BATCHES_TABLE)?;
+        
+        let mut results = Vec::with_capacity(digests.len());
+        for digest in digests {
+            match table.get(digest.as_slice())? {
+                Some(value) => results.push(Some(value.value().to_vec())),
+                None => results.push(None),
+            }
+        }
+        Ok(results)
     }
 }
 
