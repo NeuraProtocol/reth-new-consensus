@@ -14,7 +14,7 @@ use alloy_rpc_types::engine::{ForkchoiceState, PayloadStatusEnum};
 use reth_ethereum_engine_primitives::EthPayloadTypes;
 use reth_node_api::{BeaconConsensusEngineHandle, EngineApiMessageVersion};
 use reth_payload_primitives::PayloadTypes;
-use reth_provider::{BlockReaderIdExt, DatabaseProviderFactory, StateProviderFactory};
+use reth_provider::{BlockReaderIdExt, DatabaseProviderFactory, StateProviderFactory, HeaderProvider};
 use reth_transaction_pool::TransactionPool;
 use std::sync::Arc;
 use tracing::{error, info};
@@ -40,7 +40,7 @@ pub struct NodeIntegrationV2<Provider, Pool, EvmConfig> {
 
 impl<Provider, Pool, EvmConfig> NodeIntegrationV2<Provider, Pool, EvmConfig>
 where
-    Provider: StateProviderFactory + DatabaseProviderFactory + BlockReaderIdExt + Clone + Send + Sync + 'static + std::fmt::Debug,
+    Provider: StateProviderFactory + DatabaseProviderFactory + BlockReaderIdExt + reth_provider::HeaderProvider<Header = alloy_consensus::Header> + Clone + Send + Sync + 'static + std::fmt::Debug,
     Pool: TransactionPool + Clone + Send + Sync + 'static,
     EvmConfig: reth_evm::ConfigureEvm<NextBlockEnvCtx = reth_evm::NextBlockEnvAttributes, Primitives = reth_primitives::EthPrimitives> + Clone + Send + Sync + 'static,
 {
