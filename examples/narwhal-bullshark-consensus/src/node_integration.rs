@@ -114,6 +114,9 @@ where
             Some(network_config),
         )?;
         
+        // Set the chain spec for proper base fee calculations
+        bridge.set_chain_spec(self.chain_spec.clone());
+        
         // Set up block executor
         let block_executor = std::sync::Arc::new(RethBlockExecutor::new());
         bridge.set_block_executor(block_executor);
@@ -318,32 +321,20 @@ where
                 }
             }
             PayloadStatusEnum::Invalid { validation_error } => {
-                tracing::info!("Block #{} validation error: {}", block.number, validation_error);
+                tracing::warn!("Block #{} validation error: {}", block.number, validation_error);
                 
-                // Check if it's a state root mismatch error
+                // Log specific errors for debugging but don't retry
                 if validation_error.contains("mismatched block state root") {
-                    tracing::info!("Detected state root mismatch, attempting to correct...");
-                    
-                    // Try to extract the correct state root from the error
-                    if let Some(correct_state_root) = self.extract_correct_state_root(&validation_error) {
-                        tracing::info!("Retrying block #{} with correct state root: {}", block.number, correct_state_root);
-                        
-                        // Rebuild the block with the correct state root
-                        let mut new_header = block.header().clone();
-                        new_header.state_root = correct_state_root;
-                        
-                        let new_block = reth_primitives::Block::new(new_header, block.body().clone());
-                        let new_sealed_block = reth_primitives::SealedBlock::seal_slow(new_block);
-                        
-                        // Retry submission with correct state root
-                        return self.submit_block_to_engine_final(new_sealed_block, bridge).await;
-                    } else {
-                        tracing::warn!("Failed to extract correct state root from error: {}", validation_error);
-                    }
+                    tracing::warn!("State root mismatch - consensus needs to sync with engine state");
+                } else if validation_error.contains("base fee mismatch") {
+                    tracing::warn!("Base fee mismatch - parent block state may be out of sync");
                 }
                 
-                tracing::error!("Block #{} rejected as INVALID", block.number);
-                return Err(anyhow::anyhow!("Block rejected by engine"));
+                tracing::error!("Block #{} rejected as INVALID - moving on", block.number);
+                
+                // Don't retry - just return error and let consensus continue
+                // The next block from consensus should have the correct parent
+                return Err(anyhow::anyhow!("Block rejected by engine: {}", validation_error));
             }
             _ => {
                 tracing::error!("Unexpected status for block #{}", block.number);
@@ -374,6 +365,7 @@ where
         Ok((start_port, num_workers))
     }
     
+    /* REMOVED: Retry logic - keeping it simple, no retries
     /// Extract the correct state root from engine validation error message
     fn extract_correct_state_root(&self, error_msg: &str) -> Option<alloy_primitives::B256> {
         tracing::info!("Attempting to extract state root from error: {}", error_msg);
@@ -396,6 +388,33 @@ where
             }
         } else {
             tracing::warn!("Could not find 'got' in error message");
+        }
+        None
+    }
+    
+    /// Extract the correct base fee from engine validation error message
+    fn extract_correct_base_fee(&self, error_msg: &str) -> Option<u64> {
+        tracing::info!("Attempting to extract base fee from error: {}", error_msg);
+        
+        // Parse error message like: "block base fee mismatch: got 26, expected 29"
+        if let Some(start) = error_msg.find("expected ") {
+            let start = start + 9; // Skip "expected "
+            let remaining = &error_msg[start..];
+            
+            // Find the end of the number (could be end of string or next non-digit)
+            let end = remaining.find(|c: char| !c.is_numeric()).unwrap_or(remaining.len());
+            let base_fee_str = &remaining[..end];
+            
+            tracing::info!("Found base fee string: {}", base_fee_str);
+            
+            if let Ok(base_fee) = base_fee_str.parse::<u64>() {
+                tracing::info!("Successfully parsed base fee: {}", base_fee);
+                return Some(base_fee);
+            } else {
+                tracing::warn!("Failed to parse base fee from string: {}", base_fee_str);
+            }
+        } else {
+            tracing::warn!("Could not find 'expected' in error message");
         }
         None
     }
@@ -455,6 +474,26 @@ where
                 }
             }
             PayloadStatusEnum::Invalid { validation_error } => {
+                // Check if it's a state root mismatch on retry
+                if validation_error.contains("mismatched block state root") {
+                    tracing::info!("Detected state root mismatch on retry, attempting final correction...");
+                    
+                    // Try to extract the correct state root from the error
+                    if let Some(correct_state_root) = self.extract_correct_state_root(&validation_error) {
+                        tracing::info!("Final retry of block #{} with correct state root: {}", block.number, correct_state_root);
+                        
+                        // Rebuild the block with the correct state root
+                        let mut new_header = block.header().clone();
+                        new_header.state_root = correct_state_root;
+                        
+                        let new_block = reth_primitives::Block::new(new_header, block.body().clone());
+                        let new_sealed_block = reth_primitives::SealedBlock::seal_slow(new_block);
+                        
+                        // Final retry with correct state root
+                        return self.submit_block_to_engine_final_final(new_sealed_block, bridge).await;
+                    }
+                }
+                
                 tracing::error!(
                     "Block #{} rejected as INVALID on retry: {}",
                     block.number,
@@ -473,5 +512,80 @@ where
 
         Ok(())
     }
+    
+    /// Submit block to engine API (truly final attempt, no more retries)
+    async fn submit_block_to_engine_final_final(&self, block: reth_primitives::SealedBlock, bridge: &NarwhalRethBridge) -> Result<()> {
+        use alloy_rpc_types::engine::{ForkchoiceState, PayloadStatusEnum};
+        use reth_ethereum_engine_primitives::EthPayloadTypes;
+        use reth_payload_primitives::PayloadTypes;
+        use reth_node_api::EngineApiMessageVersion;
+        
+        tracing::info!(
+            "FINAL submission of block #{} (hash: {}) to engine API with corrected state root",
+            block.number,
+            block.hash()
+        );
 
+        // Convert to payload
+        let payload = EthPayloadTypes::block_to_payload(block.clone());
+
+        // Submit new payload
+        let status = self.engine_handle.new_payload(payload).await?;
+
+        match status.status {
+            PayloadStatusEnum::Valid => {
+                tracing::info!("Block #{} FINALLY accepted as VALID", block.number);
+
+                // Update fork choice
+                let forkchoice = ForkchoiceState {
+                    head_block_hash: block.hash(),
+                    safe_block_hash: block.hash(),
+                    finalized_block_hash: block.hash(),
+                };
+
+                let fc_response = self.engine_handle
+                    .fork_choice_updated(forkchoice, None, EngineApiMessageVersion::default())
+                    .await?;
+
+                match fc_response.payload_status.status {
+                    PayloadStatusEnum::Valid => {
+                        tracing::info!("Block #{} is now canonical after all corrections", block.number);
+                        
+                        // Update consensus service chain state after successful retry
+                        bridge.update_chain_state_with_block_info(
+                            block.number,
+                            block.hash(),
+                            block.gas_limit,
+                            block.gas_used,
+                            block.base_fee_per_gas.unwrap_or(875_000_000)
+                        ).await;
+                        tracing::info!("Updated consensus chain state to block {} hash {}", block.number, block.hash());
+                    }
+                    _ => {
+                        tracing::error!("Fork choice update failed for block #{}", block.number);
+                        return Err(anyhow::anyhow!("Fork choice update failed"));
+                    }
+                }
+            }
+            PayloadStatusEnum::Invalid { validation_error } => {
+                tracing::error!(
+                    "Block #{} STILL rejected as INVALID after all corrections: {}",
+                    block.number,
+                    validation_error
+                );
+                return Err(anyhow::anyhow!(
+                    "Block rejected after all corrections: {}",
+                    validation_error
+                ));
+            }
+            _ => {
+                tracing::error!("Unexpected status for block #{} on final retry", block.number);
+                return Err(anyhow::anyhow!("Unexpected block status on final retry"));
+            }
+        }
+
+        Ok(())
+    }
+
+*/
 }

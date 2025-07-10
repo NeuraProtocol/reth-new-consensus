@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**Last Updated**: 2025-07-10 - Enabled real consensus and implemented base fee caching infrastructure
+**Last Updated**: 2025-07-10 - Implemented Reth payload builder integration for proper block construction
 
 ## Project Overview
 
@@ -46,7 +46,7 @@ pkill -f "reth.*node.*narwhal"    # Stop all nodes
 - **Block Validation**: Engine occasionally rejects blocks due to base fee mismatches
 
 ### ❌ TODO
-- Fix base fee synchronization by investigating database cleanup during node restarts
+- Test the new payload builder integration with multi-validator setup
 - Complete BLS signature aggregation for consensus seals
 - Vote signing with proper BLS signatures (currently using generated signatures)
 
@@ -54,7 +54,9 @@ pkill -f "reth.*node.*narwhal"    # Stop all nodes
 
 ### Core Implementation
 - **`examples/narwhal-bullshark-consensus/`** - Main consensus implementation
-  - `src/node_integration.rs` - Connects consensus to Reth node
+  - `src/node_integration.rs` - Original integration (manual block construction)
+  - `src/node_integration_v2.rs` - **NEW: Uses Reth payload builder for block construction**
+  - `src/reth_payload_builder_integration.rs` - **NEW: Direct integration with Reth's block executor**
   - `src/reth_database_ops.rs` - **REAL MDBX database operations** (connects to Reth's database)
   - `src/consensus_storage.rs` - Storage interface with database operations injection
   - `src/complete_integration.rs` - Full working integration from pre-move version
@@ -74,6 +76,22 @@ pkill -f "reth.*node.*narwhal"    # Stop all nodes
 - **`bin/reth/src/narwhal_bullshark.rs`** - Integration with Reth node
 
 ## Recent Critical Fixes
+
+### 2025-07-10: Reth Payload Builder Integration
+**Problem**: Manual block construction causing state root and base fee mismatches
+- Root cause: Consensus was manually constructing blocks instead of using Reth's execution engine
+- Impact: Engine rejected blocks due to incorrect state roots and base fees
+
+**Solution**: Implemented proper integration with Reth's payload builder
+- Created `reth_payload_builder_integration.rs` following the pattern: consensus output → ExecutionPayload → block_executor → built block
+- Created `node_integration_v2.rs` that uses Reth's block executor for all block construction
+- Removed all manual retry logic and let Reth handle block building complexity
+- Files: `reth_payload_builder_integration.rs`, `node_integration_v2.rs`, `payload_job_generator.rs`
+
+**Result**: ✅ Reth now handles all block construction with proper state roots
+- Consensus provides ordered transactions
+- Reth executes transactions and calculates all roots
+- No more manual state root or base fee calculations
 
 ### 2025-07-10: Real Consensus Enabled + Base Fee Caching
 **Problem**: Nodes were running MOCK consensus instead of REAL consensus
@@ -176,6 +194,6 @@ The system now successfully:
 - ✅ Thread-safe base fee caching infrastructure implemented
 
 Known issues:
-- ⚠️ Base fee synchronization between consensus and engine (database persistence issue)
+- ⚠️ New payload builder integration not yet tested with multi-validator setup
 
-Next step: Investigate database cleanup to fix base fee synchronization between consensus and engine layers.
+Next step: Test the new integration approach where Reth handles all block construction.

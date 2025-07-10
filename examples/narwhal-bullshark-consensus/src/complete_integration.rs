@@ -21,7 +21,8 @@ use tracing::{info, warn, debug, error};
 use anyhow::Result;
 use fastcrypto::traits::{ToFromBytes, AggregateAuthenticator};
 use serde::{Serialize, Deserialize};
-use reth_chainspec::EthereumHardforks;
+use reth_chainspec::{EthereumHardforks, ChainSpec, EthChainSpec};
+use alloy_eips::eip1559::calc_next_block_base_fee;
 
 /// Service configuration for compatibility with integration layer
 #[derive(Debug, Clone)]
@@ -107,6 +108,8 @@ pub struct NarwhalRethBridge {
     committee: Committee,
     /// Our node's public key
     node_public_key: PublicKey,
+    /// Chain specification for base fee calculations
+    chain_spec: Option<Arc<ChainSpec>>,
 }
 
 impl std::fmt::Debug for NarwhalRethBridge {
@@ -169,6 +172,11 @@ impl NarwhalRethBridge {
     /// Create a new Narwhal-Reth bridge
     pub fn new(config: ServiceConfig, storage: Option<Arc<MdbxConsensusStorage>>) -> Result<Self> {
         Self::new_with_network_config(config, storage, None)
+    }
+    
+    /// Set the chain spec for proper base fee calculations
+    pub fn set_chain_spec(&mut self, chain_spec: Arc<ChainSpec>) {
+        self.chain_spec = Some(chain_spec);
     }
 
     /// Create a new Narwhal-Reth bridge with custom network configuration
@@ -332,6 +340,7 @@ impl NarwhalRethBridge {
             peer_addresses: peer_addresses_clone,
             committee: committee_clone,
             node_public_key: node_public_key_clone,
+            chain_spec: None,
         })
     }
 
@@ -504,6 +513,19 @@ impl NarwhalRethBridge {
             Ok(None)
         }
     }
+    
+    /// Get the next finalized batch without converting to block
+    pub async fn get_next_finalized_batch(&mut self) -> Result<Option<FinalizedBatch>> {
+        if let Some(batch) = self.finalized_batch_receiver.recv().await {
+            // Broadcast the batch to other listeners (e.g., mempool bridge)
+            // We ignore the error if there are no receivers
+            let _ = self.finalized_batch_broadcast.send(batch.clone());
+            
+            Ok(Some(batch))
+        } else {
+            Ok(None)
+        }
+    }
 
     /// Update the committee configuration
     pub fn update_committee(&self, committee: Committee) -> Result<()> {
@@ -512,37 +534,48 @@ impl NarwhalRethBridge {
             .map_err(|_| anyhow::anyhow!("Failed to update committee"))
     }
 
-    /// Calculate next base fee according to EIP-1559
-    fn calculate_next_base_fee(&self, parent_gas_used: u64, parent_gas_limit: u64, parent_base_fee: u64) -> u64 {
-        // EIP-1559 base fee calculation
-        // If parent block is full, increase base fee by 12.5%
-        // If parent block is empty, decrease base fee by 12.5%
-        // Target gas usage is 50% of gas limit
-        
-        let target_gas_used = parent_gas_limit / 2;
-        
-        if parent_gas_used == target_gas_used {
-            // Exactly at target, no change
-            return parent_base_fee;
-        }
-        
-        // Calculate the adjustment
-        let gas_used_delta = if parent_gas_used > target_gas_used {
-            parent_gas_used - target_gas_used
+    /// Calculate next base fee according to EIP-1559 using standard algorithm
+    fn calculate_next_base_fee(&self, parent_gas_used: u64, parent_gas_limit: u64, parent_base_fee: u64, timestamp: u64) -> u64 {
+        // Use the standard EIP-1559 calculation from alloy_eips
+        if let Some(ref chain_spec) = self.chain_spec {
+            // Get the base fee params for the given timestamp
+            let base_fee_params = chain_spec.base_fee_params_at_timestamp(timestamp);
+            
+            debug!("Using chain spec base fee params for timestamp {}", timestamp);
+            
+            // Use the standard calculation that the engine also uses
+            calc_next_block_base_fee(
+                parent_gas_used,
+                parent_gas_limit,
+                parent_base_fee,
+                base_fee_params,
+            )
         } else {
-            target_gas_used - parent_gas_used
-        };
-        
-        // Base fee adjustment formula from EIP-1559
-        // new_base_fee = parent_base_fee * (1 + (gas_used_delta / target_gas_used) / 8)
-        let base_fee_delta = (parent_base_fee * gas_used_delta) / (target_gas_used * 8);
-        
-        if parent_gas_used > target_gas_used {
-            // Increase base fee
-            parent_base_fee + base_fee_delta
-        } else {
-            // Decrease base fee using standard EIP-1559 calculation
-            parent_base_fee.saturating_sub(base_fee_delta)
+            // Fallback to simple calculation if no chain spec available
+            // This should not happen in production
+            warn!("❌ No chain spec available for base fee calculation, using fallback");
+            warn!("❌ This will likely cause base fee mismatches with the engine!");
+            
+            // Simple EIP-1559 calculation
+            let target_gas_used = parent_gas_limit / 2;
+            
+            if parent_gas_used == target_gas_used {
+                return parent_base_fee;
+            }
+            
+            let gas_used_delta = if parent_gas_used > target_gas_used {
+                parent_gas_used - target_gas_used
+            } else {
+                target_gas_used - parent_gas_used
+            };
+            
+            let base_fee_delta = (parent_base_fee * gas_used_delta) / (target_gas_used * 8);
+            
+            if parent_gas_used > target_gas_used {
+                parent_base_fee + base_fee_delta
+            } else {
+                parent_base_fee.saturating_sub(base_fee_delta)
+            }
         }
     }
     
@@ -553,7 +586,11 @@ impl NarwhalRethBridge {
             return Ok((134_217_728u64, 0u64, 875_000_000u64)); // (gas_limit, gas_used, base_fee)
         }
         
-        // Use cached parent block info if available and valid
+        // TODO: Query parent block from provider when available
+        // This would give us the actual parent data from the chain
+        // For now, we rely on the cache
+        
+        // Fall back to cached parent block info if provider query failed
         if let Ok(guard) = self.parent_block_info.lock() {
             if let Some((gas_limit, gas_used, base_fee)) = *guard {
                 debug!("Using cached parent block info: gas_limit={}, gas_used={}, base_fee={}", gas_limit, gas_used, base_fee);
@@ -561,14 +598,19 @@ impl NarwhalRethBridge {
             }
         }
         
-        // Fallback to safe defaults if no cached info available
-        // This should not happen in normal operation
-        warn!("No cached parent block info available for {}, using genesis defaults", parent_hash);
+        // Last resort: use genesis defaults
+        warn!("No parent block info available for {}, using genesis defaults", parent_hash);
         Ok((134_217_728u64, 0u64, 875_000_000u64))
     }
 
     /// Convert a finalized batch to a Reth block
     fn batch_to_block(&mut self, batch: FinalizedBatch) -> Result<SealedBlock> {
+        // Check if the batch's parent matches our expected parent
+        if batch.parent_hash != self.current_parent_hash && batch.block_number > 1 {
+            warn!("⚠️ Parent hash mismatch! Batch #{} expects parent {} but consensus has {}", 
+                  batch.block_number, batch.parent_hash, self.current_parent_hash);
+        }
+        
         // Use certificate digest as extra_data (exactly 32 bytes as required by Ethereum)
         // This provides consensus proof while meeting engine API validation requirements
         let extra_data = Bytes::from(batch.certificate_digest.to_vec());
@@ -584,31 +626,7 @@ impl NarwhalRethBridge {
         // Get parent block information for proper base fee calculation
         let (parent_gas_limit, parent_gas_used, parent_base_fee) = self.get_parent_block_info(batch.parent_hash)?;
         
-        // Calculate proper base fee based on parent block usage according to EIP-1559
-        let base_fee = if batch.block_number == 1 {
-            875_000_000u64 // Initial base fee for block #1 (genesis)
-        } else {
-            self.calculate_next_base_fee(parent_gas_used, parent_gas_limit, parent_base_fee)
-        };
-        
-        info!("📊 BASE FEE CALCULATION for block #{}: calculated={}, parent_hash={}", 
-              batch.block_number, base_fee, batch.parent_hash);
-        info!("📊 Parent block info: gas_used={}, gas_limit={}, base_fee={}", 
-              parent_gas_used, parent_gas_limit, parent_base_fee);
-        
-        if batch.block_number > 1 {
-            let target_gas_used = parent_gas_limit / 2;
-            let gas_used_delta = if parent_gas_used > target_gas_used {
-                parent_gas_used - target_gas_used
-            } else {
-                target_gas_used - parent_gas_used
-            };
-            let base_fee_delta = (parent_base_fee * gas_used_delta) / (target_gas_used * 8);
-            info!("📊 EIP-1559 calc details: target_gas={}, delta={}, base_fee_delta={}", 
-                  target_gas_used, gas_used_delta, base_fee_delta);
-        }
-
-        // Use millisecond-resolution timestamps for rapid block creation
+        // Calculate timestamp first (needed for base fee calculation)
         let current_time_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -636,6 +654,35 @@ impl NarwhalRethBridge {
         
         debug!("Block #{} timestamp: {}ms (batch: {}ms, parent: {}ms)", 
                batch.block_number, block_timestamp_ms, batch_timestamp_ms, self.last_block_timestamp_ms);
+        
+        // Calculate proper base fee based on parent block usage according to EIP-1559
+        let base_fee = if batch.block_number == 1 {
+            875_000_000u64 // Initial base fee for block #1 (genesis)
+        } else {
+            // Use the block timestamp in seconds for base fee params lookup
+            let timestamp_seconds = block_timestamp / 1000;
+            self.calculate_next_base_fee(parent_gas_used, parent_gas_limit, parent_base_fee, timestamp_seconds)
+        };
+        
+        info!("📊 BASE FEE CALCULATION for block #{}: calculated={}, parent_hash={}", 
+              batch.block_number, base_fee, batch.parent_hash);
+        info!("📊 Parent block info: gas_used={}, gas_limit={}, base_fee={}", 
+              parent_gas_used, parent_gas_limit, parent_base_fee);
+        info!("📊 Cached parent info: {:?}", self.parent_block_info.lock().ok().and_then(|g| *g));
+        info!("📊 Current consensus state: block_number={}, parent_hash={}", 
+              self.current_block_number, self.current_parent_hash);
+        
+        if batch.block_number > 1 {
+            let target_gas_used = parent_gas_limit / 2;
+            let gas_used_delta = if parent_gas_used > target_gas_used {
+                parent_gas_used - target_gas_used
+            } else {
+                target_gas_used - parent_gas_used
+            };
+            let base_fee_delta = (parent_base_fee * gas_used_delta) / (target_gas_used * 8);
+            info!("📊 EIP-1559 calc details: target_gas={}, delta={}, base_fee_delta={}", 
+                  target_gas_used, gas_used_delta, base_fee_delta);
+        }
 
         // Create block header with properly calculated values
         let header = RethHeader {
@@ -682,14 +729,8 @@ impl NarwhalRethBridge {
         self.current_block_number = batch.block_number + 1;
         self.current_parent_hash = sealed_block.hash();
         
-        // Store this block's information for the next block's base fee calculation
-        if let Ok(mut guard) = self.parent_block_info.lock() {
-            *guard = Some((
-                sealed_block.gas_limit,
-                sealed_block.gas_used,
-                sealed_block.base_fee_per_gas.unwrap_or(base_fee)
-            ));
-        }
+        // DO NOT update parent block info here - it should only be updated after engine accepts the block!
+        // The update happens in update_chain_state_with_block_info() after successful validation
         
         // Update last block timestamp (both seconds and milliseconds)
         self.last_block_timestamp = sealed_block.timestamp / 1000; // Convert ms to seconds for compatibility
@@ -825,6 +866,14 @@ impl NarwhalRethBridge {
             service.update_chain_state(block_number, block_hash).await;
             info!("Updated consensus service chain state: block {} hash {}", block_number, block_hash);
         }
+    }
+    
+    /// Clear parent block cache when a reorganization occurs or blocks are rejected
+    pub fn clear_parent_cache(&self) {
+        if let Ok(mut guard) = self.parent_block_info.lock() {
+            *guard = None;
+        }
+        warn!("Cleared parent block cache due to reorganization or rejected blocks");
     }
 }
 

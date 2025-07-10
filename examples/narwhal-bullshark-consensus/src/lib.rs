@@ -48,6 +48,11 @@ pub mod service;
 pub mod consensus_storage;
 pub mod mdbx_database_ops;
 pub mod transaction_adapter;
+pub mod payload_job_generator;
+pub mod reth_payload_builder_integration;
+pub mod node_integration_v2;
+#[cfg(test)]
+mod test_payload_builder;
 pub mod dag_storage_adapter;
 pub mod batch_storage_adapter;
 pub mod mempool_bridge;
