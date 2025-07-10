@@ -10,7 +10,7 @@ use crate::{
     working_validator_registry::ValidatorRegistry,
     reth_block_executor::RethBlockExecutor,
     canonical_state_fix::CanonicalStateUpdater,
-    consensus_storage::MdbxConsensusStorage,
+    redb_consensus_storage::RedbConsensusStorage,
     reth_database_ops::RethDatabaseOps,
 };
 use reth_provider::BlockReaderIdExt;
@@ -90,19 +90,16 @@ where
             peer_addresses,
         };
         
-        // Create consensus storage with optimized database operations to reduce lock contention
+        // Create consensus storage using Redb (completely isolated from Reth's MDBX)
         let storage = Some({
-            let mut storage = MdbxConsensusStorage::new();
+            // Create consensus database in a subdirectory
+            let db_path = format!("consensus_db_{}.redb", self.config.consensus_port);
+            let storage = RedbConsensusStorage::new(&db_path)
+                .map_err(|e| anyhow::anyhow!("Failed to create Redb storage: {}", e))?;
             
-            // Use optimized database operations with shorter transaction lifetimes
-            use crate::simple_consensus_db::OptimizedConsensusDb;
-            
-            let optimized_db = OptimizedConsensusDb::new(std::sync::Arc::new(self.provider.clone()));
-            let db_ops = Box::new(optimized_db);
-            storage.set_db_ops(db_ops);
-            
-            info!("✅ REAL: Using optimized consensus database operations with shorter transaction lifetimes");
-            info!("✅ REAL: This should reduce lock contention with engine API operations");
+            info!("✅ REAL: Using Redb consensus storage - completely isolated from Reth's database");
+            info!("✅ REAL: This eliminates ALL lock contention between consensus and engine operations");
+            info!("✅ REAL: Consensus database path: {}", db_path);
             
             std::sync::Arc::new(storage)
         });

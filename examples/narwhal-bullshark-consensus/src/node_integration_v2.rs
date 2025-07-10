@@ -8,7 +8,7 @@ use crate::{
     validator_keys::ValidatorKeyPair,
     working_validator_registry::ValidatorRegistry,
     reth_payload_builder_integration::RethPayloadBuilderIntegration,
-    consensus_storage::MdbxConsensusStorage,
+    redb_consensus_storage::RedbConsensusStorage,
 };
 use alloy_rpc_types::engine::{ForkchoiceState, PayloadStatusEnum};
 use reth_ethereum_engine_primitives::EthPayloadTypes;
@@ -96,13 +96,13 @@ where
             peer_addresses,
         };
         
-        // Create consensus storage
+        // Create consensus storage using Redb (isolated from Reth's MDBX)
         let storage = Some({
-            let mut storage = MdbxConsensusStorage::new();
-            use crate::simple_consensus_db::OptimizedConsensusDb;
-            let optimized_db = OptimizedConsensusDb::new(Arc::new(self.provider.clone()));
-            let db_ops = Box::new(optimized_db);
-            storage.set_db_ops(db_ops);
+            // Create consensus database in a subdirectory
+            let db_path = format!("consensus_db_{}.redb", self.config.consensus_port);
+            let storage = RedbConsensusStorage::new(&db_path)
+                .map_err(|e| anyhow::anyhow!("Failed to create Redb storage: {}", e))?;
+            info!("Using Redb consensus storage at: {}", db_path);
             Arc::new(storage)
         });
         

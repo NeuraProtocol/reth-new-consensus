@@ -100,6 +100,9 @@ alloy-rlp = { workspace = true }
 revm-primitives = { workspace = true }
 reth-primitives-traits = { workspace = true }
 
+# Storage
+redb = "2.6.0"
+
 [features]
 default = []
 full = []

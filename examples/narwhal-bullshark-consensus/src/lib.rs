@@ -46,6 +46,7 @@ pub mod payload_builder;
 pub mod service;
 // Required modules for working implementation
 pub mod consensus_storage;
+pub mod redb_consensus_storage;
 pub mod mdbx_database_ops;
 pub mod transaction_adapter;
 pub mod payload_job_generator;
