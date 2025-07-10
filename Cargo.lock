@@ -3850,6 +3850,7 @@ dependencies = [
  "narwhal",
  "prometheus",
  "rand 0.8.5",
+ "reth-basic-payload-builder",
  "reth-chain-state",
  "reth-chainspec",
  "reth-consensus",

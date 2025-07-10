@@ -12,9 +12,10 @@ use reth_evm::{ConfigureEvm, NextBlockEnvAttributes, execute::BlockBuilder};
 use reth_revm::State;
 use alloy_eips::calc_next_block_base_fee;
 use reth_execution_types::ExecutionOutcome;
+use reth_primitives_traits::Block as BlockTrait;
 use reth_payload_builder::EthBuiltPayload;
 use reth_payload_primitives::PayloadBuilderAttributes;
-use reth_primitives::{Block, BlockBody, Header, SealedBlock, TransactionSigned};
+use reth_primitives::{Block, BlockBody, Header, SealedBlock as EthSealedBlock, TransactionSigned, RecoveredTx};
 use reth_provider::{BlockReaderIdExt, StateProviderFactory};
 use reth_revm::database::StateProviderDatabase;
 use std::sync::Arc;
@@ -58,7 +59,7 @@ where
     pub async fn build_block_from_batch(
         &self,
         batch: FinalizedBatch,
-    ) -> Result<SealedBlock, Box<dyn std::error::Error>> {
+    ) -> Result<EthSealedBlock, Box<dyn std::error::Error + Send + Sync>> {
         info!(
             "Building block #{} from batch with {} transactions",
             batch.block_number,
@@ -108,7 +109,15 @@ where
         let mut executed_txs = Vec::new();
         
         for tx in ordered_txs {
-            match builder.execute_transaction(tx.clone()) {
+            // Recover signer and wrap for execution
+            let recovered = match tx.recover_signer() {
+                Some(signer) => reth_primitives::RecoveredTx::new_unchecked(tx.clone(), signer),
+                None => {
+                    debug!("Failed to recover transaction signer, skipping");
+                    continue;
+                }
+            };
+            match builder.execute_transaction(recovered) {
                 Ok(gas_used) => {
                     cumulative_gas_used += gas_used;
                     executed_txs.push(tx);
@@ -125,15 +134,18 @@ where
         let outcome = builder.finish(&state_provider)?;
         
         // 8. Extract the built block with all correct roots
-        let block = outcome.block;
-        let sealed_block = block.sealed_block().clone();
+        let recovered_block = outcome.block;
+        
+        // Get the block and seal it
+        let block = recovered_block.into_block();
+        let sealed_block = block.seal_slow();
         
         info!(
             "Built block #{} with {} transactions (state_root: {}, receipts_root: {})",
-            sealed_block.number,
+            sealed_block.header().number(),
             executed_txs.len(),
-            sealed_block.state_root,
-            sealed_block.receipts_root
+            sealed_block.header().state_root(),
+            sealed_block.header().receipts_root()
         );
 
         Ok(sealed_block)
@@ -145,7 +157,7 @@ where
         &self,
         batch: FinalizedBatch,
         payload_builder_handle: &reth_payload_builder::PayloadBuilderHandle<reth_ethereum_engine_primitives::EthPayloadTypes>,
-    ) -> Result<EthBuiltPayload, Box<dyn std::error::Error>> {
+    ) -> Result<EthBuiltPayload, Box<dyn std::error::Error + Send + Sync>> {
         use reth_payload_builder::EthPayloadBuilderAttributes;
         use alloy_rpc_types::engine::PayloadAttributes;
         
