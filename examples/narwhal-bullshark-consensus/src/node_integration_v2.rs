@@ -8,6 +8,7 @@ use crate::{
     validator_keys::ValidatorKeyPair,
     working_validator_registry::ValidatorRegistry,
     reth_payload_builder_integration::RethPayloadBuilderIntegration,
+    consensus_storage::MdbxConsensusStorage,
     redb_consensus_storage::RedbConsensusStorage,
 };
 use alloy_rpc_types::engine::{ForkchoiceState, PayloadStatusEnum};
@@ -100,10 +101,13 @@ where
         let storage = Some({
             // Create consensus database in a subdirectory
             let db_path = format!("consensus_db_{}.redb", self.config.consensus_port);
-            let storage = RedbConsensusStorage::new(&db_path)
+            let redb_storage = RedbConsensusStorage::new(&db_path)
                 .map_err(|e| anyhow::anyhow!("Failed to create Redb storage: {}", e))?;
             info!("Using Redb consensus storage at: {}", db_path);
-            Arc::new(storage)
+            
+            // The bridge expects MdbxConsensusStorage, so we get the inner storage
+            // which is properly configured with Redb database operations
+            Arc::new(redb_storage.inner().clone())
         });
         
         // Create the Narwhal-Reth bridge

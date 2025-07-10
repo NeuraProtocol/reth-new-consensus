@@ -10,6 +10,7 @@ use crate::{
     working_validator_registry::ValidatorRegistry,
     reth_block_executor::RethBlockExecutor,
     canonical_state_fix::CanonicalStateUpdater,
+    consensus_storage::MdbxConsensusStorage,
     redb_consensus_storage::RedbConsensusStorage,
     reth_database_ops::RethDatabaseOps,
 };
@@ -94,14 +95,16 @@ where
         let storage = Some({
             // Create consensus database in a subdirectory
             let db_path = format!("consensus_db_{}.redb", self.config.consensus_port);
-            let storage = RedbConsensusStorage::new(&db_path)
+            let redb_storage = RedbConsensusStorage::new(&db_path)
                 .map_err(|e| anyhow::anyhow!("Failed to create Redb storage: {}", e))?;
             
             info!("✅ REAL: Using Redb consensus storage - completely isolated from Reth's database");
             info!("✅ REAL: This eliminates ALL lock contention between consensus and engine operations");
             info!("✅ REAL: Consensus database path: {}", db_path);
             
-            std::sync::Arc::new(storage)
+            // The bridge expects MdbxConsensusStorage, so we get the inner storage
+            // which is properly configured with Redb database operations
+            std::sync::Arc::new(redb_storage.inner().clone())
         });
         
         // Create the complete Narwhal-Reth bridge

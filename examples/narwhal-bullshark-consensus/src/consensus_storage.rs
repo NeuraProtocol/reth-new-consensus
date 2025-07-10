@@ -16,7 +16,7 @@ use tracing::{info, debug, warn};
 /// ✅ REAL: Direct method calls (no complex generics)
 /// ✅ REAL: Extension table integration 
 /// ✅ REAL: Works with trait objects
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MdbxConsensusStorage {
     /// Database operation callbacks (injected by Reth)
     /// This uses direct methods instead of generics to work with trait objects
