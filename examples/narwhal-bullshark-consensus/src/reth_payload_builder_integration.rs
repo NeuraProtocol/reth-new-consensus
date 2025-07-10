@@ -17,7 +17,7 @@ use alloy_consensus::BlockHeader;
 use reth_payload_builder::EthBuiltPayload;
 use reth_payload_primitives::PayloadBuilderAttributes;
 use reth_primitives::{Block, BlockBody, Header, SealedBlock as EthSealedBlock, TransactionSigned, RecoveredTx, EthPrimitives};
-use reth_provider::{BlockReaderIdExt, StateProviderFactory};
+use reth_provider::{BlockReaderIdExt, StateProviderFactory, HeaderProvider};
 use reth_revm::database::StateProviderDatabase;
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -34,7 +34,7 @@ pub struct RethPayloadBuilderIntegration<Provider, EvmConfig> {
 
 impl<Provider, EvmConfig> RethPayloadBuilderIntegration<Provider, EvmConfig>
 where
-    Provider: StateProviderFactory + BlockReaderIdExt + Clone,
+    Provider: StateProviderFactory + BlockReaderIdExt + reth_provider::HeaderProvider<Header = alloy_consensus::Header> + Clone,
     EvmConfig: ConfigureEvm<NextBlockEnvCtx = NextBlockEnvAttributes, Primitives = reth_primitives::EthPrimitives> + Clone,
 {
     /// Create a new integration
@@ -76,22 +76,24 @@ where
             .block_hash(parent_number)?
             .ok_or("Parent block not found")?;
         
-        let parent_block = self.provider
-            .sealed_block_with_senders(parent_number, reth_provider::TransactionVariant::NoHash)?
-            .ok_or("Parent block not found")?;
+        let parent_header = self.provider
+            .sealed_header(parent_number)?
+            .ok_or("Parent header not found")?;
 
         // 3. Create state provider at parent block
         let state_provider = self.provider.state_by_block_hash(parent_hash)?;
         let state = StateProviderDatabase::new(&state_provider);
         
         // 4. Create EVM block builder with proper configuration
+        let mut db_state = State::builder()
+            .with_database(state)
+            .with_bundle_update()
+            .build();
+            
         let mut builder = self.evm_config
             .builder_for_next_block(
-                &mut State::builder()
-                    .with_database(state)
-                    .with_bundle_update()
-                    .build(),
-                parent_block.header(),
+                &mut db_state,
+                &parent_header,
                 NextBlockEnvAttributes {
                     timestamp: batch.timestamp,
                     suggested_fee_recipient: batch.proposer,
@@ -201,16 +203,13 @@ fn create_header_from_batch(
     chain_spec: &ChainSpec,
 ) -> Header {
     // Calculate base fee using EIP-1559
-    let base_fee = if let Some(params) = chain_spec.base_fee_params_at_timestamp(batch.timestamp) {
-        calc_next_block_base_fee(
-            parent.gas_used,
-            parent.gas_limit,
-            parent.base_fee_per_gas.unwrap_or(1_000_000_000),
-            params,
-        )
-    } else {
-        1_000_000_000
-    };
+    let params = chain_spec.base_fee_params_at_timestamp(batch.timestamp);
+    let base_fee = calc_next_block_base_fee(
+        parent.gas_used,
+        parent.gas_limit,
+        parent.base_fee_per_gas.unwrap_or(1_000_000_000),
+        params,
+    );
 
     Header {
         parent_hash: parent.hash_slow(),
