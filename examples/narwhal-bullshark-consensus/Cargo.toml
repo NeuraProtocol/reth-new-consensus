@@ -56,6 +56,7 @@ reth-rpc-layer.workspace = true
 reth-trie.workspace = true
 reth-trie-common.workspace = true
 reth-trie-db.workspace = true
+reth-chain-state.workspace = true
 
 # Consensus algorithm dependencies
 narwhal = { path = "../../crates/narwhal" }
@@ -80,12 +81,17 @@ serde_json.workspace = true
 
 # Crypto
 fastcrypto.workspace = true
+blake2 = "0.10"
+secp256k1 = "0.28"
+rand_08.workspace = true
+sha2 = "0.10"
+sha3 = "0.10"
+prometheus = "0.13"
 
 # RPC
 jsonrpsee = { workspace = true, features = ["server", "macros"] }
 
 # Additional dependencies
-rand = "0.8"
 bincode = "1.3"
 hex = "0.4"
 base64 = "0.21"

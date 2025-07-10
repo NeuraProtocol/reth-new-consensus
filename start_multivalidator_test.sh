@@ -108,7 +108,7 @@ echo "   Workers: ports 19000-19003 (from validator-0.json worker_port_range)"
 echo "   HTTP RPC: port 8545"
 echo "   Consensus RPC: port 10001"
 echo "   P2P: port 30303"
-$RETH_BINARY node \
+USE_REAL_CONSENSUS=true $RETH_BINARY node \
   --narwhal.enable \
   --chain neura-genesis.json \
   --datadir /home/peastew/.neura/node1 \
@@ -118,9 +118,8 @@ $RETH_BINARY node \
   --http.api debug,eth,net,trace,txpool,web3,rpc,reth \
   --authrpc.port 8551 \
   --narwhal.network-addr 127.0.0.1:9001 \
-  --narwhal.peers 127.0.0.1:9002,127.0.0.1:9003,127.0.0.1:9004 \
-  --validator.key-file test_validators/validator-0.json \
-  --validator.config-dir test_validators \
+  --validator.key-file /home/peastew/.neura/node1/validator.json \
+  --validator.committee-config /home/peastew/.neura/node1/committee.json \
   --validator.deterministic-consensus-key \
   --consensus-rpc-port 10001 \
   --consensus-rpc-enable-admin \
@@ -164,7 +163,7 @@ echo "   Workers: ports 19004-19007 (from validator-1.json worker_port_range)"
 echo "   HTTP RPC: port 8546"
 echo "   Consensus RPC: port 10002"
 echo "   P2P: port 30304"
-$RETH_BINARY node \
+USE_REAL_CONSENSUS=true $RETH_BINARY node \
   --narwhal.enable \
   --chain neura-genesis.json \
   --datadir /home/peastew/.neura/node2 \
@@ -174,9 +173,8 @@ $RETH_BINARY node \
   --http.api debug,eth,net,trace,txpool,web3,rpc,reth \
   --authrpc.port 8552 \
   --narwhal.network-addr 127.0.0.1:9002 \
-  --narwhal.peers 127.0.0.1:9001,127.0.0.1:9003,127.0.0.1:9004 \
-  --validator.key-file test_validators/validator-1.json \
-  --validator.config-dir test_validators \
+  --validator.key-file /home/peastew/.neura/node2/validator.json \
+  --validator.committee-config /home/peastew/.neura/node2/committee.json \
   --validator.deterministic-consensus-key \
   --consensus-rpc-port 10002 \
   --consensus-rpc-enable-admin \
@@ -220,7 +218,7 @@ echo "   Workers: ports 19008-19011 (from validator-2.json worker_port_range)"
 echo "   HTTP RPC: port 8547"
 echo "   Consensus RPC: port 10003"
 echo "   P2P: port 30305"
-$RETH_BINARY node \
+USE_REAL_CONSENSUS=true $RETH_BINARY node \
   --narwhal.enable \
   --chain neura-genesis.json \
   --datadir /home/peastew/.neura/node3 \
@@ -230,9 +228,8 @@ $RETH_BINARY node \
   --http.api debug,eth,net,trace,txpool,web3,rpc,reth \
   --authrpc.port 8553 \
   --narwhal.network-addr 127.0.0.1:9003 \
-  --narwhal.peers 127.0.0.1:9001,127.0.0.1:9002,127.0.0.1:9004 \
-  --validator.key-file test_validators/validator-2.json \
-  --validator.config-dir test_validators \
+  --validator.key-file /home/peastew/.neura/node3/validator.json \
+  --validator.committee-config /home/peastew/.neura/node3/committee.json \
   --validator.deterministic-consensus-key \
   --consensus-rpc-port 10003 \
   --consensus-rpc-enable-admin \
@@ -276,7 +273,7 @@ echo "   Workers: ports 19012-19015 (from validator-3.json worker_port_range)"
 echo "   HTTP RPC: port 8548"
 echo "   Consensus RPC: port 10004"
 echo "   P2P: port 30306"
-$RETH_BINARY node \
+USE_REAL_CONSENSUS=true $RETH_BINARY node \
   --narwhal.enable \
   --chain neura-genesis.json \
   --datadir /home/peastew/.neura/node4 \
@@ -286,9 +283,8 @@ $RETH_BINARY node \
   --http.api debug,eth,net,trace,txpool,web3,rpc,reth \
   --authrpc.port 8554 \
   --narwhal.network-addr 127.0.0.1:9004 \
-  --narwhal.peers 127.0.0.1:9001,127.0.0.1:9002,127.0.0.1:9003 \
-  --validator.key-file test_validators/validator-3.json \
-  --validator.config-dir test_validators \
+  --validator.key-file /home/peastew/.neura/node4/validator.json \
+  --validator.committee-config /home/peastew/.neura/node4/committee.json \
   --validator.deterministic-consensus-key \
   --consensus-rpc-port 10004 \
   --consensus-rpc-enable-admin \

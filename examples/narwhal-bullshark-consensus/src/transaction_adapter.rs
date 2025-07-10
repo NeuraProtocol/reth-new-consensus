@@ -62,6 +62,13 @@ impl TransactionAdapterBuilder {
         self
     }
 
+    /// Add worker channels (placeholder for compatibility with pre-move version)
+    pub fn add_workers(self, _worker_channels: Vec<mpsc::UnboundedSender<narwhal::Transaction>>) -> Self {
+        // This is a placeholder to match the pre-move version API
+        // The actual worker channel management would be more complex
+        self
+    }
+
     /// Build the adapter
     pub fn build(self) -> (TransactionAdapter, mpsc::UnboundedReceiver<Vec<u8>>) {
         TransactionAdapter::new()

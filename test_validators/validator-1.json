@@ -5,9 +5,11 @@
     "contact": "validator1@test.local"
   },
   "evm_private_key": "0x2222222222222222222222222222222222222222222222222222222222222222",
-  "consensus_private_key": null,
+  "consensus_private_key": "aDli9uEVFyImQ4DV2BbXqPzXbycSmKRh9OsYFgZF6RE=",
   "stake": 1000,
   "active": true,
   "network_address": "127.0.0.1:9002",
-  "worker_port_range": "19004:19007"
-} 
+  "worker_port_range": "19004:19007",
+  "consensus_public_key": "0agsOxm2YeuWiN6ML5nwNlWJFybVhUkEvITyVOrvDx4ZALFUltIEvYLCRhieVyPv",
+  "evm_address": "0x705186df9a4378083753ae9536d65b3ad7fcddc4"
+}

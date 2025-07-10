@@ -25,7 +25,6 @@ async fn main() -> anyhow::Result<()> {
     // Create consensus configuration
     let consensus_config = ConsensusConfig {
         network_addr: "127.0.0.1:9000".parse()?,
-        peer_addresses: vec![], // Add peer addresses here
         validator_key_file: "validator.json".to_string(),
         validator_config_dir: "validators".to_string(),
         ..Default::default()

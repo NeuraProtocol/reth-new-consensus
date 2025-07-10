@@ -319,11 +319,11 @@ impl BftService {
                 // Update last block time
                 self.last_block_time = Instant::now();
                 
-                // Update current_block_number immediately to prevent duplicate blocks
-                // We must do this BEFORE sending to prevent race conditions
+                // NOTE: Do NOT update current_block_number here!
+                // It should only be updated after successful engine API submission
+                // This prevents getting ahead of the actual persisted chain state
                 let batch_block_number = finalized_batch.block_number;
-                self.current_block_number = batch_block_number;
-                info!("Updated current_block_number to {} to prevent duplicates", self.current_block_number);
+                info!("Created finalized batch for block {} (current_block_number will be updated after engine API submission)", batch_block_number);
 
                 // Send to Reth integration
                 info!("Sending finalized batch {} to Reth integration", batch_block_number);

@@ -27,12 +27,13 @@ pub struct NarwhalBlockExecutor<Provider, EvmConfig> {
     evm_config: EvmConfig,
 }
 
+
 impl<Provider, EvmConfig> NarwhalBlockExecutor<Provider, EvmConfig>
 where
     Provider: StateProviderFactory + DatabaseProviderFactory + BlockReaderIdExt + Clone,
-    Provider::Provider: BlockNumReader + BlockHashReader,
-    Provider::ProviderRW: BlockWriter,
-    EvmConfig: ConfigureEvm + Clone,
+    Provider::Provider: reth_provider::BlockNumReader + reth_provider::BlockHashReader,
+    Provider::ProviderRW: reth_provider::BlockWriter<Block = alloy_consensus::Block<alloy_consensus::EthereumTxEnvelope<alloy_consensus::TxEip4844>>, Receipt = reth_ethereum_primitives::Receipt>,
+    EvmConfig: reth_evm::ConfigureEvm<Primitives = reth_ethereum_primitives::EthPrimitives> + Clone,
 {
     /// Create a new block executor
     pub fn new(
@@ -114,10 +115,13 @@ where
         // Create a batch executor
         let executor = self.evm_config.batch_executor(db);
         
-        // Convert sealed block to recovered block for execution
+        // Convert sealed block to recovered block for execution with proper type constraints
         let block_with_senders = block.clone().unseal();
         let senders = vec![alloy_primitives::Address::ZERO; block_with_senders.body.transactions.len()];
-        let recovered = reth_primitives::RecoveredBlock::new_unhashed(block_with_senders, senders);
+        let recovered = reth_primitives_traits::RecoveredBlock::new_unhashed(
+            block_with_senders,
+            senders
+        );
         
         // Execute the block and get the full output
         let output = executor.execute(&recovered)?;
@@ -169,10 +173,13 @@ where
         // Get a read-write database provider for the entire operation
         let provider_rw = self.provider.database_provider_rw()?;
         
-        // Convert sealed block to recovered block for execution
+        // Convert sealed block to recovered block for execution with proper type constraints  
         let block_with_senders = sealed_block.clone().unseal();
         let senders = vec![alloy_primitives::Address::ZERO; block_with_senders.body.transactions.len()];
-        let recovered = reth_primitives::RecoveredBlock::new_unhashed(block_with_senders.clone(), senders.clone());
+        let recovered = reth_primitives_traits::RecoveredBlock::new_unhashed(
+            block_with_senders.clone(),
+            senders.clone()
+        );
         
         // Special handling for empty blocks
         if sealed_block.body().transactions.is_empty() {
@@ -234,10 +241,18 @@ where
         );
         
         // Use append_blocks_with_state to atomically persist everything
+        // Create ExecutionOutcome with proper structure based on Reth patterns
+        let provider_execution_outcome = reth_execution_types::ExecutionOutcome {
+            bundle: execution_outcome.state().clone(),
+            receipts: execution_outcome.receipts().clone(),
+            first_block: sealed_block.number,
+            requests: vec![Default::default()], // No requests for now
+        };
+        
         BlockWriter::append_blocks_with_state(
             &provider_rw,
             vec![recovered],
-            &execution_outcome,
+            &provider_execution_outcome,
             hashed_post_state_sorted,
             trie_updates,
         )?;

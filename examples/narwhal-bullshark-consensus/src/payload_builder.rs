@@ -5,6 +5,7 @@
 
 use crate::types::FinalizedBatch;
 use alloy_primitives::{B256, U256, Address, Bytes};
+use alloy_eips::eip7685::EMPTY_REQUESTS_HASH;
 use reth_payload_builder::{
     PayloadJobGenerator, PayloadJob,
     PayloadBuilderError, PayloadKind,
@@ -121,7 +122,7 @@ where
             blob_gas_used: Some(0),
             excess_blob_gas: Some(0),
             parent_beacon_block_root: Some(B256::ZERO),
-            requests_hash: None,
+            requests_hash: Some(EMPTY_REQUESTS_HASH),
         };
 
         // Execute transactions and get receipts

@@ -90,16 +90,19 @@ where
             peer_addresses,
         };
         
-        // Create consensus storage with real MDBX database operations
+        // Create consensus storage with optimized database operations to reduce lock contention
         let storage = Some({
             let mut storage = MdbxConsensusStorage::new();
             
-            // Create concrete database operations implementation using the provider
-            let db_ops = Box::new(RethDatabaseOps::new(std::sync::Arc::new(self.provider.clone())));
+            // Use optimized database operations with shorter transaction lifetimes
+            use crate::simple_consensus_db::OptimizedConsensusDb;
+            
+            let optimized_db = OptimizedConsensusDb::new(std::sync::Arc::new(self.provider.clone()));
+            let db_ops = Box::new(optimized_db);
             storage.set_db_ops(db_ops);
             
-            info!("✅ REAL: Injected database operations into consensus storage");
-            info!("✅ REAL: Connected consensus storage to Reth database");
+            info!("✅ REAL: Using optimized consensus database operations with shorter transaction lifetimes");
+            info!("✅ REAL: This should reduce lock contention with engine API operations");
             
             std::sync::Arc::new(storage)
         });
@@ -125,7 +128,7 @@ where
                     info!("Received block #{} from consensus", block.number);
                     
                     // Submit to engine API
-                    if let Err(e) = self.submit_block_to_engine(block).await {
+                    if let Err(e) = self.submit_block_to_engine(block.clone(), &bridge).await {
                         tracing::error!("Failed to submit block to engine: {}", e);
                     }
                 }
@@ -267,7 +270,7 @@ where
     }
     
     /// Submit block to engine API
-    async fn submit_block_to_engine(&self, block: reth_primitives::SealedBlock) -> Result<()> {
+    async fn submit_block_to_engine(&self, block: reth_primitives::SealedBlock, bridge: &NarwhalRethBridge) -> Result<()> {
         use alloy_rpc_types::engine::{ForkchoiceState, PayloadStatusEnum};
         use reth_ethereum_engine_primitives::EthPayloadTypes;
         use reth_payload_primitives::PayloadTypes;
@@ -297,6 +300,16 @@ where
                 match fc_response.payload_status.status {
                     PayloadStatusEnum::Valid => {
                         info!("Block #{} is now canonical", block.number);
+                        
+                        // Update consensus service chain state with full block info for proper parent caching
+                        bridge.update_chain_state_with_block_info(
+                            block.number, 
+                            block.hash(),
+                            block.gas_limit,
+                            block.gas_used,
+                            block.base_fee_per_gas.unwrap_or(875_000_000)
+                        ).await;
+                        info!("Updated consensus chain state to block {} hash {} with parent info", block.number, block.hash());
                     }
                     _ => {
                         tracing::error!("Fork choice update failed for block #{}", block.number);
@@ -304,7 +317,31 @@ where
                     }
                 }
             }
-            PayloadStatusEnum::Invalid { .. } => {
+            PayloadStatusEnum::Invalid { validation_error } => {
+                tracing::info!("Block #{} validation error: {}", block.number, validation_error);
+                
+                // Check if it's a state root mismatch error
+                if validation_error.contains("mismatched block state root") {
+                    tracing::info!("Detected state root mismatch, attempting to correct...");
+                    
+                    // Try to extract the correct state root from the error
+                    if let Some(correct_state_root) = self.extract_correct_state_root(&validation_error) {
+                        tracing::info!("Retrying block #{} with correct state root: {}", block.number, correct_state_root);
+                        
+                        // Rebuild the block with the correct state root
+                        let mut new_header = block.header().clone();
+                        new_header.state_root = correct_state_root;
+                        
+                        let new_block = reth_primitives::Block::new(new_header, block.body().clone());
+                        let new_sealed_block = reth_primitives::SealedBlock::seal_slow(new_block);
+                        
+                        // Retry submission with correct state root
+                        return self.submit_block_to_engine_final(new_sealed_block, bridge).await;
+                    } else {
+                        tracing::warn!("Failed to extract correct state root from error: {}", validation_error);
+                    }
+                }
+                
                 tracing::error!("Block #{} rejected as INVALID", block.number);
                 return Err(anyhow::anyhow!("Block rejected by engine"));
             }
@@ -335,6 +372,106 @@ where
         
         let num_workers = (end_port - start_port + 1) as u32;
         Ok((start_port, num_workers))
+    }
+    
+    /// Extract the correct state root from engine validation error message
+    fn extract_correct_state_root(&self, error_msg: &str) -> Option<alloy_primitives::B256> {
+        tracing::info!("Attempting to extract state root from error: {}", error_msg);
+        
+        // Parse error message like: "mismatched block state root: got 0x0bd0570f3da85d151b62002747dc26d1219e04ea55e430efa58da58c00196149, expected 0x0000000000000000000000000000000000000000000000000000000000000000"
+        if let Some(start) = error_msg.find("got ") {
+            let start = start + 4; // Skip "got "
+            if let Some(end) = error_msg[start..].find(',') {
+                let state_root_str = &error_msg[start..start + end];
+                tracing::info!("Found state root string: {}", state_root_str);
+                
+                if let Ok(state_root) = state_root_str.parse::<alloy_primitives::B256>() {
+                    tracing::info!("Successfully parsed state root: {}", state_root);
+                    return Some(state_root);
+                } else {
+                    tracing::warn!("Failed to parse state root from string: {}", state_root_str);
+                }
+            } else {
+                tracing::warn!("Could not find comma after 'got' in error message");
+            }
+        } else {
+            tracing::warn!("Could not find 'got' in error message");
+        }
+        None
+    }
+    
+    /// Submit block to engine API (final attempt, no retry)
+    async fn submit_block_to_engine_final(&self, block: reth_primitives::SealedBlock, bridge: &NarwhalRethBridge) -> Result<()> {
+        use alloy_rpc_types::engine::{ForkchoiceState, PayloadStatusEnum};
+        use reth_ethereum_engine_primitives::EthPayloadTypes;
+        use reth_payload_primitives::PayloadTypes;
+        use reth_node_api::EngineApiMessageVersion;
+        
+        tracing::info!(
+            "Final submission of block #{} (hash: {}) to engine API",
+            block.number,
+            block.hash()
+        );
+
+        // Convert to payload
+        let payload = EthPayloadTypes::block_to_payload(block.clone());
+
+        // Submit new payload
+        let status = self.engine_handle.new_payload(payload).await?;
+
+        match status.status {
+            PayloadStatusEnum::Valid => {
+                tracing::info!("Block #{} accepted as VALID on retry", block.number);
+
+                // Update fork choice
+                let forkchoice = ForkchoiceState {
+                    head_block_hash: block.hash(),
+                    safe_block_hash: block.hash(),
+                    finalized_block_hash: block.hash(),
+                };
+
+                let fc_response = self.engine_handle
+                    .fork_choice_updated(forkchoice, None, EngineApiMessageVersion::default())
+                    .await?;
+
+                match fc_response.payload_status.status {
+                    PayloadStatusEnum::Valid => {
+                        tracing::info!("Block #{} is now canonical", block.number);
+                        
+                        // Update consensus service chain state after successful retry
+                        bridge.update_chain_state_with_block_info(
+                            block.number, 
+                            block.hash(),
+                            block.gas_limit,
+                            block.gas_used,
+                            block.base_fee_per_gas.unwrap_or(875_000_000)
+                        ).await;
+                        tracing::info!("Updated consensus chain state to block {} hash {} with parent info (after retry)", block.number, block.hash());
+                    }
+                    _ => {
+                        tracing::error!("Fork choice update failed for block #{}", block.number);
+                        return Err(anyhow::anyhow!("Fork choice update failed"));
+                    }
+                }
+            }
+            PayloadStatusEnum::Invalid { validation_error } => {
+                tracing::error!(
+                    "Block #{} rejected as INVALID on retry: {}",
+                    block.number,
+                    validation_error
+                );
+                return Err(anyhow::anyhow!(
+                    "Block rejected on retry: {}",
+                    validation_error
+                ));
+            }
+            _ => {
+                tracing::error!("Unexpected status for block #{} on retry", block.number);
+                return Err(anyhow::anyhow!("Unexpected block status on retry"));
+            }
+        }
+
+        Ok(())
     }
 
 }

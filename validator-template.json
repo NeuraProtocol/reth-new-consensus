@@ -1,0 +1,13 @@
+{
+  "metadata": {
+    "name": "Test Validator 1"
+  },
+  "evm_private_key": "0xcee2d71daf54df30553dfd48ecd264e4f986e08007882d36aecb5dbf5626d91c",
+  "consensus_private_key": null,
+  "consensus_public_key": null,
+  "evm_address": null,
+  "stake": 1000,
+  "active": true,
+  "network_address": "127.0.0.1:5003",
+  "worker_port_range": "5100-5199"
+}

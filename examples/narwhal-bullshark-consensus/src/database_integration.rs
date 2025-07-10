@@ -7,7 +7,7 @@
 use crate::{
     types::FinalizedBatch,
     block_builder::NarwhalBlockBuilder,
-    simple_block_executor::SimpleBlockExecutor,
+    block_executor::NarwhalBlockExecutor,
 };
 use reth_provider::{providers::{BlockchainProvider, ProviderNodeTypes}, BlockReaderIdExt, StateProviderFactory, BlockNumReader, BlockHashReader, BlockWriter, DatabaseProviderFactory};
 use reth_evm::ConfigureEvm;
@@ -25,7 +25,7 @@ where
     /// Block builder
     block_builder: Arc<NarwhalBlockBuilder<BlockchainProvider<N>, EvmConfig>>,
     /// Block executor
-    block_executor: Arc<SimpleBlockExecutor<BlockchainProvider<N>>>,
+    block_executor: Arc<NarwhalBlockExecutor<BlockchainProvider<N>, EvmConfig>>,
     /// Channel for receiving finalized batches
     batch_receiver: mpsc::UnboundedReceiver<FinalizedBatch>,
 }
@@ -34,6 +34,8 @@ impl<N, EvmConfig> DatabaseIntegration<N, EvmConfig>
 where
     N: ProviderNodeTypes<Primitives = reth_ethereum_primitives::EthPrimitives>,
     BlockchainProvider<N>: StateProviderFactory + DatabaseProviderFactory + BlockReaderIdExt + Clone,
+    <BlockchainProvider<N> as DatabaseProviderFactory>::Provider: reth_provider::BlockNumReader + reth_provider::BlockHashReader,
+    <BlockchainProvider<N> as DatabaseProviderFactory>::ProviderRW: reth_provider::BlockWriter<Block = alloy_consensus::Block<alloy_consensus::EthereumTxEnvelope<alloy_consensus::TxEip4844>>, Receipt = reth_ethereum_primitives::Receipt>,
     EvmConfig: ConfigureEvm<Primitives = reth_ethereum_primitives::EthPrimitives> + Clone + Send + Sync + 'static,
 {
     /// Create a new database integration
@@ -49,9 +51,10 @@ where
             evm_config.clone(),
         ));
 
-        let block_executor = Arc::new(SimpleBlockExecutor::new(
+        let block_executor = Arc::new(NarwhalBlockExecutor::new(
             provider,
             chain_spec,
+            evm_config,
         ));
 
         Self {
@@ -85,7 +88,7 @@ where
         // Build the block
         let block = self.block_builder.build_block(batch)?;
 
-        // Execute and persist directly to database
+        // Execute and persist directly to database using the real implementation
         self.block_executor.execute_and_persist_block(block).await?;
 
         Ok(())

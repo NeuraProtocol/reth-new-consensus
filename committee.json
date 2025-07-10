@@ -1,0 +1,37 @@
+{
+  "epoch": 0,
+  "validators": [
+    {
+      "name": "Test Validator 0",
+      "evm_address": "0x8f5be74abff7171aa9f025cbb4ebf32e33b29876",
+      "consensus_public_key": "idXSK1Q2mll9buW1UuDpK7ojeQuvuHrwT/SQGbMr4RVswtjsytalAspooj6dCt2EDA58HXZUNcWyivZ8Vk/kVegwYmBSR5QXCKNQv0TqMsssg67JAkPBqjZSogZxscEd",
+      "stake": 1000,
+      "network_address": "127.0.0.1:9001",
+      "worker_port_range": "19000:19003"
+    },
+    {
+      "name": "Test Validator 1",
+      "evm_address": "0xd315f1b49edbc83f50645e96db0ed16a157b70c4",
+      "consensus_public_key": "jdHuTgXBjFt9sc99ba43PvfBXEy+kj3eRqTVGxE5eRL8A/wA6WpcjVjP0V9HKHCGEpR/Nsvg8PFpnHc6m76lffwa3nSClZOmfwORlwIEY1WGyLF3N2aQ0WYIFx5FdA0c",
+      "stake": 1000,
+      "network_address": "127.0.0.1:9002",
+      "worker_port_range": "19004:19007"
+    },
+    {
+      "name": "Test Validator 2",
+      "evm_address": "0x8edae34d1e0275c7929115efffa4c3a639810257",
+      "consensus_public_key": "sE+3cOfvZYoqlHq/hTwwKJ05wlJq7Lm1ql45tATR+VJ6T3T3/SxljHqMNTbSbAxWDiLC4yR2j1bSQlPxlY7pKq7g+qJObVDqAQh5WiDJ2Jrj8uazfNyyxvtRQqUvDk8o",
+      "stake": 1000,
+      "network_address": "127.0.0.1:9003",
+      "worker_port_range": "19008:19011"
+    },
+    {
+      "name": "Test Validator 3",
+      "evm_address": "0x38c099a7de4e39a0d70ae32994dddd08aac68cd3",
+      "consensus_public_key": "rImta6FF+ITDxfvbC44ppBm7fgxcmuUqckEu/AjcyaLn2xqYfj3VLvTaTM8qtwDyF+/wNKB07DbgE7SZIOXOl2KeQYr/BoyFuTFxVQDt6eX/f693XjiNzG2KncAu03Xo",
+      "stake": 1000,
+      "network_address": "127.0.0.1:9004",
+      "worker_port_range": "19012:19015"
+    }
+  ]
+}

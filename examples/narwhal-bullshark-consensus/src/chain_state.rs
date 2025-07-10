@@ -36,6 +36,7 @@ impl Default for ChainState {
 }
 
 /// Thread-safe chain state tracker
+#[derive(Clone)]
 pub struct ChainStateTracker {
     state: Arc<RwLock<ChainState>>,
 }

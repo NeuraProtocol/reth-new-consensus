@@ -40,10 +40,13 @@ where
     let batch1 = FinalizedBatch {
         round: 1,
         block_number: 1,
+        parent_hash: B256::ZERO,  // Genesis parent for block 1
         timestamp: 1000,
+        consensus_round: 1,
         proposer: Address::random(),
         transactions: vec![],
         certificate_digest: B256::random(),
+        validator_signatures: vec![],
     };
     
     // Build the block
@@ -60,10 +63,13 @@ where
     let batch2 = FinalizedBatch {
         round: 2,
         block_number: 2,
+        parent_hash: block1.hash(),  // Parent is previous block
         timestamp: 2000,
+        consensus_round: 2,
         proposer: Address::random(),
         transactions: vec![], // TODO: Add test transactions
         certificate_digest: B256::random(),
+        validator_signatures: vec![],
     };
     
     let block2 = builder.build_block(batch2)?;

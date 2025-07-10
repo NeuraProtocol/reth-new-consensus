@@ -115,6 +115,32 @@ impl From<BatchDigest> for fastcrypto::Digest {
     }
 }
 
+impl AsRef<[u8]> for BatchDigest {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl BatchDigest {
+    /// Create a new BatchDigest from data
+    pub fn new(data: &[u8]) -> Self {
+        let hash = fastcrypto::blake2b_256(|hasher: &mut blake2::VarBlake2b| {
+            hasher.update(data)
+        });
+        BatchDigest(hash)
+    }
+    
+    /// Get the digest as bytes
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.0.to_vec()
+    }
+    
+    /// Get the digest as a byte array reference
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
 impl Hash for Batch {
     type TypedDigest = BatchDigest;
 

@@ -1,7 +1,7 @@
 //! Storage adapter for Narwhal worker batches
 
 use crate::consensus_storage::MdbxConsensusStorage;
-use narwhal::BatchDigest;
+use narwhal::{BatchDigest, storage_trait::BatchStore};
 use std::sync::Arc;
 use tracing::{debug, error};
 
@@ -24,25 +24,27 @@ impl BatchStorageAdapter {
             data.len()
         );
         
-        // Use the batch digest as key
-        let key = digest.to_vec();
+        // Convert BatchDigest to B256 for storage
+        let digest_b256 = alloy_primitives::B256::from(digest.0);
         
-        // Store in MDBX
-        self.storage.store_batch(&key, data)?;
+        // Store in MDBX using worker batch storage
+        self.storage.store_worker_batch(digest_b256, data.to_vec())?;
         
         Ok(())
     }
 
     /// Retrieve a batch by digest
     pub fn get_batch(&self, digest: &BatchDigest) -> anyhow::Result<Option<Vec<u8>>> {
-        let key = digest.to_vec();
-        self.storage.get_batch(&key)
+        // Convert BatchDigest to B256 for storage
+        let digest_b256 = alloy_primitives::B256::from(digest.0);
+        self.storage.get_worker_batch(digest_b256)
     }
 
     /// Delete a batch
     pub fn delete_batch(&self, digest: &BatchDigest) -> anyhow::Result<()> {
-        let key = digest.to_vec();
-        self.storage.delete_batch(&key)?;
+        // Convert BatchDigest to B256 for storage
+        let digest_b256 = alloy_primitives::B256::from(digest.0);
+        self.storage.delete_worker_batch(digest_b256)?;
         
         debug!("Deleted batch {}", hex::encode(digest));
         Ok(())
@@ -98,5 +100,40 @@ impl WorkerBatch {
     /// Deserialize a batch from storage
     pub fn deserialize(data: &[u8]) -> anyhow::Result<Self> {
         bincode::deserialize(data).map_err(Into::into)
+    }
+}
+
+#[async_trait::async_trait]
+impl BatchStore for BatchStorageAdapter {
+    async fn write_batch(&self, digest: &BatchDigest, batch: &narwhal::Batch) -> narwhal::DagResult<()> {
+        let data = bincode::serialize(batch)
+            .map_err(|e| narwhal::DagError::StorageError(format!("Failed to serialize batch: {}", e)))?;
+        self.store_batch(digest, &data)
+            .map_err(|e| narwhal::DagError::StorageError(format!("Failed to store batch: {}", e)))
+    }
+    
+    async fn read_batch(&self, digest: &BatchDigest) -> narwhal::DagResult<Option<narwhal::Batch>> {
+        match self.get_batch(digest)
+            .map_err(|e| narwhal::DagError::StorageError(format!("Failed to get batch: {}", e)))? {
+            Some(data) => {
+                let batch = bincode::deserialize(&data)
+                    .map_err(|e| narwhal::DagError::StorageError(format!("Failed to deserialize batch: {}", e)))?;
+                Ok(Some(batch))
+            }
+            None => Ok(None)
+        }
+    }
+    
+    async fn delete_batch(&self, digest: &BatchDigest) -> narwhal::DagResult<()> {
+        self.delete_batch(digest)
+            .map_err(|e| narwhal::DagError::StorageError(format!("Failed to remove batch: {}", e)))
+    }
+    
+    async fn read_batches(&self, digests: &[BatchDigest]) -> narwhal::DagResult<Vec<Option<narwhal::Batch>>> {
+        let mut result = Vec::new();
+        for digest in digests {
+            result.push(self.read_batch(digest).await?);
+        }
+        Ok(result)
     }
 }

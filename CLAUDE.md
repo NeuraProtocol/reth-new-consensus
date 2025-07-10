@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**Last Updated**: 2025-07-09 - Fixed "Batch store not configured" error by implementing real MDBX database operations
+**Last Updated**: 2025-07-10 - Enabled real consensus and implemented base fee caching infrastructure
 
 ## Project Overview
 
@@ -37,14 +37,16 @@ pkill -f "reth.*node.*narwhal"    # Stop all nodes
 - **BFT Consensus**: Leader election, commit rules, finalization
 - **MDBX Storage**: Real database operations for all consensus data
 - **Transaction Flow**: Mempool → Workers → DAG → BFT → Blocks
-- **Multi-Validator**: 4 validators fully participating
+- **Multi-Validator**: 4 validators fully participating in real consensus
+- **Real Consensus**: Enabled via USE_REAL_CONSENSUS=true environment variable
 
 ### ⚠️ Working with Known Issues
 - **Block Production**: Works with transactions, produces blocks at regular intervals
-- **Block Validation**: Engine rejects blocks due to "invalid payload extra data" (consensus seal format issue)
+- **Base Fee Synchronization**: Consensus and engine calculate different base fee values (persistence issue)
+- **Block Validation**: Engine occasionally rejects blocks due to base fee mismatches
 
 ### ❌ TODO
-- Fix block validation by implementing proper consensus seal format
+- Fix base fee synchronization by investigating database cleanup during node restarts
 - Complete BLS signature aggregation for consensus seals
 - Vote signing with proper BLS signatures (currently using generated signatures)
 
@@ -71,8 +73,25 @@ pkill -f "reth.*node.*narwhal"    # Stop all nodes
 
 - **`bin/reth/src/narwhal_bullshark.rs`** - Integration with Reth node
 
-## Recent Critical Fix (2025-07-09)
+## Recent Critical Fixes
 
+### 2025-07-10: Real Consensus Enabled + Base Fee Caching
+**Problem**: Nodes were running MOCK consensus instead of REAL consensus
+- Root cause: Missing USE_REAL_CONSENSUS=true environment variable in startup script
+- Impact: Multi-validator setup was testing mock implementation, not real consensus
+
+**Solution**: Updated startup script and implemented base fee caching
+- Added USE_REAL_CONSENSUS=true to all node startup commands in `start_multivalidator_test.sh`
+- Implemented thread-safe parent block caching with Arc<Mutex<Option<(u64, u64, u64)>>>
+- Added `update_chain_state_with_block_info` method for proper chain state synchronization
+- Files: `start_multivalidator_test.sh`, `complete_integration.rs`, `node_integration.rs`
+
+**Result**: ✅ All 4 nodes now run real Narwhal+Bullshark consensus with active DAG participation
+- Evidence: Logs show "Starting REAL Narwhal+Bullshark consensus"
+- Evidence: Headers, votes, certificates created with 3/4 quorum achieved
+- Evidence: Finalized batches processed and sent to Reth integration
+
+### 2025-07-09: Database Operations Fixed
 **Problem**: "Batch store not configured - cannot extract transactions from certificates"
 - Root cause: MdbxConsensusStorage was created but database operations were not injected
 - Impact: Consensus worked but couldn't extract transactions from certificates for block creation
@@ -105,10 +124,11 @@ The consensus system uses a dependency injection pattern for database operations
 ## Important TODOs
 
 ### Critical (Next Steps)
-1. **Fix Block Validation** - Resolve "invalid payload extra data" error
-   - Issue: Engine rejects blocks due to consensus seal format
-   - Solution: Implement proper BLS signature aggregation in consensus seal
-   - Location: Block building in `block_builder.rs`
+1. **Fix Base Fee Synchronization** - Resolve database persistence issue
+   - Issue: Consensus and engine calculate different base fee values after restarts
+   - Root cause: Database cleanup script may not properly delete consensus database files
+   - Investigation needed: Ensure consensus state is properly cleared between test runs
+   - Current evidence: Base fee mismatch (consensus: 765625000 vs engine: 669921875)
 
 2. **Complete BLS Signatures** - Replace placeholder signatures with real ones
    - Vote signing in `types.rs`
@@ -144,12 +164,18 @@ The consensus system uses a dependency injection pattern for database operations
 ## Working Features Summary
 
 The system now successfully:
-- ✅ Runs 4-validator BFT consensus
-- ✅ Processes transactions from mempool
-- ✅ Creates and broadcasts certificates
-- ✅ Reaches consensus on transaction ordering
-- ✅ Extracts transactions from certificates (FIXED)
-- ✅ Creates finalized batches for block building
-- ✅ Stores all data in real MDBX database
+- ✅ Runs 4-validator REAL Narwhal+Bullshark consensus (not mock)
+- ✅ Establishes full peer-to-peer connections between all validators
+- ✅ Creates headers, processes votes, and achieves 3/4 quorum for certificates
+- ✅ Processes transactions from mempool through DAG consensus
+- ✅ Creates and broadcasts certificates with proper certificate digests
+- ✅ Reaches consensus on transaction ordering via Bullshark BFT
+- ✅ Extracts transactions from certificates for block creation
+- ✅ Creates finalized batches for block building with real database operations
+- ✅ Stores all consensus data in real MDBX database with proper transaction lifetimes
+- ✅ Thread-safe base fee caching infrastructure implemented
 
-Next step: Fix block validation to complete the transaction → block → execution pipeline.
+Known issues:
+- ⚠️ Base fee synchronization between consensus and engine (database persistence issue)
+
+Next step: Investigate database cleanup to fix base fee synchronization between consensus and engine layers.

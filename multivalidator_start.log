@@ -1,0 +1,1834 @@
+🚀 Starting Neura Multivalidator Test (Chain ID: 266, Coin: ANKR)
+🔑 Using REAL Validator Key Management (No Random Keys!)
+🏛️ Committee loaded from test_validators/ directory
+⏱️  Block Time: 500ms (configurable with --bullshark.min-block-time-ms)
+   For faster blocks: --bullshark.min-block-time-ms 100
+   For slower blocks: --bullshark.min-block-time-ms 1000
+🌳 Engine tree executor ENABLED for canonical state updates
+==================================================================
+🔨 Building Reth with Narwhal + Bullshark consensus...
+warning: unused import: `traits::Signer`
+  --> crates/narwhal/src/dag_service.rs:14:50
+   |
+14 | use fastcrypto::{SignatureService, Hash, Digest, traits::Signer, Verifier};
+   |                                                  ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `DagError`
+ --> crates/narwhal/src/storage_trait.rs:4:13
+  |
+4 | use crate::{DagError, DagResult, types::*, Round, Batch, BatchDigest};
+  |             ^^^^^^^^
+
+warning: unused import: `DagError`
+ --> crates/narwhal/src/storage_inmemory.rs:8:23
+  |
+8 |     Round, DagResult, DagError,
+  |                       ^^^^^^^^
+
+warning: unused import: `warn`
+  --> crates/narwhal/src/storage_mdbx.rs:15:28
+   |
+15 | use tracing::{debug, info, warn, error};
+   |                            ^^^^
+
+warning: unused import: `VarBlake2b`
+  --> crates/narwhal/src/storage_mdbx.rs:18:30
+   |
+18 | use blake2::{digest::Update, VarBlake2b};
+   |                              ^^^^^^^^^^
+
+warning: unused import: `VarBlake2b`
+  --> crates/narwhal/src/types.rs:10:30
+   |
+10 | use blake2::{digest::Update, VarBlake2b};
+   |                              ^^^^^^^^^^
+
+warning: unused import: `BTreeMap`
+  --> crates/narwhal/src/types.rs:15:38
+   |
+15 |     collections::{BTreeSet, HashMap, BTreeMap},
+   |                                      ^^^^^^^^
+
+warning: unused imports: `Certificate`, `Header`, and `Vote`
+  --> crates/narwhal/src/primary.rs:16:13
+   |
+16 |     types::{Certificate, Header, Vote, Committee, PublicKey},
+   |             ^^^^^^^^^^^  ^^^^^^  ^^^^
+
+warning: unused import: `sync::Arc`
+  --> crates/narwhal/src/primary.rs:20:11
+   |
+20 | use std::{sync::Arc, time::Duration, net::Ipv4Addr};
+   |           ^^^^^^^^^
+
+warning: unused imports: `DagError` and `MdbxBatchStore`
+  --> crates/narwhal/src/worker.rs:15:39
+   |
+15 |     batch_store::{InMemoryBatchStore, MdbxBatchStore},
+   |                                       ^^^^^^^^^^^^^^
+16 |     storage_trait::BatchStore,
+17 |     DagError, DagResult,
+   |     ^^^^^^^^
+
+warning: unused import: `callback::CallbackLayer`
+  --> crates/narwhal/src/worker.rs:20:19
+   |
+20 | use anemo_tower::{callback::CallbackLayer, trace::TraceLayer};
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `warn`
+  --> crates/narwhal/src/worker.rs:25:28
+   |
+25 | use tracing::{info, debug, warn};
+   |                            ^^^^
+
+warning: unused imports: `Ipv4Addr` and `time::Duration`
+  --> crates/narwhal/src/worker.rs:26:22
+   |
+26 | use std::{sync::Arc, time::Duration, net::{SocketAddr, Ipv4Addr}};
+   |                      ^^^^^^^^^^^^^^                    ^^^^^^^^
+
+warning: unused imports: `Authority`, `CancelOnDropHandle`, `MetricTimer`, `WorkerConfiguration`, and `narwhal_dag_client::NarwhalDagClient`
+  --> crates/narwhal/src/network.rs:6:15
+   |
+6  |         dag::{narwhal_dag_client::NarwhalDagClient, narwhal_dag_server::*},
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+9  |     types::{Certificate, Header, Vote, Committee, PublicKey, CertificateDigest, Authority, WorkerConfiguration},
+   |                                                                                 ^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^
+...
+12 |     bounded_executor::{BoundedExecutor, CancelOnDropHandle},
+   |                                         ^^^^^^^^^^^^^^^^^^
+13 |     metrics_collector::{metrics, MetricTimer},
+   |                                  ^^^^^^^^^^^
+
+warning: unused import: `anyhow::anyhow`
+  --> crates/narwhal/src/network.rs:17:5
+   |
+17 | use anyhow::anyhow;
+   |     ^^^^^^^^^^^^^^
+
+warning: unused import: `bytes::Bytes`
+  --> crates/narwhal/src/network.rs:18:5
+   |
+18 | use bytes::Bytes;
+   |     ^^^^^^^^^^^^
+
+warning: unused import: `ToFromBytes`
+  --> crates/narwhal/src/network.rs:19:36
+   |
+19 | use fastcrypto::{traits::{KeyPair, ToFromBytes}, Hash};
+   |                                    ^^^^^^^^^^^
+
+warning: unused import: `error`
+  --> crates/narwhal/src/network.rs:28:34
+   |
+28 | use tracing::{debug, info, warn, error};
+   |                                  ^^^^^
+
+warning: unused imports: `Header` and `Vote`
+ --> crates/narwhal/src/rpc.rs:3:20
+  |
+3 | use crate::types::{Header, Vote, Certificate, CertificateDigest};
+  |                    ^^^^^^  ^^^^
+
+warning: unused imports: `Authority`, `HeaderDigest`, and `WorkerConfiguration`
+ --> crates/narwhal/src/aggregators.rs:7:62
+  |
+7 |     types::{Vote, Certificate, Header, PublicKey, Signature, HeaderDigest, Authority, WorkerConfiguration},
+  |                                                              ^^^^^^^^^^^^  ^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `AggregateAuthenticator`, `BLS12381AggregateSignature`, `BLS12381PublicKey`, `BLS12381Signature`, and `KeyPair`
+  --> crates/narwhal/src/aggregators.rs:11:14
+   |
+11 |     traits::{AggregateAuthenticator, KeyPair},
+   |              ^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^
+12 |     bls12381::{BLS12381AggregateSignature, BLS12381PublicKey, BLS12381Signature},
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^
+
+warning: unused import: `Epoch`
+ --> crates/narwhal/src/batch_maker.rs:7:24
+  |
+7 |     types::{Committee, Epoch},
+  |                        ^^^^^
+
+warning: unused import: `std::time::SystemTime`
+  --> crates/narwhal/src/batch_maker.rs:16:5
+   |
+16 | use std::time::SystemTime;
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `WorkerInfo`
+ --> crates/narwhal/src/quorum_waiter.rs:9:37
+  |
+9 |     worker_network::{WorkerNetwork, WorkerInfo},
+  |                                     ^^^^^^^^^^
+
+warning: unused import: `timeout`
+  --> crates/narwhal/src/quorum_waiter.rs:14:12
+   |
+14 |     time::{timeout, Duration},
+   |            ^^^^^^^
+
+warning: unused imports: `DagError` and `DagResult`
+ --> crates/narwhal/src/worker_handlers.rs:7:25
+  |
+7 |     Batch, BatchDigest, DagError, DagResult,
+  |                         ^^^^^^^^  ^^^^^^^^^
+
+warning: unused import: `WorkerBatchResponse`
+ --> crates/narwhal/src/worker_network.rs:8:46
+  |
+8 |     rpc::{WorkerMessage, WorkerBatchRequest, WorkerBatchResponse},
+  |                                              ^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `Request` and `Response`
+  --> crates/narwhal/src/worker_network.rs:12:30
+   |
+12 | use anemo::{Network, PeerId, Request, Response};
+   |                              ^^^^^^^  ^^^^^^^^
+
+warning: unused import: `time::Duration`
+  --> crates/narwhal/src/worker_network.rs:17:5
+   |
+17 |     time::Duration,
+   |     ^^^^^^^^^^^^^^
+
+warning: unused import: `std::sync::Arc`
+ --> crates/narwhal/src/retry.rs:9:5
+  |
+9 | use std::sync::Arc;
+  |     ^^^^^^^^^^^^^^
+
+warning: unused import: `alloy_rlp::Decodable`
+  --> crates/narwhal/src/lib.rs:60:5
+   |
+60 | use alloy_rlp::Decodable;
+   |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `VarBlake2b`
+  --> crates/narwhal/src/lib.rs:63:30
+   |
+63 | use blake2::{digest::Update, VarBlake2b};
+   |                              ^^^^^^^^^^
+
+warning: unused variable: `network_clone`
+   --> crates/narwhal/src/network.rs:408:25
+    |
+408 |                     let network_clone = self.network.clone();
+    |                         ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_network_clone`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `peer_map_clone`
+   --> crates/narwhal/src/network.rs:409:25
+    |
+409 |                     let peer_map_clone = self.peer_map.clone();
+    |                         ^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_peer_map_clone`
+
+warning: unused variable: `event_sender_clone`
+   --> crates/narwhal/src/network.rs:410:25
+    |
+410 |                     let event_sender_clone = self.event_sender.clone();
+    |                         ^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_event_sender_clone`
+
+warning: unused variable: `start`
+   --> crates/narwhal/src/network.rs:552:13
+    |
+552 |         let start = std::time::Instant::now();
+    |             ^^^^^ help: if this is intentional, prefix it with an underscore: `_start`
+
+warning: variable does not need to be mutable
+  --> crates/narwhal/src/batch_maker.rs:89:13
+   |
+89 |         let mut timer = sleep(self.config.max_batch_delay);
+   |             ----^^^^^
+   |             |
+   |             help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` on by default
+
+warning: variable does not need to be mutable
+  --> crates/narwhal/src/retry.rs:79:46
+   |
+79 |     pub async fn retry<R, E, Fn, Fut>(&self, mut op: Fn) -> Result<R, E>
+   |                                              ----^^
+   |                                              |
+   |                                              help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/narwhal/src/retry.rs:100:9
+    |
+100 |         mut op: Fn,
+    |         ----^^
+    |         |
+    |         help: remove this `mut`
+
+warning: unused import: `DagStorageInterface`
+ --> crates/narwhal/src/dag_service.rs:7:21
+  |
+7 |     storage_trait::{DagStorageInterface, DagStorageRef},
+  |                     ^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `header_digest`
+  --> crates/narwhal/src/storage_inmemory.rs:64:32
+   |
+64 |     async fn store_vote(&self, header_digest: HeaderDigest, vote: Vote) -> DagResult<()> {
+   |                                ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_header_digest`
+
+warning: unused variable: `header_digest`
+  --> crates/narwhal/src/storage_inmemory.rs:72:34
+   |
+72 |     async fn remove_votes(&self, header_digest: &HeaderDigest) -> DagResult<()> {
+   |                                  ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_header_digest`
+
+warning: unused variable: `rx_synchronizer`
+   --> crates/narwhal/src/worker.rs:211:31
+    |
+211 |         let (tx_synchronizer, rx_synchronizer) = mpsc::unbounded_channel();
+    |                               ^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_rx_synchronizer`
+
+warning: unused variable: `rx_primary_batch_req`
+   --> crates/narwhal/src/worker.rs:212:36
+    |
+212 |         let (tx_primary_batch_req, rx_primary_batch_req) = mpsc::unbounded_channel();
+    |                                    ^^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_rx_primary_batch_req`
+
+warning: method `get_cert_digest` is never used
+   --> crates/narwhal/src/storage_mdbx.rs:123:14
+    |
+68  | impl MdbxDagStorage {
+    | ------------------- method in this implementation
+...
+123 |     async fn get_cert_digest(&self, id: u64) -> Option<CertificateDigest> {
+    |              ^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: constant `HEARTBEAT_INTERVAL` is never used
+  --> crates/narwhal/src/primary.rs:28:7
+   |
+28 | const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(1);
+   |       ^^^^^^^^^^^^^^^^^^
+
+warning: associated constant `INADDR_ANY` is never used
+  --> crates/narwhal/src/primary.rs:48:11
+   |
+47 | impl Primary {
+   | ------------ associated constant in this implementation
+48 |     const INADDR_ANY: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
+   |           ^^^^^^^^^^
+
+warning: field `batch_timeout` is never read
+  --> crates/narwhal/src/quorum_waiter.rs:51:5
+   |
+33 | pub struct QuorumWaiter {
+   |            ------------ field in this struct
+...
+51 |     batch_timeout: Duration,
+   |     ^^^^^^^^^^^^^
+
+warning: field `batch` is never read
+  --> crates/narwhal/src/quorum_waiter.rs:60:5
+   |
+58 | struct PendingBatch {
+   |        ------------ field in this struct
+59 |     /// The batch itself
+60 |     batch: Batch,
+   |     ^^^^^
+
+warning: creating a shared reference to mutable static is discouraged
+   --> crates/narwhal/src/metrics_collector.rs:517:9
+    |
+517 |         METRICS.as_ref().unwrap().clone()
+    |         ^^^^^^^^^^^^^^^^ shared reference to mutable static
+    |
+    = note: for more information, see <https://doc.rust-lang.org/nightly/edition-guide/rust-2024/static-mut-references.html>
+    = note: shared references to mutable statics are dangerous; it's undefined behavior if the static is mutated or if a mutable reference is created for it while the shared reference lives
+    = note: `#[warn(static_mut_refs)]` on by default
+
+warning: creating a shared reference to mutable static is discouraged
+   --> crates/narwhal/src/metrics_collector.rs:523:14
+    |
+523 |     unsafe { METRICS.clone() }
+    |              ^^^^^^^^^^^^^^^ shared reference to mutable static
+    |
+    = note: for more information, see <https://doc.rust-lang.org/nightly/edition-guide/rust-2024/static-mut-references.html>
+    = note: shared references to mutable statics are dangerous; it's undefined behavior if the static is mutated or if a mutable reference is created for it while the shared reference lives
+
+warning: `narwhal` (lib) generated 51 warnings (run `cargo fix --lib -p narwhal` to apply 35 suggestions)
+warning: extern crate `bincode` is unused in crate `bullshark`
+  |
+  = help: remove the dependency or add `use bincode as _;` to the crate root
+note: the lint level is defined here
+ --> crates/bullshark/src/lib.rs:6:29
+  |
+6 | #![cfg_attr(not(test), warn(unused_crate_dependencies))]
+  |                             ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `alloy_primitives::B256`
+  --> crates/bullshark/src/bft_service.rs:14:5
+   |
+14 | use alloy_primitives::B256;
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `fastcrypto::traits::KeyPair`
+  --> crates/bullshark/src/bft_service.rs:19:5
+   |
+19 | use fastcrypto::traits::KeyPair;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `rand_08`
+  --> crates/bullshark/src/bft_service.rs:20:5
+   |
+20 | use rand_08;
+   |     ^^^^^^^
+
+warning: unused import: `VarBlake2b`
+  --> crates/bullshark/src/finality.rs:14:30
+   |
+14 | use blake2::{digest::Update, VarBlake2b};
+   |                              ^^^^^^^^^^
+
+warning: unused import: `rand_08`
+  --> crates/bullshark/src/finality.rs:15:5
+   |
+15 | use rand_08;
+   |     ^^^^^^^
+
+warning: unused import: `fastcrypto::traits::KeyPair`
+  --> crates/bullshark/src/finality.rs:16:5
+   |
+16 | use fastcrypto::traits::KeyPair;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a module
+  --> crates/bullshark/src/lib.rs:14:1
+   |
+14 | pub mod storage;
+   | ^^^^^^^^^^^^^^^
+   |
+   = note: requested on the command line with `-W missing-docs`
+
+warning: missing documentation for a struct field
+  --> crates/bullshark/src/lib.rs:91:9
+   |
+91 |         digest: narwhal::BatchDigest,
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/bullshark/src/lib.rs:92:9
+   |
+92 |         reason: String,
+   |         ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/bullshark/src/lib.rs:99:9
+   |
+99 |         source: anyhow::Error,
+   |         ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/bullshark/src/lib.rs:100:9
+    |
+100 |         context: String,
+    |         ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+   --> crates/bullshark/src/consensus.rs:260:5
+    |
+260 | /     pub fn write_consensus_state(
+261 | |         &self,
+262 | |         consensus_index: SequenceNumber,
+263 | |         _certificate_digest: &CertificateDigest,
+264 | |     ) -> BullsharkResult<()> {
+    | |____________________________^
+
+warning: missing documentation for a method
+   --> crates/bullshark/src/consensus.rs:270:5
+    |
+270 |     pub fn read_last_consensus_index(&self) -> BullsharkResult<SequenceNumber> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+   --> crates/bullshark/src/consensus.rs:275:5
+    |
+275 |     pub fn read_last_committed(&self) -> BullsharkResult<HashMap<PublicKey, Round>> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+   --> crates/bullshark/src/consensus.rs:280:5
+    |
+280 |     pub fn clear(&self) -> BullsharkResult<()> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a module
+ --> crates/bullshark/src/storage/mod.rs:1:1
+  |
+1 | pub mod tables;
+  | ^^^^^^^^^^^^^^
+
+warning: missing documentation for an associated function
+  --> crates/bullshark/src/storage/mod.rs:56:5
+   |
+56 |     pub fn new() -> Self {
+   |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+ --> crates/bullshark/src/storage/tables.rs:7:5
+  |
+7 |     pub batch_id: u64,
+  |     ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+ --> crates/bullshark/src/storage/tables.rs:8:5
+  |
+8 |     pub transactions: Vec<Vec<u8>>,
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+ --> crates/bullshark/src/storage/tables.rs:9:5
+  |
+9 |     pub block_hash: B256,
+  |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/bullshark/src/storage/tables.rs:10:5
+   |
+10 |     pub timestamp: u64,
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/bullshark/src/storage/tables.rs:11:5
+   |
+11 |     pub signature: Vec<u8>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/bullshark/src/storage/tables.rs:17:5
+   |
+17 |     pub id: u64,
+   |     ^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/bullshark/src/storage/tables.rs:18:5
+   |
+18 |     pub transactions: Vec<Vec<u8>>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/bullshark/src/storage/tables.rs:19:5
+   |
+19 |     pub timestamp: u64,
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: type does not implement `std::fmt::Debug`; consider adding `#[derive(Debug)]` or a manual implementation
+  --> crates/bullshark/src/chain_state.rs:33:1
+   |
+33 | pub struct DefaultChainState;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: requested on the command line with `-W missing-debug-implementations`
+
+warning: `bullshark` (lib) generated 27 warnings (run `cargo fix --lib -p bullshark` to apply 6 suggestions)
+warning: extern crate `alloy_rlp` is unused in crate `reth_consensus`
+  |
+  = help: remove the dependency or add `use alloy_rlp as _;` to the crate root
+note: the lint level is defined here
+ --> crates/consensus/consensus/src/lib.rs:8:29
+  |
+8 | #![cfg_attr(not(test), warn(unused_crate_dependencies))]
+  |                             ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: extern crate `anyhow` is unused in crate `reth_consensus`
+  |
+  = help: remove the dependency or add `use anyhow as _;` to the crate root
+
+warning: extern crate `async_trait` is unused in crate `reth_consensus`
+  |
+  = help: remove the dependency or add `use async_trait as _;` to the crate root
+
+warning: extern crate `bincode` is unused in crate `reth_consensus`
+  |
+  = help: remove the dependency or add `use bincode as _;` to the crate root
+
+warning: extern crate `bullshark` is unused in crate `reth_consensus`
+  |
+  = help: remove the dependency or add `use bullshark as _;` to the crate root
+
+warning: extern crate `fastcrypto` is unused in crate `reth_consensus`
+  |
+  = help: remove the dependency or add `use fastcrypto as _;` to the crate root
+
+warning: extern crate `indexmap` is unused in crate `reth_consensus`
+  |
+  = help: remove the dependency or add `use indexmap as _;` to the crate root
+
+warning: extern crate `jsonrpsee` is unused in crate `reth_consensus`
+  |
+  = help: remove the dependency or add `use jsonrpsee as _;` to the crate root
+
+warning: extern crate `narwhal` is unused in crate `reth_consensus`
+  |
+  = help: remove the dependency or add `use narwhal as _;` to the crate root
+
+warning: extern crate `prometheus` is unused in crate `reth_consensus`
+  |
+  = help: remove the dependency or add `use prometheus as _;` to the crate root
+
+warning: extern crate `rand_08` is unused in crate `reth_consensus`
+  |
+  = help: remove the dependency or add `use rand_08 as _;` to the crate root
+
+warning: extern crate `reth_db` is unused in crate `reth_consensus`
+  |
+  = help: remove the dependency or add `use reth_db as _;` to the crate root
+
+warning: extern crate `reth_db_api` is unused in crate `reth_consensus`
+  |
+  = help: remove the dependency or add `use reth_db_api as _;` to the crate root
+
+warning: extern crate `reth_ethereum_primitives` is unused in crate `reth_consensus`
+  |
+  = help: remove the dependency or add `use reth_ethereum_primitives as _;` to the crate root
+
+warning: extern crate `reth_primitives` is unused in crate `reth_consensus`
+  |
+  = help: remove the dependency or add `use reth_primitives as _;` to the crate root
+
+warning: extern crate `secp256k1` is unused in crate `reth_consensus`
+  |
+  = help: remove the dependency or add `use secp256k1 as _;` to the crate root
+
+warning: extern crate `serde` is unused in crate `reth_consensus`
+  |
+  = help: remove the dependency or add `use serde as _;` to the crate root
+
+warning: extern crate `serde_json` is unused in crate `reth_consensus`
+  |
+  = help: remove the dependency or add `use serde_json as _;` to the crate root
+
+warning: extern crate `sha2` is unused in crate `reth_consensus`
+  |
+  = help: remove the dependency or add `use sha2 as _;` to the crate root
+
+warning: extern crate `sha3` is unused in crate `reth_consensus`
+  |
+  = help: remove the dependency or add `use sha3 as _;` to the crate root
+
+warning: extern crate `tokio` is unused in crate `reth_consensus`
+  |
+  = help: remove the dependency or add `use tokio as _;` to the crate root
+
+warning: extern crate `tracing` is unused in crate `reth_consensus`
+  |
+  = help: remove the dependency or add `use tracing as _;` to the crate root
+
+warning: `reth-consensus` (lib) generated 22 warnings
+warning: extern crate `bullshark` is unused in crate `reth_node_core`
+  |
+  = help: remove the dependency or add `use bullshark as _;` to the crate root
+note: the lint level is defined here
+ --> crates/node/core/src/lib.rs:8:29
+  |
+8 | #![cfg_attr(not(test), warn(unused_crate_dependencies))]
+  |                             ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: extern crate `rand_08` is unused in crate `reth_node_core`
+  |
+  = help: remove the dependency or add `use rand_08 as _;` to the crate root
+
+warning: unused import: `fastcrypto::traits::KeyPair`
+ --> crates/node/core/src/args/narwhal_bullshark_args.rs:5:5
+  |
+5 | use fastcrypto::traits::KeyPair;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: `reth-node-core` (lib) generated 3 warnings (run `cargo fix --lib -p reth-node-core` to apply 1 suggestion)
+warning: unused import: `fastcrypto::traits::EncodeDecodeBase64`
+  --> examples/narwhal-bullshark-consensus/src/types.rs:61:13
+   |
+61 |         use fastcrypto::traits::EncodeDecodeBase64;
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `BLS12381PrivateKey`
+  --> examples/narwhal-bullshark-consensus/src/types.rs:62:53
+   |
+62 |         use fastcrypto::bls12381::{BLS12381KeyPair, BLS12381PrivateKey};
+   |                                                     ^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `BLS12381PublicKey` and `ToFromBytes`
+ --> examples/narwhal-bullshark-consensus/src/validator_keys.rs:5:64
+  |
+5 |     traits::{KeyPair as FastCryptoKeyPair, EncodeDecodeBase64, ToFromBytes},
+  |                                                                ^^^^^^^^^^^
+6 |     bls12381::{BLS12381KeyPair, BLS12381PublicKey, BLS12381PrivateKey},
+  |                                 ^^^^^^^^^^^^^^^^^
+
+warning: unused import: `BloomInput`
+ --> examples/narwhal-bullshark-consensus/src/block_builder.rs:7:50
+  |
+7 | use alloy_primitives::{B256, U256, Bytes, Bloom, BloomInput};
+  |                                                  ^^^^^^^^^^
+
+warning: unused imports: `BlockchainProvider`, `ProviderError`, `ProviderNodeTypes`, and `StorageLocation`
+  --> examples/narwhal-bullshark-consensus/src/block_executor.rs:11:17
+   |
+11 |     providers::{BlockchainProvider, ProviderNodeTypes}, 
+   |                 ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^
+12 |     ProviderError, DatabaseProviderFactory, StateProviderFactory, BlockReaderIdExt,
+   |     ^^^^^^^^^^^^^
+13 |     BlockWriter, BlockNumReader, BlockHashReader, DBProvider, StorageLocation,
+   |                                                               ^^^^^^^^^^^^^^^
+
+warning: unused imports: `DatabaseHashedCursorFactory` and `DatabaseTrieCursorFactory`
+  --> examples/narwhal-bullshark-consensus/src/block_executor.rs:18:39
+   |
+18 | use reth_trie_db::{DatabaseStateRoot, DatabaseTrieCursorFactory, DatabaseHashedCursorFactory};
+   |                                       ^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `debug` and `warn`
+  --> examples/narwhal-bullshark-consensus/src/block_executor.rs:20:21
+   |
+20 | use tracing::{info, debug, warn};
+   |                     ^^^^^  ^^^^
+
+warning: unused import: `alloy_primitives::B256`
+ --> examples/narwhal-bullshark-consensus/src/engine_integration.rs:9:5
+  |
+9 | use alloy_primitives::B256;
+  |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `EthEngineTypes` and `EthPayloadTypes`
+  --> examples/narwhal-bullshark-consensus/src/engine_integration.rs:13:39
+   |
+13 | use reth_ethereum_engine_primitives::{EthEngineTypes, EthPayloadTypes};
+   |                                       ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^
+
+warning: unused imports: `BlockHashReader` and `BlockWriter`
+  --> examples/narwhal-bullshark-consensus/src/database_integration.rs:12:129
+   |
+12 | ...ckReaderIdExt, StateProviderFactory, BlockNumReader, BlockHashReader, BlockWriter, DatabaseProviderFactory};
+   |                                                         ^^^^^^^^^^^^^^^  ^^^^^^^^^^^
+
+warning: unused import: `warn`
+  --> examples/narwhal-bullshark-consensus/src/database_integration.rs:17:28
+   |
+17 | use tracing::{info, error, warn};
+   |                            ^^^^
+
+warning: unused imports: `canonical_state_fix::CanonicalStateUpdater` and `reth_database_ops::RethDatabaseOps`
+  --> examples/narwhal-bullshark-consensus/src/node_integration.rs:12:5
+   |
+12 |     canonical_state_fix::CanonicalStateUpdater,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+13 |     consensus_storage::MdbxConsensusStorage,
+14 |     reth_database_ops::RethDatabaseOps,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `CommitteeValidator`
+   --> examples/narwhal-bullshark-consensus/src/node_integration.rs:164:45
+    |
+164 |         use crate::types::{CommitteeConfig, CommitteeValidator};
+    |                                             ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `engine_integration::EngineIntegration`
+  --> examples/narwhal-bullshark-consensus/src/test_block_submission.rs:6:5
+   |
+6  |     engine_integration::EngineIntegration,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: if this is a test module, consider adding a `#[cfg(test)]` to the containing module
+  --> examples/narwhal-bullshark-consensus/src/lib.rs:18:1
+   |
+18 | pub mod test_block_submission;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `reth_ethereum_primitives::TransactionSigned`
+  --> examples/narwhal-bullshark-consensus/src/test_block_submission.rs:10:5
+   |
+10 | use reth_ethereum_primitives::TransactionSigned;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: if this is a test module, consider adding a `#[cfg(test)]` to the containing module
+  --> examples/narwhal-bullshark-consensus/src/lib.rs:18:1
+   |
+18 | pub mod test_block_submission;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `reth_evm::ConfigureEvm`
+  --> examples/narwhal-bullshark-consensus/src/test_block_submission.rs:11:5
+   |
+11 | use reth_evm::ConfigureEvm;
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: if this is a test module, consider adding a `#[cfg(test)]` to the containing module
+  --> examples/narwhal-bullshark-consensus/src/lib.rs:18:1
+   |
+18 | pub mod test_block_submission;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `debug`
+  --> examples/narwhal-bullshark-consensus/src/test_block_submission.rs:16:21
+   |
+16 | use tracing::{info, debug};
+   |                     ^^^^^
+   |
+help: if this is a test module, consider adding a `#[cfg(test)]` to the containing module
+  --> examples/narwhal-bullshark-consensus/src/lib.rs:18:1
+   |
+18 | pub mod test_block_submission;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `consensus_storage::MdbxConsensusStorage` and `narwhal_bullshark_service::NarwhalBullsharkService`
+  --> examples/narwhal-bullshark-consensus/src/real_consensus_integration.rs:14:5
+   |
+14 |     consensus_storage::MdbxConsensusStorage,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+15 |     narwhal_reth_bridge::{NarwhalRethBridge, RethIntegrationConfig},
+16 |     narwhal_bullshark_service::NarwhalBullsharkService,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `Authority` and `config::NarwhalConfig`
+  --> examples/narwhal-bullshark-consensus/src/real_consensus_integration.rs:20:55
+   |
+20 |     types::{Committee, PublicKey as NarwhalPublicKey, Authority},
+   |                                                       ^^^^^^^^^
+21 |     config::NarwhalConfig,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `ToFromBytes`
+  --> examples/narwhal-bullshark-consensus/src/real_consensus_integration.rs:23:26
+   |
+23 | use fastcrypto::traits::{ToFromBytes, EncodeDecodeBase64};
+   |                          ^^^^^^^^^^^
+
+warning: unused import: `alloy_primitives::Address`
+  --> examples/narwhal-bullshark-consensus/src/real_consensus_integration.rs:24:5
+   |
+24 | use alloy_primitives::Address;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `watch`
+  --> examples/narwhal-bullshark-consensus/src/real_consensus_integration.rs:31:25
+   |
+31 | use tokio::sync::{mpsc, watch};
+   |                         ^^^^^
+
+warning: unused imports: `FinalizedBatch` and `validator_keys::ValidatorKeyPair`
+ --> examples/narwhal-bullshark-consensus/src/narwhal_reth_bridge.rs:5:13
+  |
+5 |     types::{FinalizedBatch, ConsensusConfig},
+  |             ^^^^^^^^^^^^^^
+6 |     validator_keys::ValidatorKeyPair,
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `SealedBlock` and `TransactionSigned as RethTransaction`
+  --> examples/narwhal-bullshark-consensus/src/narwhal_reth_bridge.rs:11:5
+   |
+11 |     TransactionSigned as RethTransaction, SealedBlock,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^
+
+warning: unused import: `Address`
+  --> examples/narwhal-bullshark-consensus/src/narwhal_reth_bridge.rs:13:30
+   |
+13 | use alloy_primitives::{B256, Address};
+   |                              ^^^^^^^
+
+warning: unused imports: `mpsc` and `watch`
+  --> examples/narwhal-bullshark-consensus/src/narwhal_reth_bridge.rs:15:19
+   |
+15 | use tokio::sync::{mpsc, watch};
+   |                   ^^^^  ^^^^^
+
+warning: unused import: `error`
+  --> examples/narwhal-bullshark-consensus/src/narwhal_reth_bridge.rs:16:34
+   |
+16 | use tracing::{info, warn, debug, error};
+   |                                  ^^^^^
+
+warning: unused import: `std::net::SocketAddr`
+  --> examples/narwhal-bullshark-consensus/src/narwhal_bullshark_service.rs:25:5
+   |
+25 | use std::net::SocketAddr;
+   |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PublicKey as NarwhalPublicKey`
+  --> examples/narwhal-bullshark-consensus/src/narwhal_bullshark_service.rs:32:24
+   |
+32 |     types::{Committee, PublicKey as NarwhalPublicKey},
+   |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `bls12381::BLS12381KeyPair`
+  --> examples/narwhal-bullshark-consensus/src/narwhal_bullshark_service.rs:45:5
+   |
+45 |     bls12381::BLS12381KeyPair,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `Sha256`
+  --> examples/narwhal-bullshark-consensus/src/working_validator_registry.rs:18:12
+   |
+18 | use sha2::{Sha256, Digest};
+   |            ^^^^^^
+
+warning: unused import: `alloy_primitives::B256`
+ --> examples/narwhal-bullshark-consensus/src/canonical_state_fix.rs:7:5
+  |
+7 | use alloy_primitives::B256;
+  |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `BlockState`, `CanonStateNotification`, `CanonicalInMemoryState`, `ExecutedBlock`, and `NewCanonicalChain`
+  --> examples/narwhal-bullshark-consensus/src/canonical_state_fix.rs:10:5
+   |
+10 |     CanonicalInMemoryState, ExecutedBlock, NewCanonicalChain,
+   |     ^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^
+11 |     CanonStateNotification, BlockState,
+   |     ^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^
+
+warning: unused imports: `Chain` and `ExecutionOutcome`
+  --> examples/narwhal-bullshark-consensus/src/canonical_state_fix.rs:14:28
+   |
+14 | use reth_execution_types::{Chain, ExecutionOutcome};
+   |                            ^^^^^  ^^^^^^^^^^^^^^^^
+
+warning: unused imports: `RecoveredBlock` and `SealedHeader`
+  --> examples/narwhal-bullshark-consensus/src/canonical_state_fix.rs:15:23
+   |
+15 | use reth_primitives::{RecoveredBlock, SealedBlock, SealedHeader};
+   |                       ^^^^^^^^^^^^^^               ^^^^^^^^^^^^
+
+warning: unused imports: `BlockReader` and `DatabaseProviderFactory`
+  --> examples/narwhal-bullshark-consensus/src/canonical_state_fix.rs:16:52
+   |
+16 | use reth_provider::{providers::BlockchainProvider, DatabaseProviderFactory, BlockReader};
+   |                                                    ^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^
+
+warning: unused import: `MempoolBridge`
+ --> examples/narwhal-bullshark-consensus/src/complete_integration.rs:7:22
+  |
+7 |     mempool_bridge::{MempoolBridge, MempoolOperations},
+  |                      ^^^^^^^^^^^^^
+
+warning: unused import: `alloy_consensus::proofs`
+  --> examples/narwhal-bullshark-consensus/src/complete_integration.rs:16:5
+   |
+16 | use alloy_consensus::proofs;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `error`
+  --> examples/narwhal-bullshark-consensus/src/complete_integration.rs:20:34
+   |
+20 | use tracing::{info, warn, debug, error};
+   |                                  ^^^^^
+
+warning: unused import: `reth_chainspec::EthereumHardforks`
+  --> examples/narwhal-bullshark-consensus/src/complete_integration.rs:24:5
+   |
+24 | use reth_chainspec::EthereumHardforks;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `ToFromBytes`
+   --> examples/narwhal-bullshark-consensus/src/complete_integration.rs:821:39
+    |
+821 |     use fastcrypto::traits::{KeyPair, ToFromBytes};
+    |                                       ^^^^^^^^^^^
+
+warning: unused import: `ToFromBytes`
+   --> examples/narwhal-bullshark-consensus/src/complete_integration.rs:843:39
+    |
+843 |     use fastcrypto::traits::{KeyPair, ToFromBytes};
+    |                                       ^^^^^^^^^^^
+
+warning: unused import: `transaction::DbTxMut`
+ --> examples/narwhal-bullshark-consensus/src/mdbx_database_ops.rs:4:38
+  |
+4 | use reth_db_api::{transaction::DbTx, transaction::DbTxMut, cursor::DbCursorRO};
+  |                                      ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `alloy_primitives::Bytes`
+ --> examples/narwhal-bullshark-consensus/src/transaction_adapter.rs:4:5
+  |
+4 | use alloy_primitives::Bytes;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `error`
+  --> examples/narwhal-bullshark-consensus/src/dag_storage_adapter.rs:11:22
+   |
+11 | use tracing::{debug, error};
+   |                      ^^^^^
+
+warning: unused import: `fastcrypto::Hash`
+   --> examples/narwhal-bullshark-consensus/src/dag_storage_adapter.rs:151:17
+    |
+151 |             use fastcrypto::Hash;
+    |                 ^^^^^^^^^^^^^^^^
+
+warning: unused import: `fastcrypto::Hash`
+   --> examples/narwhal-bullshark-consensus/src/dag_storage_adapter.rs:163:17
+    |
+163 |             use fastcrypto::Hash;
+    |                 ^^^^^^^^^^^^^^^^
+
+warning: unused import: `error`
+ --> examples/narwhal-bullshark-consensus/src/batch_storage_adapter.rs:6:22
+  |
+6 | use tracing::{debug, error};
+  |                      ^^^^^
+
+warning: unused import: `futures::StreamExt`
+ --> examples/narwhal-bullshark-consensus/src/mempool_bridge.rs:6:5
+  |
+6 | use futures::StreamExt;
+  |     ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `DbCursorRW`
+  --> examples/narwhal-bullshark-consensus/src/reth_database_ops.rs:12:26
+   |
+12 |     cursor::{DbCursorRO, DbCursorRW},
+   |                          ^^^^^^^^^^
+
+warning: unused import: `reth_db_api::cursor::DbCursorRW`
+   --> examples/narwhal-bullshark-consensus/src/reth_database_ops.rs:206:13
+    |
+206 |         use reth_db_api::cursor::DbCursorRW;
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `DbCursorRW`
+  --> examples/narwhal-bullshark-consensus/src/simple_consensus_db.rs:12:26
+   |
+12 |     cursor::{DbCursorRO, DbCursorRW},
+   |                          ^^^^^^^^^^
+
+warning: unused import: `reth_db_api::cursor::DbCursorRW`
+   --> examples/narwhal-bullshark-consensus/src/simple_consensus_db.rs:202:13
+    |
+202 |         use reth_db_api::cursor::DbCursorRW;
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+  --> examples/narwhal-bullshark-consensus/src/engine_integration.rs:98:34
+   |
+98 |     async fn submit_block(&self, mut block: SealedBlock) -> Result<()> {
+   |                                  ----^^^^^
+   |                                  |
+   |                                  help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` on by default
+
+warning: unused variable: `jwt_secret`
+   --> examples/narwhal-bullshark-consensus/src/test_block_submission.rs:101:5
+    |
+101 |     jwt_secret: Option<String>,
+    |     ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_jwt_secret`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `block`
+   --> examples/narwhal-bullshark-consensus/src/test_block_submission.rs:102:5
+    |
+102 |     block: SealedBlock,
+    |     ^^^^^ help: if this is intentional, prefix it with an underscore: `_block`
+
+warning: unused variable: `batch_sender`
+   --> examples/narwhal-bullshark-consensus/src/real_consensus_integration.rs:103:14
+    |
+103 |         let (batch_sender, mut batch_receiver) = mpsc::unbounded_channel::<FinalizedBatch>();
+    |              ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_batch_sender`
+
+warning: unused variable: `storage`
+   --> examples/narwhal-bullshark-consensus/src/real_consensus_integration.rs:129:13
+    |
+129 |         let storage: Option<Arc<crate::consensus_storage::MdbxConsensusStorage>> = None; // TODO: Create MDBX storage
+    |             ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_storage`
+
+warning: unused variable: `metrics`
+   --> examples/narwhal-bullshark-consensus/src/narwhal_bullshark_service.rs:150:13
+    |
+150 |         let metrics = narwhal::init_metrics(prometheus::default_registry());
+    |             ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_metrics`
+
+warning: unused variable: `dag_tx_sender`
+   --> examples/narwhal-bullshark-consensus/src/narwhal_bullshark_service.rs:157:14
+    |
+157 |         let (dag_tx_sender, dag_tx_receiver) = mpsc::unbounded_channel();
+    |              ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_dag_tx_sender`
+
+warning: variable does not need to be mutable
+   --> examples/narwhal-bullshark-consensus/src/narwhal_bullshark_service.rs:163:33
+    |
+163 |         let (tx_primary_sender, mut rx_primary) = mpsc::unbounded_channel::<(narwhal::BatchDigest, narwhal::WorkerId)>();
+    |                                 ----^^^^^^^^^^
+    |                                 |
+    |                                 help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> examples/narwhal-bullshark-consensus/src/narwhal_bullshark_service.rs:346:13
+    |
+346 |         let mut committee_receiver = self.committee_receiver.clone();
+    |             ----^^^^^^^^^^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: unused variable: `network`
+   --> examples/narwhal-bullshark-consensus/src/narwhal_bullshark_service.rs:630:37
+    |
+630 |             let (channels, handles, network) = worker.create_and_spawn();
+    |                                     ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_network`
+
+warning: unused variable: `tx_to_adapter`
+   --> examples/narwhal-bullshark-consensus/src/narwhal_bullshark_service.rs:680:23
+    |
+680 |         let (adapter, tx_to_adapter) = crate::transaction_adapter::TransactionAdapterBuilder::new()
+    |                       ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_tx_to_adapter`
+
+warning: unused variable: `validator_registry`
+   --> examples/narwhal-bullshark-consensus/src/narwhal_bullshark_service.rs:756:17
+    |
+756 |             let validator_registry = if let Some(ref _storage) = self.storage {
+    |                 ^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_validator_registry`
+
+warning: unused import: `ConfigureEvm`
+ --> examples/narwhal-bullshark-consensus/src/block_executor.rs:7:77
+  |
+7 | use reth_evm::{execute::{BlockExecutionOutput, ExecutionOutcome, Executor}, ConfigureEvm};
+  |                                                                             ^^^^^^^^^^^^
+
+warning: unused import: `reth_payload_primitives::PayloadTypes`
+  --> examples/narwhal-bullshark-consensus/src/engine_integration.rs:14:5
+   |
+14 | use reth_payload_primitives::PayloadTypes;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `BlockNumReader`
+  --> examples/narwhal-bullshark-consensus/src/database_integration.rs:12:113
+   |
+12 | use reth_provider::{providers::{BlockchainProvider, ProviderNodeTypes}, BlockReaderIdExt, StateProviderFactory, BlockNumReader, BlockHash...
+   |                                                                                                                 ^^^^^^^^^^^^^^
+
+warning: unused import: `ToFromBytes`
+  --> examples/narwhal-bullshark-consensus/src/narwhal_bullshark_service.rs:44:48
+   |
+44 |     traits::{KeyPair as _, EncodeDecodeBase64, ToFromBytes},
+   |                                                ^^^^^^^^^^^
+
+warning: unused import: `KeyPair`
+  --> examples/narwhal-bullshark-consensus/src/narwhal_bullshark_service.rs:44:14
+   |
+44 |     traits::{KeyPair as _, EncodeDecodeBase64, ToFromBytes},
+   |              ^^^^^^^
+
+warning: unused import: `Digest`
+  --> examples/narwhal-bullshark-consensus/src/working_validator_registry.rs:18:20
+   |
+18 | use sha2::{Sha256, Digest};
+   |                    ^^^^^^
+
+warning: unused import: `AggregateAuthenticator`
+  --> examples/narwhal-bullshark-consensus/src/complete_integration.rs:22:39
+   |
+22 | use fastcrypto::traits::{ToFromBytes, AggregateAuthenticator};
+   |                                       ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `cursor::DbCursorRO`
+ --> examples/narwhal-bullshark-consensus/src/mdbx_database_ops.rs:4:60
+  |
+4 | use reth_db_api::{transaction::DbTx, transaction::DbTxMut, cursor::DbCursorRO};
+  |                                                            ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `transaction::DbTx`
+ --> examples/narwhal-bullshark-consensus/src/mdbx_database_ops.rs:4:19
+  |
+4 | use reth_db_api::{transaction::DbTx, transaction::DbTxMut, cursor::DbCursorRO};
+  |                   ^^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> examples/narwhal-bullshark-consensus/src/block_builder.rs:170:13
+    |
+170 |         let mut logs_bloom = Bloom::default();
+    |             ----^^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: unused variable: `config`
+  --> examples/narwhal-bullshark-consensus/src/narwhal_reth_bridge.rs:73:9
+   |
+73 |         config: ConsensusConfig,
+   |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_config`
+
+warning: unused variable: `config`
+   --> examples/narwhal-bullshark-consensus/src/narwhal_reth_bridge.rs:100:9
+    |
+100 |         config: ConsensusConfig,
+    |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_config`
+
+warning: unused variable: `block`
+  --> examples/narwhal-bullshark-consensus/src/canonical_state_fix.rs:61:49
+   |
+61 |     pub fn manual_update_canonical_state(&self, block: SealedBlock) -> Result<()> {
+   |                                                 ^^^^^ help: if this is intentional, prefix it with an underscore: `_block`
+
+warning: unused variable: `listen_address`
+   --> examples/narwhal-bullshark-consensus/src/complete_integration.rs:279:13
+    |
+279 |         let listen_address = network_config.as_ref()
+    |             ^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_listen_address`
+
+warning: unused variable: `bind_address`
+   --> examples/narwhal-bullshark-consensus/src/complete_integration.rs:845:9
+    |
+845 |     let bind_address: std::net::SocketAddr = format!("127.0.0.1:{}", bind_port).parse().expect("Valid address");
+    |         ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_bind_address`
+
+warning: unused variable: `peer_addresses`
+   --> examples/narwhal-bullshark-consensus/src/complete_integration.rs:841:5
+    |
+841 |     peer_addresses: std::collections::HashMap<String, std::net::SocketAddr>
+    |     ^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_peer_addresses`
+
+warning: unused variable: `ops`
+   --> examples/narwhal-bullshark-consensus/src/consensus_storage.rs:118:18
+    |
+118 |             Some(ops) => {
+    |                  ^^^ help: if this is intentional, prefix it with an underscore: `_ops`
+
+warning: unused variable: `ops`
+   --> examples/narwhal-bullshark-consensus/src/consensus_storage.rs:368:13
+    |
+368 |         let ops = db_ops.as_ref().ok_or_else(|| anyhow::anyhow!("Database operations not injected"))?;
+    |             ^^^ help: if this is intentional, prefix it with an underscore: `_ops`
+
+warning: unused variable: `tx_receiver`
+  --> examples/narwhal-bullshark-consensus/src/mempool_bridge.rs:30:25
+   |
+30 |         let (tx_sender, tx_receiver) = mpsc::unbounded_channel();
+   |                         ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_tx_receiver`
+
+warning: field `chain_id` is never read
+  --> examples/narwhal-bullshark-consensus/src/consensus_engine.rs:14:5
+   |
+12 | pub struct NarwhalBullsharkEngine {
+   |            ---------------------- field in this struct
+13 |     /// Chain ID
+14 |     chain_id: u64,
+   |     ^^^^^^^^
+   |
+   = note: `NarwhalBullsharkEngine` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` on by default
+
+warning: fields `chain_spec` and `evm_config` are never read
+  --> examples/narwhal-bullshark-consensus/src/block_builder.rs:56:5
+   |
+54 | pub struct NarwhalBlockBuilder<Provider, EvmConfig> {
+   |            ------------------- fields in this struct
+55 |     /// Chain specification
+56 |     chain_spec: Arc<ChainSpec>,
+   |     ^^^^^^^^^^
+...
+60 |     evm_config: EvmConfig,
+   |     ^^^^^^^^^^
+
+warning: method `create_consensus_seal` is never used
+  --> examples/narwhal-bullshark-consensus/src/block_builder.rs:82:8
+   |
+63 | / impl<Provider, EvmConfig> NarwhalBlockBuilder<Provider, EvmConfig>
+64 | | where
+65 | |     Provider: StateProviderFactory + BlockReaderIdExt + DatabaseProviderFactory + Clone + 'static,
+66 | |     EvmConfig: ConfigureEvm + Clone + 'static,
+   | |______________________________________________- method in this implementation
+...
+82 |       fn create_consensus_seal(&self, batch: &FinalizedBatch) -> ConsensusSeal {
+   |          ^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `chain_spec` is never read
+  --> examples/narwhal-bullshark-consensus/src/block_executor.rs:26:5
+   |
+24 | pub struct NarwhalBlockExecutor<Provider, EvmConfig> {
+   |            -------------------- field in this struct
+25 |     provider: Provider,
+26 |     chain_spec: Arc<ChainSpec>,
+   |     ^^^^^^^^^^
+
+warning: fields `chain_spec`, `pool`, `evm_config`, and `validator_key` are never read
+  --> examples/narwhal-bullshark-consensus/src/node_integration.rs:24:5
+   |
+22 | pub struct NodeIntegration<Provider, Pool, EvmConfig> {
+   |            --------------- fields in this struct
+23 |     /// Chain spec
+24 |     chain_spec: std::sync::Arc<reth_chainspec::ChainSpec>,
+   |     ^^^^^^^^^^
+...
+28 |     pool: Pool,
+   |     ^^^^
+29 |     /// EVM configuration
+30 |     evm_config: EvmConfig,
+   |     ^^^^^^^^^^
+...
+34 |     validator_key: ValidatorKeyPair,
+   |     ^^^^^^^^^^^^^
+
+warning: field `pool` is never read
+  --> examples/narwhal-bullshark-consensus/src/real_consensus_integration.rs:44:5
+   |
+38 | pub struct RealConsensusIntegration<Provider, Pool, EvmConfig> {
+   |            ------------------------ field in this struct
+...
+44 |     pool: Pool,
+   |     ^^^^
+
+warning: field `network_event_receiver` is never read
+  --> examples/narwhal-bullshark-consensus/src/narwhal_reth_bridge.rs:55:5
+   |
+39 | pub struct NarwhalRethBridge {
+   |            ----------------- field in this struct
+...
+55 |     network_event_receiver: Option<tokio::sync::broadcast::Receiver<narwhal::NetworkEvent>>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `current_committee` is never read
+  --> examples/narwhal-bullshark-consensus/src/narwhal_bullshark_service.rs:77:5
+   |
+51 | pub struct NarwhalBullsharkService {
+   |            ----------------------- field in this struct
+...
+77 |     current_committee: Arc<RwLock<Committee>>,
+   |     ^^^^^^^^^^^^^^^^^
+
+warning: field `chain_spec` is never read
+  --> examples/narwhal-bullshark-consensus/src/canonical_state_fix.rs:33:5
+   |
+25 | pub struct CanonicalStateUpdater<N>
+   |            --------------------- field in this struct
+...
+33 |     chain_spec: Arc<ChainSpec>,
+   |     ^^^^^^^^^^
+
+warning: field `network_event_receiver` is never read
+  --> examples/narwhal-bullshark-consensus/src/complete_integration.rs:75:5
+   |
+69 | pub struct NarwhalRethBridge {
+   |            ----------------- field in this struct
+...
+75 |     network_event_receiver: Option<tokio::sync::broadcast::Receiver<narwhal::NetworkEvent>>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `create_consensus_seal` is never used
+   --> examples/narwhal-bullshark-consensus/src/complete_integration.rs:707:8
+    |
+168 | impl NarwhalRethBridge {
+    | ---------------------- method in this implementation
+...
+707 |     fn create_consensus_seal(&self, batch: &FinalizedBatch) -> ConsensusSeal {
+    |        ^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `db_ops` is never used
+   --> examples/narwhal-bullshark-consensus/src/consensus_storage.rs:115:8
+    |
+96  | impl MdbxConsensusStorage {
+    | ------------------------- method in this implementation
+...
+115 |     fn db_ops(&self) -> Result<Box<dyn DatabaseOps + Send + Sync>> {
+    |        ^^^^^^
+
+warning: field `tx_sender` is never read
+  --> examples/narwhal-bullshark-consensus/src/mempool_bridge.rs:21:5
+   |
+19 | pub struct MempoolBridge<Pool> {
+   |            ------------- field in this struct
+20 |     pool: Arc<Pool>,
+21 |     tx_sender: mpsc::UnboundedSender<TransactionSigned>,
+   |     ^^^^^^^^^
+
+warning: `example-narwhal-bullshark-consensus` (lib) generated 97 warnings (run `cargo fix --lib -p example-narwhal-bullshark-consensus` to apply 57 suggestions)
+warning: extern crate `alloy_consensus` is unused in crate `reth`
+   |
+   = help: remove the dependency or add `use alloy_consensus as _;` to the crate root
+note: the lint level is defined here
+  --> bin/reth/src/lib.rs:27:29
+   |
+27 | #![cfg_attr(not(test), warn(unused_crate_dependencies))]
+   |                             ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: extern crate `alloy_primitives` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use alloy_primitives as _;` to the crate root
+
+warning: extern crate `alloy_rlp` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use alloy_rlp as _;` to the crate root
+
+warning: extern crate `alloy_rpc_types_engine` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use alloy_rpc_types_engine as _;` to the crate root
+
+warning: extern crate `anyhow` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use anyhow as _;` to the crate root
+
+warning: extern crate `async_trait` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use async_trait as _;` to the crate root
+
+warning: extern crate `base64` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use base64 as _;` to the crate root
+
+warning: extern crate `bincode` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use bincode as _;` to the crate root
+
+warning: extern crate `bullshark` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use bullshark as _;` to the crate root
+
+warning: extern crate `example_narwhal_bullshark_consensus` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use example_narwhal_bullshark_consensus as _;` to the crate root
+
+warning: extern crate `fastcrypto` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use fastcrypto as _;` to the crate root
+
+warning: extern crate `futures` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use futures as _;` to the crate root
+
+warning: extern crate `jsonrpsee` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use jsonrpsee as _;` to the crate root
+
+warning: extern crate `narwhal` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use narwhal as _;` to the crate root
+
+warning: extern crate `rand_08` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use rand_08 as _;` to the crate root
+
+warning: extern crate `reqwest` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use reqwest as _;` to the crate root
+
+warning: extern crate `reth_db_api` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use reth_db_api as _;` to the crate root
+
+warning: extern crate `reth_db_models` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use reth_db_models as _;` to the crate root
+
+warning: extern crate `reth_engine_primitives` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use reth_engine_primitives as _;` to the crate root
+
+warning: extern crate `reth_node_types` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use reth_node_types as _;` to the crate root
+
+warning: extern crate `reth_trie` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use reth_trie as _;` to the crate root
+
+warning: extern crate `reth_trie_common` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use reth_trie_common as _;` to the crate root
+
+warning: extern crate `reth_trie_db` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use reth_trie_db as _;` to the crate root
+
+warning: extern crate `secp256k1` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use secp256k1 as _;` to the crate root
+
+warning: extern crate `serde` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use serde as _;` to the crate root
+
+warning: extern crate `serde_json` is unused in crate `reth`
+  |
+  = help: remove the dependency or add `use serde_json as _;` to the crate root
+
+warning: `reth` (lib) generated 26 warnings
+   Compiling reth v1.4.8 (/srv/tank/src/reth-new-consensus/bin/reth)
+warning: unused import: `std::sync::Arc`
+  --> bin/reth/src/main.rs:12:5
+   |
+12 | use std::sync::Arc;
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused imports: `FinalizedBatch` and `ValidatorRegistry`
+ --> bin/reth/src/narwhal_bullshark.rs:6:23
+  |
+6 |     ValidatorKeyPair, ValidatorRegistry, FinalizedBatch,
+  |                       ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^
+
+warning: unused import: `alloy_primitives::Address`
+  --> bin/reth/src/narwhal_bullshark.rs:17:5
+   |
+17 | use alloy_primitives::Address;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `reth_primitives::TransactionSigned`
+  --> bin/reth/src/narwhal_bullshark.rs:18:5
+   |
+18 | use reth_primitives::TransactionSigned;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `chain_spec`
+   --> bin/reth/src/narwhal_bullshark.rs:155:5
+    |
+155 |     chain_spec: Arc<ChainSpec>,
+    |     ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_chain_spec`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `provider`
+   --> bin/reth/src/narwhal_bullshark.rs:156:5
+    |
+156 |     provider: Provider,
+    |     ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_provider`
+
+warning: unused variable: `pool`
+   --> bin/reth/src/narwhal_bullshark.rs:157:5
+    |
+157 |     pool: Pool,
+    |     ^^^^ help: if this is intentional, prefix it with an underscore: `_pool`
+
+warning: unused variable: `evm_config`
+   --> bin/reth/src/narwhal_bullshark.rs:158:5
+    |
+158 |     evm_config: EvmConfig,
+    |     ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_evm_config`
+
+warning: struct `PoolStats` is never constructed
+  --> bin/reth/src/narwhal_bullshark.rs:39:12
+   |
+39 | pub struct PoolStats {
+   |            ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: function `get_pool_stats` is never used
+  --> bin/reth/src/narwhal_bullshark.rs:46:8
+   |
+46 | pub fn get_pool_stats<Pool>(pool: &Pool) -> PoolStats 
+   |        ^^^^^^^^^^^^^^
+
+warning: function `create_consensus_engine` is never used
+   --> bin/reth/src/narwhal_bullshark.rs:146:8
+    |
+146 | pub fn create_consensus_engine(
+    |        ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `start_consensus_service` is never used
+   --> bin/reth/src/narwhal_bullshark.rs:153:14
+    |
+153 | pub async fn start_consensus_service<Pool, Provider, EvmConfig, Executor>(
+    |              ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `setup_rpc_endpoints` is never used
+   --> bin/reth/src/narwhal_bullshark.rs:178:8
+    |
+178 | pub fn setup_rpc_endpoints<N, Provider, Pool, Network, EvmConfig, Consensus>(
+    |        ^^^^^^^^^^^^^^^^^^^
+
+warning: function `start_standalone_rpc` is never used
+   --> bin/reth/src/narwhal_bullshark.rs:197:14
+    |
+197 | pub async fn start_standalone_rpc(addr: std::net::SocketAddr) -> Result<()> {
+    |              ^^^^^^^^^^^^^^^^^^^^
+
+warning: unreachable `pub` item
+  --> bin/reth/src/narwhal_bullshark.rs:25:1
+   |
+25 | pub fn should_use_narwhal_consensus(args: &NarwhalBullsharkArgs) -> bool {
+   | ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | |
+   | help: consider restricting its visibility: `pub(crate)`
+   |
+   = help: or consider exporting it for use by other crates
+   = note: requested on the command line with `-W unreachable-pub`
+
+warning: unreachable `pub` item
+  --> bin/reth/src/narwhal_bullshark.rs:30:1
+   |
+30 | pub fn consensus_mode_description(args: &NarwhalBullsharkArgs) -> &'static str {
+   | ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | |
+   | help: consider restricting its visibility: `pub(crate)`
+   |
+   = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+  --> bin/reth/src/narwhal_bullshark.rs:39:1
+   |
+39 | pub struct PoolStats {
+   | ---^^^^^^^^^^^^^^^^^
+   | |
+   | help: consider restricting its visibility: `pub(crate)`
+   |
+   = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+  --> bin/reth/src/narwhal_bullshark.rs:46:1
+   |
+46 |   pub fn get_pool_stats<Pool>(pool: &Pool) -> PoolStats 
+   |   ^--
+   |   |
+   |  _help: consider restricting its visibility: `pub(crate)`
+   | |
+47 | | where
+48 | |     Pool: TransactionPool,
+   | |__________________________^
+   |
+   = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+  --> bin/reth/src/narwhal_bullshark.rs:63:1
+   |
+63 |   pub async fn initialize_narwhal_consensus<Pool, Provider, EvmConfig, Executor>(
+   |   ^--
+   |   |
+   |  _help: consider restricting its visibility: `pub(crate)`
+   | |
+64 | |     args: NarwhalBullsharkArgs,
+65 | |     chain_spec: Arc<ChainSpec>,
+66 | |     provider: Provider,
+...  |
+75 | |     EvmConfig: ConfigureEvm + Clone + 'static,
+76 | |     Executor: TaskSpawner + Clone + 'static,
+   | |____________________________________________^
+   |
+   = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+   --> bin/reth/src/narwhal_bullshark.rs:146:1
+    |
+146 |   pub fn create_consensus_engine(
+    |   ^--
+    |   |
+    |  _help: consider restricting its visibility: `pub(crate)`
+    | |
+147 | |     chain_spec: Arc<ChainSpec>,
+148 | | ) -> NarwhalBullsharkEngine {
+    | |___________________________^
+    |
+    = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+   --> bin/reth/src/narwhal_bullshark.rs:153:1
+    |
+153 |   pub async fn start_consensus_service<Pool, Provider, EvmConfig, Executor>(
+    |   ^--
+    |   |
+    |  _help: consider restricting its visibility: `pub(crate)`
+    | |
+154 | |     config: ConsensusConfig,
+155 | |     chain_spec: Arc<ChainSpec>,
+156 | |     provider: Provider,
+...   |
+165 | |     EvmConfig: ConfigureEvm + Clone + 'static,
+166 | |     Executor: TaskSpawner + Clone + 'static,
+    | |____________________________________________^
+    |
+    = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+   --> bin/reth/src/narwhal_bullshark.rs:178:1
+    |
+178 |   pub fn setup_rpc_endpoints<N, Provider, Pool, Network, EvmConfig, Consensus>(
+    |   ^--
+    |   |
+    |  _help: consider restricting its visibility: `pub(crate)`
+    | |
+179 | |     _module_builder: &mut RpcModuleBuilder<N, Provider, Pool, Network, EvmConfig, Consensus>,
+180 | | ) -> Result<()>
+181 | | where
+...   |
+186 | |     EvmConfig: Clone + 'static,
+187 | |     Consensus: Clone + 'static,
+    | |_______________________________^
+    |
+    = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+   --> bin/reth/src/narwhal_bullshark.rs:197:1
+    |
+197 | pub async fn start_standalone_rpc(addr: std::net::SocketAddr) -> Result<()> {
+    | ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    | |
+    | help: consider restricting its visibility: `pub(crate)`
+    |
+    = help: or consider exporting it for use by other crates
+
+warning: `reth` (bin "reth") generated 23 warnings (run `cargo fix --bin "reth"` to apply 13 suggestions)
+    Finished `release` profile [optimized] target(s) in 1m 55s
+✅ Build completed successfully
+✅ Binary copied to expected location
+
+Cleaning up previous blockchain data...
+Cleaning node 1...
+Cleaning node 2...
+Cleaning node 3...
+Cleaning node 4...
+✅ Cleanup completed - all blockchain data removed
+🔑 Validator keys preserved in test_validators/
+
+Starting validator nodes with REAL key management...
+🔧 Starting node 1 (Validator-0)...
+   Primary: 127.0.0.1:9001 (must match validator-0.json network_address)
+   Workers: ports 19000-19003 (from validator-0.json worker_port_range)
+   HTTP RPC: port 8545
+   Consensus RPC: port 10001
+   P2P: port 30303
+Node 1 started with PID: 1808086
+🔧 Starting node 2 (Validator-1)...
+   Primary: 127.0.0.1:9002 (from validator-1.json)
+   Workers: ports 19004-19007 (from validator-1.json worker_port_range)
+   HTTP RPC: port 8546
+   Consensus RPC: port 10002
+   P2P: port 30304
+Node 2 started with PID: 1808161
+🔧 Starting node 3 (Validator-2)...
+   Primary: 127.0.0.1:9003 (from validator-2.json)
+   Workers: ports 19008-19011 (from validator-2.json worker_port_range)
+   HTTP RPC: port 8547
+   Consensus RPC: port 10003
+   P2P: port 30305
+Node 3 started with PID: 1808235
+🔧 Starting node 4 (Validator-3)...
+   Primary: 127.0.0.1:9004 (from validator-3.json)
+   Workers: ports 19012-19015 (from validator-3.json worker_port_range)
+   HTTP RPC: port 8548
+   Consensus RPC: port 10004
+   P2P: port 30306
+Node 4 started with PID: 1808308
+
+✅ All 4 Neura validator nodes started!
+=========================================================================
+📊 Network: Neura (Chain ID: 266, Coin: ANKR)
+🔗 Consensus: Narwhal + Bullshark BFT
+💾 Storage: MDBX with consensus tables
+🔑 Configuration: Each validator loads from test_validators/*.json
+🏛️ Port Assignment: Network addresses and worker ports from config files
+
+📍 Node Configuration:
+  Node 1 PID: 1808086 - Key: validator-0.json - Bind: 9001 - HTTP: 8545 - ConsensusRPC: 10001 - Logs: /home/peastew/.neura/node1/node.log
+  Node 2 PID: 1808161 - Key: validator-1.json - Bind: 9002 - HTTP: 8546 - ConsensusRPC: 10002 - Logs: /home/peastew/.neura/node2/node.log
+  Node 3 PID: 1808235 - Key: validator-2.json - Bind: 9003 - HTTP: 8547 - ConsensusRPC: 10003 - Logs: /home/peastew/.neura/node3/node.log
+  Node 4 PID: 1808308 - Key: validator-3.json - Bind: 9004 - HTTP: 8548 - ConsensusRPC: 10004 - Logs: /home/peastew/.neura/node4/node.log
+
+🔧 Key Configuration Features:
+  • Validator keys loaded from JSON files (test_validators/*.json)
+  • Each validator file includes:
+    - EVM private key and consensus key configuration
+    - Network address (primary consensus port) - must match CLI --narwhal.network-addr
+    - Worker port range (e.g., '19000:19003')
+  • Worker ports automatically determined from configuration
+  • Primary addresses still need CLI args for binding and peer discovery
+
+🔧 Narwhal Configuration Options:
+  --narwhal.max-batch-size: Maximum batch size in bytes (default: 1024)
+  --narwhal.max-batch-delay-ms: Maximum batch delay in ms (default: 100)
+  --narwhal.num-workers: Number of workers per authority (default: 4)
+  --narwhal.gc-depth: Garbage collection depth for old certificates (default: 50)
+  --narwhal.cache-size: Certificate cache size (default: 1000)
+  --narwhal.max-concurrent-requests: Max concurrent network requests (default: 200)
+  --narwhal.connection-timeout-ms: Connection timeout in ms (default: 5000)
+  --narwhal.request-timeout-ms: Request timeout in ms (default: 10000)
+  --narwhal.retry-attempts: Number of retry attempts (default: 3)
+  --narwhal.retry-base-delay-ms: Base delay for exponential backoff (default: 100)
+  --narwhal.retry-max-delay-ms: Max delay for exponential backoff (default: 10000)
+  --narwhal.sync-retry-delay-ms: Sync retry delay in ms (default: 5000)
+  --narwhal.certificate-buffer-size: Pre-allocated certificate buffer (default: 1000)
+  --narwhal.max-transactions-per-batch: Max transactions per batch (default: 100)
+  --narwhal.batch-creation-interval-ms: Batch creation interval (default: 50)
+  --narwhal.worker-base-port: Base port for THIS node's workers (overridden by validator config)
+  --narwhal.worker-bind-address: Worker bind address (default: same as primary)
+
+🔧 Bullshark Configuration Options:
+  --bullshark.finality-threshold: Minimum confirmations needed (default: 3)
+  --bullshark.max-pending-rounds: Maximum pending rounds to keep (default: 10)
+  --bullshark.finalization-timeout-secs: Finalization timeout in seconds (default: 5)
+  --bullshark.max-certificates-per-round: Max certificates per round (default: 1000)
+  --bullshark.leader-rotation-frequency: Leader rotation frequency in rounds (default: 2)
+  --bullshark.min-leader-round: Minimum round for leader election (default: 0)
+  --bullshark.max-dag-walk-depth: Maximum DAG walk depth for consensus (default: 10)
+  --bullshark.enable-detailed-metrics: Enable detailed consensus metrics
+  --bullshark.max-certificates-per-dag: Max certificates per DAG traversal (default: 500, using 200 for faster catchup)
+
+🔧 Monitoring Commands:
+  Monitor all logs: tail -f /home/peastew/.neura/node*/node.log
+  Monitor node 1: tail -f /home/peastew/.neura/node1/node.log
+  Stop all nodes: pkill -f 'reth.*node.*narwhal'
+  Check processes: ps aux | grep reth
+
+🌐 Standard RPC Test Commands:
+  Node 1 version: curl -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"web3_clientVersion","params":[],"id":1}' http://localhost:8545
+  Node 2 block#:  curl -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' http://localhost:8546
+  Node 3 peers:   curl -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"net_peerCount","params":[],"id":1}' http://localhost:8547
+  Node 4 syncing: curl -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"eth_syncing","params":[],"id":1}' http://localhost:8548
+
+📡 Consensus RPC Test Commands:
+  Node 1 consensus status: curl -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"consensus_getStatus","params":[],"id":1}' http://localhost:10001
+  Node 2 committee info:   curl -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"consensus_getCommittee","params":[],"id":1}' http://localhost:10002
+  Node 3 validators list:  curl -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"consensus_listValidators","params":[{"active_only":true}],"id":1}' http://localhost:10003
+  Node 4 consensus metrics: curl -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"consensus_getMetrics","params":[],"id":1}' http://localhost:10004
+
+📡 Consensus Admin RPC Commands (--consensus-rpc-enable-admin required):
+  DAG info:        curl -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"consensus_admin_getDagInfo","params":[],"id":1}' http://localhost:10001
+  Storage stats:   curl -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"consensus_admin_getStorageStats","params":[],"id":1}' http://localhost:10002
+  Internal state:  curl -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"consensus_admin_getInternalState","params":[],"id":1}' http://localhost:10003
+  Compact DB:      curl -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"consensus_admin_compactDatabase","params":[],"id":1}' http://localhost:10004
+
+🎯 Expected Behavior:
+  • Each node loads configuration from its validator JSON file
+  • Network addresses and worker ports come from validator configs
+  • Committee includes all active validators in test_validators/
+  • Workers listen on their configured port ranges
+  • Nodes connect to peers' workers using configured ports
+  • No port conflicts between validators
+
+🔍 Quick Verification:
+  Check all nodes started: ps aux | grep 'reth.*node.*narwhal' | wc -l  # Should show 4
+  Check for port conflicts: netstat -tlnp | grep -E ':(9001|9002|9003|9004)' | wc -l  # Should show 4
+  Check consensus RPC ports: netstat -tlnp | grep -E ':(10001|10002|10003|10004)' | wc -l  # Should show 4
+  Check worker ports in use: netstat -tlnp | grep -E ':(1900[0-9]|1901[0-5])' | wc -l  # Should show 16 (4 workers × 4 nodes)
+  Check validator configs loaded: grep -c 'configured with.*workers on ports' /home/peastew/.neura/node*/node.log  # Should show validators × nodes
+  Check worker connections: grep -c 'Worker.*listening' /home/peastew/.neura/node*/node.log  # Should show 4 per node
+
+💡 If nodes fail to start, check for:
+  • Missing validator key files in test_validators/ directory
+  • Invalid JSON format in validator key files
+  • Port conflicts (netstat -tlnp | grep 900[1-4])
+  • Build issues (cargo build --release --bin reth)
+
+🔍 Validator Configuration Files:
+  • validator-0.json: Node 1 - Primary: 9001, Workers: 19000-19003
+  • validator-1.json: Node 2 - Primary: 9002, Workers: 19004-19007
+  • validator-2.json: Node 3 - Primary: 9003, Workers: 19008-19011
+  • validator-3.json: Node 4 - Primary: 9004, Workers: 19012-19015
+
+🛠️ Helper Scripts:
+  • Test consensus RPC: ./test_consensus_rpc.sh [PORT]
+    Example: ./test_consensus_rpc.sh 10001
+
+📊 All Consensus RPC Endpoints:
+  • consensus_getStatus - Get consensus health and status
+  • consensus_getCommittee - Get current validator committee
+  • consensus_getValidator - Get specific validator details
+  • consensus_listValidators - List all validators
+  • consensus_getMetrics - Get consensus performance metrics
+  • consensus_getConfig - Get consensus configuration
+  • consensus_admin_getDagInfo - Get DAG structure info (admin)
+  • consensus_admin_getStorageStats - Get storage statistics (admin)

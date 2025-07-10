@@ -52,6 +52,7 @@ pub mod dag_storage_adapter;
 pub mod batch_storage_adapter;
 pub mod mempool_bridge;
 pub mod reth_database_ops;
+pub mod simple_consensus_db;
 #[cfg(feature = "full")]
 pub mod rpc_impl;
 #[cfg(feature = "full")]
