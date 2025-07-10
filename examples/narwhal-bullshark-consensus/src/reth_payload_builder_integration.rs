@@ -12,10 +12,11 @@ use reth_evm::{ConfigureEvm, NextBlockEnvAttributes, execute::BlockBuilder};
 use reth_revm::State;
 use alloy_eips::calc_next_block_base_fee;
 use reth_execution_types::ExecutionOutcome;
-use reth_primitives_traits::Block as BlockTrait;
+use reth_primitives_traits::{Block as BlockTrait, SignerRecoverable};
+use alloy_consensus::BlockHeader;
 use reth_payload_builder::EthBuiltPayload;
 use reth_payload_primitives::PayloadBuilderAttributes;
-use reth_primitives::{Block, BlockBody, Header, SealedBlock as EthSealedBlock, TransactionSigned, RecoveredTx};
+use reth_primitives::{Block, BlockBody, Header, SealedBlock as EthSealedBlock, TransactionSigned, RecoveredTx, EthPrimitives};
 use reth_provider::{BlockReaderIdExt, StateProviderFactory};
 use reth_revm::database::StateProviderDatabase;
 use std::sync::Arc;
@@ -34,7 +35,7 @@ pub struct RethPayloadBuilderIntegration<Provider, EvmConfig> {
 impl<Provider, EvmConfig> RethPayloadBuilderIntegration<Provider, EvmConfig>
 where
     Provider: StateProviderFactory + BlockReaderIdExt + Clone,
-    EvmConfig: ConfigureEvm<NextBlockEnvCtx = NextBlockEnvAttributes> + Clone,
+    EvmConfig: ConfigureEvm<NextBlockEnvCtx = NextBlockEnvAttributes, Primitives = reth_primitives::EthPrimitives> + Clone,
 {
     /// Create a new integration
     pub fn new(
@@ -76,7 +77,7 @@ where
             .ok_or("Parent block not found")?;
         
         let parent_block = self.provider
-            .block_by_hash(parent_hash)?
+            .sealed_block_with_senders(parent_number, reth_provider::TransactionVariant::NoHash)?
             .ok_or("Parent block not found")?;
 
         // 3. Create state provider at parent block
@@ -109,14 +110,11 @@ where
         let mut executed_txs = Vec::new();
         
         for tx in ordered_txs {
-            // Recover signer and wrap for execution
-            let recovered = match tx.recover_signer() {
-                Some(signer) => reth_primitives::RecoveredTx::new_unchecked(tx.clone(), signer),
-                None => {
-                    debug!("Failed to recover transaction signer, skipping");
-                    continue;
-                }
-            };
+            // Recover the transaction with sender for execution
+            let recovered = reth_primitives::RecoveredTx::new_unchecked(
+                tx.clone(), 
+                tx.recover_signer_unchecked().unwrap_or(alloy_primitives::Address::ZERO)
+            );
             match builder.execute_transaction(recovered) {
                 Ok(gas_used) => {
                     cumulative_gas_used += gas_used;
@@ -203,17 +201,16 @@ fn create_header_from_batch(
     chain_spec: &ChainSpec,
 ) -> Header {
     // Calculate base fee using EIP-1559
-    let base_fee = chain_spec
-        .base_fee_params_at_timestamp(batch.timestamp)
-        .map(|params| {
-            calc_next_block_base_fee(
-                parent.gas_used,
-                parent.gas_limit,
-                parent.base_fee_per_gas.unwrap_or(1_000_000_000),
-                params,
-            )
-        })
-        .unwrap_or(1_000_000_000);
+    let base_fee = if let Some(params) = chain_spec.base_fee_params_at_timestamp(batch.timestamp) {
+        calc_next_block_base_fee(
+            parent.gas_used,
+            parent.gas_limit,
+            parent.base_fee_per_gas.unwrap_or(1_000_000_000),
+            params,
+        )
+    } else {
+        1_000_000_000
+    };
 
     Header {
         parent_hash: parent.hash_slow(),
@@ -230,7 +227,7 @@ fn create_header_from_batch(
         timestamp: batch.timestamp,
         extra_data: Default::default(),
         mix_hash: B256::ZERO,
-        nonce: 0,
+        nonce: alloy_primitives::FixedBytes::default(),
         base_fee_per_gas: Some(base_fee),
         withdrawals_root: Some(EMPTY_WITHDRAWALS),
         blob_gas_used: Some(0),

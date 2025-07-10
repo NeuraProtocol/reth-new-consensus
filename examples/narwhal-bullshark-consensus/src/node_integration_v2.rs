@@ -42,7 +42,7 @@ impl<Provider, Pool, EvmConfig> NodeIntegrationV2<Provider, Pool, EvmConfig>
 where
     Provider: StateProviderFactory + DatabaseProviderFactory + BlockReaderIdExt + Clone + Send + Sync + 'static + std::fmt::Debug,
     Pool: TransactionPool + Clone + Send + Sync + 'static,
-    EvmConfig: reth_evm::ConfigureEvm<NextBlockEnvCtx = reth_evm::NextBlockEnvAttributes> + Clone + Send + Sync + 'static,
+    EvmConfig: reth_evm::ConfigureEvm<NextBlockEnvCtx = reth_evm::NextBlockEnvAttributes, Primitives = reth_primitives::EthPrimitives> + Clone + Send + Sync + 'static,
 {
     /// Create a new node integration
     pub fn new(
@@ -150,7 +150,8 @@ where
         payload_builder: &RethPayloadBuilderIntegration<Provider, EvmConfig>,
     ) -> Result<()> {
         // Use Reth's block executor to build the block
-        let sealed_block = payload_builder.build_block_from_batch(batch).await?;
+        let sealed_block = payload_builder.build_block_from_batch(batch).await
+            .map_err(|e| anyhow::anyhow!("Failed to build block: {}", e))?;
         
         info!(
             "Built block #{} with state_root: {}, receipts_root: {}",
@@ -227,7 +228,8 @@ where
         
         for validator in &committee_config.validators {
             let evm_address = validator.evm_address.parse::<alloy_primitives::Address>()?;
-            let consensus_public_key = NarwhalPublicKey::decode_base64(&validator.consensus_public_key)?;
+            let consensus_public_key = NarwhalPublicKey::decode_base64(&validator.consensus_public_key)
+                .map_err(|e| anyhow::anyhow!("Failed to decode consensus public key for {}: {}", validator.name, e))?;
             let (base_port, num_workers) = self.parse_worker_port_range(&validator.worker_port_range)?;
             
             let identity = crate::working_validator_registry::ValidatorIdentity {
