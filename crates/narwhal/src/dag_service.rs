@@ -199,6 +199,7 @@ impl DagService {
         tokio::pin!(timer);
         
         info!("DAG service node {} has started successfully.", self.name);
+        let mut timer_expired = false;
         loop {
             // Check if we can propose a new header - following reference implementation pattern
             // We propose when:
@@ -218,7 +219,8 @@ impl DagService {
             };
             
             let enough_content = !self.current_batch.is_empty() || !self.worker_batches.is_empty();
-            let mut timer_expired = timer.is_elapsed();
+            // Check if timer has expired (either from select branch or elapsed time)
+            timer_expired = timer_expired || timer.is_elapsed();
             
             // CRITICAL FIX: Only create headers when we have proper consensus
             // We need:
@@ -337,9 +339,10 @@ impl DagService {
                     Ok(())
                 },
 
-                // Timer branch - minimal like reference implementation
-                () = &mut timer, if !timer_expired => {
-                    // Nothing to do - timer logic is handled above in main loop
+                // Timer branch - check timer expiration
+                () = &mut timer => {
+                    // Timer fired - the main loop will handle it on next iteration
+                    timer_expired = true;
                     Ok(())
                 },
 
