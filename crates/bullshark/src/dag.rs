@@ -156,9 +156,23 @@ impl BullsharkDag {
             // CRITICAL: We need quorum threshold (2f+1) not validity threshold (f+1)
             // This ensures we can't continue without proper Byzantine fault tolerance
             let threshold = committee.quorum_threshold();
-            info!("Support stake: {} / {} (quorum threshold)", support_stake, threshold);
             
-            support_stake >= threshold
+            // BOOTSTRAP PHASE: For early rounds, use a lower threshold
+            // This prevents deadlock when the DAG is still narrow
+            const BOOTSTRAP_ROUNDS: u64 = 10;
+            let effective_threshold = if round < BOOTSTRAP_ROUNDS {
+                // During bootstrap, accept f+1 (validity threshold) instead of 2f+1
+                let bootstrap_threshold = committee.validity_threshold();
+                info!("BOOTSTRAP: Round {} using reduced threshold {} instead of {}", 
+                      round, bootstrap_threshold, threshold);
+                bootstrap_threshold
+            } else {
+                threshold
+            };
+            
+            info!("Support stake: {} / {} (effective threshold)", support_stake, effective_threshold);
+            
+            support_stake >= effective_threshold
         } else {
             info!("No certificates found in child round {} for leader in round {}", child_round, round);
             false

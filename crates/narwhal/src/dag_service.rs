@@ -215,7 +215,20 @@ impl DagService {
                         total_stake += self.committee.stake(author);
                     }
                 }
-                total_stake >= self.committee.quorum_threshold()
+                
+                // BOOTSTRAP: For early rounds, use validity threshold instead of quorum
+                const BOOTSTRAP_ROUNDS: u64 = 10;
+                let required_stake = if self.current_round < BOOTSTRAP_ROUNDS {
+                    // During bootstrap, only need f+1 validators (validity threshold)
+                    let validity_threshold = self.committee.validity_threshold();
+                    debug!("BOOTSTRAP: Round {} using validity threshold {} instead of quorum {}", 
+                          self.current_round, validity_threshold, self.committee.quorum_threshold());
+                    validity_threshold
+                } else {
+                    self.committee.quorum_threshold()
+                };
+                
+                total_stake >= required_stake
             };
             
             let enough_content = !self.current_batch.is_empty() || !self.worker_batches.is_empty();
@@ -230,16 +243,20 @@ impl DagService {
             
             if enough_parents && (timer_expired || enough_content) {
                 // Additional check: ensure we have our own certificate from previous round
-                let have_own_cert = if self.current_round > 1 {
+                // BOOTSTRAP: Skip this check during early rounds to widen the DAG quickly
+                const BOOTSTRAP_ROUNDS: u64 = 10;
+                let have_own_cert = if self.current_round > 1 && self.current_round >= BOOTSTRAP_ROUNDS {
                     let prev_round = self.current_round.saturating_sub(1);
                     self.latest_certificates.get(&self.name)
                         .map(|cert| cert.round() == prev_round)
                         .unwrap_or(false)
                 } else {
-                    true // Genesis case
+                    true // Genesis case or bootstrap phase
                 };
                 
-                if !have_own_cert {
+                if !have_own_cert && !timer_expired {
+                    // Only wait for our own certificate if timer hasn't expired
+                    // This prevents deadlock when network is slow
                     debug!("Waiting for our own certificate from round {} before proposing round {}", 
                            self.current_round - 1, self.current_round);
                 } else {
