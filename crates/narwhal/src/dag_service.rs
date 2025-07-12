@@ -391,6 +391,13 @@ impl DagService {
      
      /// Create canonical metadata if this node is the leader for the current round
      fn create_canonical_metadata_if_leader(&self) -> Vec<u8> {
+         // CRITICAL: Bullshark only has leaders on EVEN rounds
+         // Odd rounds have no leader and should not have canonical metadata
+         if self.current_round % 2 != 0 {
+             debug!("Round {} is odd - no leader in Bullshark", self.current_round);
+             return Vec::new();
+         }
+         
          // Determine if we are the leader for this round using the same algorithm as BFT service
          let mut validators: Vec<_> = self.committee.authorities.keys().cloned().collect();
          validators.sort_by_key(|k| k.encode_base64());
@@ -750,7 +757,14 @@ impl DagService {
              return Ok(());
          }
          
-         info!("Processing certificate from {} for round {}", author, cert_round);
+         // Log if certificate contains canonical metadata (important for debugging)
+         if !certificate.header.canonical_metadata.is_empty() {
+             info!("Processing certificate from {} for round {} WITH canonical metadata ({} bytes)", 
+                   author, cert_round, certificate.header.canonical_metadata.len());
+         } else {
+             info!("Processing certificate from {} for round {} without canonical metadata", 
+                   author, cert_round);
+         }
 
          // Store certificate in persistent storage
          let _timer = metrics().map(|m| MetricTimer::new(m.storage_operation_duration.clone(), vec!["write", "certificates"]));

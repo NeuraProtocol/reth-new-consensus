@@ -361,13 +361,31 @@ impl BftService {
                     info!("Creating finalized batch with {} transactions from {} certificates", tx_count, cert_count);
                 }
                 
-                // Use the highest round from all batched certificates
-                info!("CRITICAL: Creating batch from highest round {} (batched {} certificates)", 
-                      highest_round, cert_count);
+                // CRITICAL: For Bullshark, we must use an EVEN round for the block
+                // Find the highest EVEN round from all batched certificates
+                let mut highest_even_round = 0u64;
+                for cert in &batched_certificates {
+                    let round = cert.round();
+                    if round % 2 == 0 && round > highest_even_round {
+                        highest_even_round = round;
+                    }
+                }
+                
+                // If we don't have any even rounds, use the previous even round
+                if highest_even_round == 0 && highest_round > 0 {
+                    // Round down to the nearest even number
+                    highest_even_round = (highest_round / 2) * 2;
+                    if highest_even_round == 0 {
+                        highest_even_round = 2; // Minimum even round for Bullshark
+                    }
+                }
+                
+                info!("CRITICAL: Creating batch from highest EVEN round {} (highest round was {}, batched {} certificates)", 
+                      highest_even_round, highest_round, cert_count);
                 
                 let finalized_batch = self.create_finalized_batch(
                     batched_transactions.clone(),
-                    highest_round,
+                    highest_even_round,
                     batched_certificates.clone(),
                 ).await?;
                 
