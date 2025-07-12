@@ -565,30 +565,36 @@ impl BftService {
                 info!("CRITICAL: Creating batch from highest EVEN round {} (highest round was {}, batched {} certificates)", 
                       highest_even_round, highest_round, cert_count);
                 
-                let finalized_batch = self.create_finalized_batch(
+                match self.create_finalized_batch(
                     batched_transactions.clone(),
                     highest_even_round,
                     batched_certificates.clone(),
-                ).await?;
-                
-                // Update last block time
-                self.last_block_time = Instant::now();
-                
-                // Update current_block_number immediately to prevent duplicate batches
-                // This is critical to prevent creating multiple batches for the same block
-                let batch_block_number = finalized_batch.block_number;
-                self.current_block_number = batch_block_number;
-                info!("Created finalized batch for block {} and updated current_block_number", batch_block_number);
+                ).await? {
+                    Some(finalized_batch) => {
+                        // Update last block time
+                        self.last_block_time = Instant::now();
+                        
+                        // Update current_block_number immediately to prevent duplicate batches
+                        // This is critical to prevent creating multiple batches for the same block
+                        let batch_block_number = finalized_batch.block_number;
+                        self.current_block_number = batch_block_number;
+                        info!("Created finalized batch for block {} and updated current_block_number", batch_block_number);
 
-                // Send to Reth integration
-                info!("Sending finalized batch {} to Reth integration", batch_block_number);
-                if self.finalized_batch_sender.send(finalized_batch).is_err() {
-                    warn!("Failed to send finalized batch to Reth - channel closed");
-                    return Err(BullsharkError::Network("Reth channel closed".to_string()));
+                        // Send to Reth integration
+                        info!("Sending finalized batch {} to Reth integration", batch_block_number);
+                        if self.finalized_batch_sender.send(finalized_batch).is_err() {
+                            warn!("Failed to send finalized batch to Reth - channel closed");
+                            return Err(BullsharkError::Network("Reth channel closed".to_string()));
+                        }
+                        
+                        finalized_count += 1;
+                        blocks_created_this_batch += 1;
+                    }
+                    None => {
+                        // No block created due to lack of canonical metadata
+                        debug!("Skipped block creation - no canonical metadata available");
+                    }
                 }
-
-                finalized_count += 1;
-                blocks_created_this_batch += 1;
                 
                 // Reset batched data for next block
                 batched_transactions.clear();
@@ -682,7 +688,7 @@ impl BftService {
         transactions: Vec<NarwhalTransaction>,
         round: u64,
         certificates: Vec<Certificate>,
-    ) -> BullsharkResult<FinalizedBatchInternal> {
+    ) -> BullsharkResult<Option<FinalizedBatchInternal>> {
         // Get chain state
         let chain_state = self.chain_state.get_chain_state();
         let parent_hash = chain_state.parent_hash;
@@ -734,7 +740,9 @@ impl BftService {
                 canonical_metadata_bytes = Some(metadata_string.into_bytes());
             } else {
                 // Non-leader and no metadata in certificates
-                warn!("Not leader and no canonical metadata provided - blocks will diverge!");
+                warn!("Not leader and no canonical metadata provided - skipping block creation to prevent divergence!");
+                // CRITICAL: Return None to prevent creating non-deterministic blocks
+                return Ok(None);
             }
         }
         
@@ -759,7 +767,7 @@ impl BftService {
             has_metadata
         );
 
-        Ok(batch)
+        Ok(Some(batch))
     }
 
     /// Determine if this node is the leader for a given round
