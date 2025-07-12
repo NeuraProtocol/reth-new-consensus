@@ -16,6 +16,19 @@ use std::sync::Arc;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use indexmap::IndexMap;
 use crate::CertificateDigest;
+use alloy_primitives::B256;
+
+/// Chain state information needed for canonical metadata creation
+pub struct ChainState {
+    pub block_number: u64,
+    pub parent_hash: B256,
+    pub parent_timestamp: u64,
+}
+
+/// Trait for providing chain state to the DAG service
+pub trait ChainStateProvider: Send + Sync {
+    fn get_chain_state(&self) -> ChainState;
+}
 
 /// Messages that can be received from the network
 #[derive(Debug, Clone)]
@@ -71,6 +84,8 @@ pub struct DagService {
     worker_batches: IndexMap<BatchDigest, WorkerId>,
     /// Garbage collection round - we can clean up data older than this
     gc_round: Round,
+    /// Chain state provider for canonical metadata creation
+    chain_state: Option<std::sync::Arc<dyn ChainStateProvider>>,
 }
 
 impl std::fmt::Debug for DagService {
@@ -117,6 +132,7 @@ impl DagService {
             current_batch: Vec::new(),
             worker_batches: IndexMap::new(),
             gc_round: 0,
+            chain_state: None,
         }
     }
     
@@ -155,6 +171,11 @@ impl DagService {
     ) -> Self {
         self.rx_batch_digests = Some(rx_batch_digests);
         self
+    }
+    
+    /// Set the chain state provider
+    pub fn set_chain_state(&mut self, chain_state: std::sync::Arc<dyn ChainStateProvider>) {
+        self.chain_state = Some(chain_state);
     }
 
     /// Spawn the DAG service
@@ -385,15 +406,36 @@ impl DagService {
          if is_leader {
              info!("Node is leader for round {} - creating canonical metadata", self.current_round);
              
-             // Create simple canonical metadata with round-based deterministic values
-             // This will be used by all nodes to create identical blocks
+             // Get chain state if available
+             let (block_number, parent_hash, parent_timestamp) = if let Some(ref chain_state) = self.chain_state {
+                 let state = chain_state.get_chain_state();
+                 // Next block number is current + 1
+                 (state.block_number + 1, state.parent_hash, state.parent_timestamp)
+             } else {
+                 // Fallback for tests or initial setup
+                 warn!("No chain state available for canonical metadata - using defaults");
+                 (self.current_round, B256::ZERO, 1700000000u64)
+             };
+             
+             // Ensure monotonic timestamps
+             let current_time = std::time::SystemTime::now()
+                 .duration_since(std::time::UNIX_EPOCH)
+                 .unwrap()
+                 .as_secs();
+             let timestamp = current_time.max(parent_timestamp + 1);
+             
+             // Create canonical metadata with all required block construction info
+             // This matches what the BFT service expects
              let metadata_string = format!(
-                 "round:{},epoch:{},timestamp:{},base_fee:{}",
+                 "block:{},parent:{},timestamp:{},round:{},base_fee:{}",
+                 block_number,
+                 parent_hash,
+                 timestamp,
                  self.current_round,
-                 self.committee.epoch,
-                 1700000000u64 + (self.current_round * 12), // Deterministic timestamp
                  875_000_000u64, // Default base fee
              );
+             
+             info!("Leader created canonical metadata for block {} with parent {}", block_number, parent_hash);
              
              metadata_string.into_bytes()
          } else {

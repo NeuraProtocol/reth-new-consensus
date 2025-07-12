@@ -293,6 +293,12 @@ impl NarwhalBullsharkService {
         if let Some(mut dag_service) = self.dag_service.take() {
             dag_service = dag_service.with_batch_digest_receiver(rx_primary);
             
+            // Set the chain state provider for canonical metadata creation
+            if let Some(ref chain_state_adapter) = self.chain_state_adapter {
+                dag_service.set_chain_state(chain_state_adapter.clone());
+                info!("✅ DAG service configured with chain state provider");
+            }
+            
             // Now spawn the DAG service with the batch digest receiver connected
             let dag_handle = dag_service.spawn();
             // Convert Result<(), DagError> to () for consistency

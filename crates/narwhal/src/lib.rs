@@ -41,7 +41,7 @@ pub mod bounded_executor;
 pub mod metrics_collector;
 
 // Re-export key types
-pub use dag_service::{DagService, DagMessage};
+pub use dag_service::{DagService, DagMessage, ChainState, ChainStateProvider};
 pub use network::{NarwhalNetwork, NetworkEvent, NetworkConfig};
 pub use gossip::GossipProtocol;
 pub use storage::DagStorage;
