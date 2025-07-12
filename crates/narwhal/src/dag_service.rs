@@ -489,6 +489,14 @@ impl DagService {
          // Determine if we are the leader for this round
          let canonical_metadata = self.create_canonical_metadata_if_leader();
          
+         if !canonical_metadata.is_empty() {
+             info!("Creating header for round {} WITH canonical metadata ({} bytes)", 
+                   self.current_round, canonical_metadata.len());
+         } else {
+             debug!("Creating header for round {} without canonical metadata (not leader)", 
+                   self.current_round);
+         }
+         
          // Create header
          let mut header = Header {
              author: self.name.clone(),
@@ -617,6 +625,15 @@ impl DagService {
      /// Process header (adapted from reference implementation)
      async fn process_header(&mut self, header: &Header) -> DagResult<()> {
          debug!("Processing header from {}", header.author);
+         
+         // Log if header contains canonical metadata
+         if !header.canonical_metadata.is_empty() {
+             info!("Received header from {} for round {} WITH canonical metadata ({} bytes)", 
+                   header.author, header.round, header.canonical_metadata.len());
+         } else {
+             debug!("Received header from {} for round {} without canonical metadata", 
+                   header.author, header.round);
+         }
 
          // Don't process our own headers
          if header.author == self.name {
