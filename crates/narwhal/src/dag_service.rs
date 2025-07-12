@@ -233,7 +233,14 @@ impl DagService {
             
             let enough_content = !self.current_batch.is_empty() || !self.worker_batches.is_empty();
             // Check if timer has expired (either from select branch or elapsed time)
+            let was_timer_expired = timer_expired;
             timer_expired = timer_expired || timer.is_elapsed();
+            
+            // Debug logging for timer state
+            if self.current_round <= 5 || self.current_round % 10 == 0 {
+                debug!("Round {} timer check: was_expired={}, is_elapsed={}, final={}, enough_parents={}, enough_content={}",
+                       self.current_round, was_timer_expired, timer.is_elapsed(), timer_expired, enough_parents, enough_content);
+            }
             
             // CRITICAL FIX: Only create headers when we have proper consensus
             // We need:
@@ -269,28 +276,26 @@ impl DagService {
                     // Create and propose header
                     match self.create_and_propose_header().await {
                         Ok(()) => {
-                            debug!("Successfully created header for round {}", self.current_round - 1);
+                            info!("✅ Successfully created header for round {} (now at round {})", self.current_round - 1, self.current_round);
                         }
                         Err(e) => {
                             warn!("Failed to create header: {}", e);
                             // Continue processing to avoid getting stuck
                         }
                     }
+                    
+                    // Reset timer after successful header creation
+                    let deadline = tokio::time::Instant::now() + max_header_delay;
+                    timer.as_mut().reset(deadline);
+                    timer_expired = false;
+                    info!("⏰ Reset timer for round {} - will fire at {:?}", self.current_round, deadline);
                 }
-                
-                // Reset timer
-                let deadline = tokio::time::Instant::now() + max_header_delay;
-                timer.as_mut().reset(deadline);
-                timer_expired = false;
-            } else if timer_expired {
-                // Timer expired but we don't have consensus
-                debug!("Timer expired but lacking consensus for round {} (have_parents: {})", 
-                       self.current_round, enough_parents);
-                       
-                // Reset timer to check again later
-                let deadline = tokio::time::Instant::now() + max_header_delay;
-                timer.as_mut().reset(deadline);
-                timer_expired = false;
+            } else {
+                // Not ready to create header yet - reset timer_expired if it was from a previous iteration
+                if timer_expired && !enough_parents {
+                    debug!("Timer expired but lacking parents for round {} - will retry when we have consensus", self.current_round);
+                    timer_expired = false; // Don't carry over timer expiration if we can't act on it
+                }
             }
             
             let result = tokio::select! {
@@ -359,6 +364,7 @@ impl DagService {
                 // Timer branch - check timer expiration
                 () = &mut timer => {
                     // Timer fired - the main loop will handle it on next iteration
+                    info!("⏰ Timer fired for round {} - setting timer_expired=true", self.current_round);
                     timer_expired = true;
                     Ok(())
                 },
@@ -866,17 +872,33 @@ impl DagService {
          // Count certificates from the previous round
          let mut total_stake = 0u64;
          let mut certificates_for_round = Vec::new();
+         let mut authors_with_certs = Vec::new();
          
          for (author, cert) in &self.latest_certificates {
              if cert.round() == cert_round {
                  total_stake += self.committee.stake(author);
                  certificates_for_round.push(cert.clone());
+                 authors_with_certs.push(author.encode_base64());
              }
          }
          
-         // Check if we have quorum of certificates from previous round
-         if total_stake >= self.committee.quorum_threshold() {
-             info!("Collected quorum of certificates for round {}, can advance to round {}", 
+         // BOOTSTRAP: For early rounds, use validity threshold instead of quorum
+         const BOOTSTRAP_ROUNDS: u64 = 10;
+         let required_stake = if self.current_round < BOOTSTRAP_ROUNDS {
+             let validity_threshold = self.committee.validity_threshold();
+             debug!("BOOTSTRAP: Round {} checking advancement with validity threshold {} instead of quorum {}", 
+                   self.current_round, validity_threshold, self.committee.quorum_threshold());
+             validity_threshold
+         } else {
+             self.committee.quorum_threshold()
+         };
+         
+         info!("Checking round {} advancement: {} certificates from {:?}, stake {}/{}", 
+               cert_round, certificates_for_round.len(), authors_with_certs, total_stake, required_stake);
+         
+         // Check if we have enough certificates from previous round
+         if total_stake >= required_stake {
+             info!("✅ Collected sufficient certificates for round {}, can advance to round {}", 
                    cert_round, self.current_round + 1);
              
              // CRITICAL FIX: Don't automatically create headers here
@@ -887,7 +909,9 @@ impl DagService {
              // 3. Either content or timer expiration
              
              // Just log that we're ready to advance
-             debug!("Round {} has quorum, header creation will be handled by main loop", cert_round);
+             debug!("Round {} has sufficient support, header creation will be handled by main loop", cert_round);
+         } else {
+             debug!("Round {} needs more certificates: have stake {}, need {}", cert_round, total_stake, required_stake);
          }
          
          Ok(())
