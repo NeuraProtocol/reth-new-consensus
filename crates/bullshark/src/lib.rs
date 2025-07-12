@@ -14,6 +14,7 @@ pub mod config;
 pub mod storage;
 pub mod chain_state;
 pub mod canonical_injection;
+pub mod round_tracker;
 
 // Re-export key types
 pub use bft_service::BftService;

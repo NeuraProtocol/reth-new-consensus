@@ -121,6 +121,16 @@ impl VotesAggregator {
     pub fn vote_count(&self) -> usize {
         self.votes.len()
     }
+    
+    /// Get the header if set
+    pub fn header(&self) -> Option<&Header> {
+        self.header.as_ref()
+    }
+    
+    /// Set the header (used when votes arrive before the header)
+    pub fn set_header(&mut self, header: Header) {
+        self.header = Some(header);
+    }
 
     /// Clear all votes (for reuse)
     pub fn clear(&mut self) {

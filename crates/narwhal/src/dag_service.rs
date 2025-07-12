@@ -193,12 +193,60 @@ impl DagService {
         info!("DAG service started for node {}", self.name);
         info!("Certificate output channel is ready: {}", !self.certificate_output_sender.is_closed());
         
-        // Timer for active block production
+        // Timer for active block production - following reference implementation pattern exactly
         let max_header_delay = self.config.max_batch_delay;
         let timer = tokio::time::sleep(max_header_delay);
         tokio::pin!(timer);
         
+        info!("DAG service node {} has started successfully.", self.name);
         loop {
+            // Check if we can propose a new header - following reference implementation pattern
+            // We propose when:
+            // (i) the timer expired 
+            // (ii) we have enough transactions/batches and conditions are met
+            let enough_parents = if self.current_round == 1 {
+                true // Genesis case
+            } else {
+                let prev_round = self.current_round.saturating_sub(1);
+                let mut total_stake = 0u64;
+                for (author, cert) in &self.latest_certificates {
+                    if cert.round() == prev_round {
+                        total_stake += self.committee.stake(author);
+                    }
+                }
+                total_stake >= self.committee.quorum_threshold()
+            };
+            
+            let enough_content = !self.current_batch.is_empty() || !self.worker_batches.is_empty();
+            let mut timer_expired = timer.is_elapsed();
+            
+            // Create header if conditions are met (following reference implementation logic)
+            // Always create on timer expiration, even without content (for continuous block production)
+            // Or when we have content AND parents
+            if timer_expired || (enough_content && enough_parents) {
+                if timer_expired {
+                    info!("Timer expired for round {}, creating header", self.current_round);
+                } else {
+                    debug!("Creating header for round {} due to available content", self.current_round);
+                }
+                
+                // Create and propose header
+                match self.create_and_propose_header().await {
+                    Ok(()) => {
+                        debug!("Successfully created header for round {}", self.current_round - 1);
+                    }
+                    Err(e) => {
+                        warn!("Failed to create header: {}", e);
+                        // Continue processing to avoid getting stuck
+                    }
+                }
+                
+                // Reset timer (reference implementation pattern)
+                let deadline = tokio::time::Instant::now() + max_header_delay;
+                timer.as_mut().reset(deadline);
+                timer_expired = false;
+            }
+            
             let result = tokio::select! {
                 // Process network messages (headers, votes, certificates) - from reference implementation
                 Some(message) = self.rx_network_messages.recv() => {
@@ -246,38 +294,6 @@ impl DagService {
                         m.set_transactions_in_flight("batching", self.current_batch.len() as i64);
                     }
                     
-                    // Check if we should create a header
-                    let enough_transactions = self.current_batch.len() >= self.config.max_batch_size;
-                    let timer_expired = timer.is_elapsed();
-                    
-                    if (enough_transactions || timer_expired) && !self.current_batch.is_empty() {
-                        // Also check quorum before creating header
-                        let prev_round = self.current_round.saturating_sub(1);
-                        let mut total_stake = 0u64;
-                        
-                        // Special case for round 1 - we can always proceed from genesis
-                        if self.current_round == 1 {
-                            total_stake = self.committee.total_stake();
-                        } else {
-                            for (author, cert) in &self.latest_certificates {
-                                if cert.round() == prev_round {
-                                    total_stake += self.committee.stake(author);
-                                }
-                            }
-                        }
-                        
-                        if total_stake >= self.committee.quorum_threshold() {
-                            self.create_and_propose_header().await?;
-                        } else {
-                            debug!("Have {} transactions but only {} stake, waiting for quorum", 
-                                   self.current_batch.len(), total_stake);
-                        }
-                        
-                        // Reset timer
-                        let deadline = tokio::time::Instant::now() + max_header_delay;
-                        timer.as_mut().reset(deadline);
-                    }
-                    
                     Ok(())
                 },
 
@@ -291,76 +307,12 @@ impl DagService {
                 } => {
                     info!("Primary received batch digest from worker {}", worker_id);
                     self.worker_batches.insert(batch_digest, worker_id);
-                    
-                    // Check if we should create a header now that we have worker batches
-                    let enough_batches = self.worker_batches.len() >= self.config.max_batch_size;
-                    let timer_expired = timer.is_elapsed();
-                    
-                    if (enough_batches || timer_expired) && !self.worker_batches.is_empty() {
-                        // Check quorum before creating header
-                        let prev_round = self.current_round.saturating_sub(1);
-                        let mut total_stake = 0u64;
-                        
-                        if self.current_round == 1 {
-                            total_stake = self.committee.total_stake();
-                        } else {
-                            for (author, cert) in &self.latest_certificates {
-                                if cert.round() == prev_round {
-                                    total_stake += self.committee.stake(author);
-                                }
-                            }
-                        }
-                        
-                        if total_stake >= self.committee.quorum_threshold() {
-                            info!("Have {} worker batches and quorum, creating header", self.worker_batches.len());
-                            self.create_and_propose_header().await?;
-                        } else {
-                            debug!("Have {} worker batches but only {} stake, waiting for quorum", 
-                                   self.worker_batches.len(), total_stake);
-                        }
-                        
-                        // Reset timer
-                        let deadline = tokio::time::Instant::now() + max_header_delay;
-                        timer.as_mut().reset(deadline);
-                    }
-                    
                     Ok(())
                 },
 
-                // Timer for active block production (heartbeat)
-                () = &mut timer => {
-                    // Check if we have quorum of certificates from previous round before advancing
-                    let prev_round = self.current_round.saturating_sub(1);
-                    let mut total_stake = 0u64;
-                    let mut cert_count = 0;
-                    
-                    if prev_round == 0 {
-                        // Genesis case - we can always proceed from round 1
-                        total_stake = self.committee.total_stake();
-                        cert_count = self.committee.authorities.len();
-                    } else {
-                        for (author, cert) in &self.latest_certificates {
-                            if cert.round() == prev_round {
-                                total_stake += self.committee.stake(author);
-                                cert_count += 1;
-                            }
-                        }
-                    }
-                    
-                    if total_stake >= self.committee.quorum_threshold() {
-                        // Always create header when timer expires with quorum for consistent block production
-                        info!("Timer expired for round {}, have quorum ({} certs, {} stake), {} transactions and {} worker batches, creating header", 
-                              self.current_round, cert_count, total_stake, self.current_batch.len(), self.worker_batches.len());
-                        self.create_and_propose_header().await?;
-                    } else {
-                        debug!("Timer expired for round {} but only have {} stake (need {}), waiting for more certificates", 
-                               self.current_round, total_stake, self.committee.quorum_threshold());
-                    }
-                    
-                    // Reset timer for next round
-                    let deadline = tokio::time::Instant::now() + max_header_delay;
-                    timer.as_mut().reset(deadline);
-                    
+                // Timer branch - minimal like reference implementation
+                () = &mut timer, if !timer_expired => {
+                    // Nothing to do - timer logic is handled above in main loop
                     Ok(())
                 },
 
@@ -386,8 +338,8 @@ impl DagService {
             }
         }
         
-                 Ok(())
-     }
+        Ok(())
+    }
      
      /// Create canonical metadata if this node is the leader for the current round
      fn create_canonical_metadata_if_leader(&self) -> Vec<u8> {
@@ -407,20 +359,42 @@ impl DagService {
              return Vec::new();
          }
          
-         let leader_idx = (self.current_round as usize) % num_validators;
-         let is_leader = validators.get(leader_idx) == Some(&self.name);
+         // CRITICAL FIX: Bullshark only has leaders on even rounds
+        // With 4 validators and only even rounds (2,4,6,8,10,12...), 
+        // round % 4 only gives us 0 or 2, never 1 or 3
+        // Solution: Use (round / 2) % num_validators to cycle through all validators
+        let leader_idx = ((self.current_round / 2) as usize) % num_validators;
+         let expected_leader = validators.get(leader_idx);
+         let is_leader = expected_leader == Some(&self.name);
+         
+         info!("Leader check for round {}: leader_idx={}, expected_leader={:?}, my_name={:?}, is_leader={}", 
+               self.current_round, leader_idx, 
+               expected_leader.map(|k| k.encode_base64()), 
+               self.name.encode_base64(), 
+               is_leader);
+        
+        // Debug chain state availability for all nodes
+        if let Some(ref chain_state) = self.chain_state {
+            let state = chain_state.get_chain_state();
+            debug!("Chain state check: block_number={}, parent_hash={}, parent_timestamp={}", 
+                   state.block_number, state.parent_hash, state.parent_timestamp);
+        } else {
+            warn!("No chain state available for round {}", self.current_round);
+        }
          
          if is_leader {
-             info!("Node is leader for round {} - creating canonical metadata", self.current_round);
+             info!("✅ CRITICAL: I am leader for round {} - creating canonical metadata", self.current_round);
              
              // Get chain state if available
              let (block_number, parent_hash, parent_timestamp) = if let Some(ref chain_state) = self.chain_state {
                  let state = chain_state.get_chain_state();
                  // Next block number is current + 1
+                 info!("LEADER DEBUG: Got chain state - block_number: {}, parent_hash: {}, parent_timestamp: {}", 
+                       state.block_number, state.parent_hash, state.parent_timestamp);
                  (state.block_number + 1, state.parent_hash, state.parent_timestamp)
              } else {
                  // Fallback for tests or initial setup
-                 warn!("No chain state available for canonical metadata - using defaults");
+                 warn!("LEADER DEBUG: No chain state available for canonical metadata - using defaults");
                  (self.current_round, B256::ZERO, 1700000000u64)
              };
              
@@ -539,6 +513,10 @@ impl DagService {
 
          // Send header for network broadcast
          if let Some(ref sender) = self.network_sender {
+             if !header.canonical_metadata.is_empty() {
+                 info!("🚀 CRITICAL: Broadcasting header {} WITH canonical metadata ({} bytes) for round {}", 
+                       header.id, header.canonical_metadata.len(), header.round);
+             }
              if sender.send(DagMessage::Header(header.clone())).is_err() {
                  warn!("Failed to send header for broadcast - channel closed");
              } else {
@@ -654,9 +632,16 @@ impl DagService {
              .insert(header.id);
              
          // Create vote aggregator for this header if we don't have one
-         if !self.vote_aggregators.contains_key(&header.id) {
-             self.vote_aggregators.insert(header.id, VotesAggregator::with_header(header.clone()));
-         }
+         // Or update it with the header if votes arrived before the header
+         self.vote_aggregators.entry(header.id)
+             .and_modify(|agg| {
+                 // If the aggregator doesn't have a header yet (votes arrived first), set it now
+                 if agg.header().is_none() {
+                     debug!("Setting header for aggregator that had votes arrive first");
+                     agg.set_header(header.clone());
+                 }
+             })
+             .or_insert_with(|| VotesAggregator::with_header(header.clone()));
 
          // Create and send vote for this header
          self.send_vote(header).await
@@ -715,7 +700,9 @@ impl DagService {
               vote.id, aggregator.vote_count(), aggregator.stake(), self.committee.quorum_threshold());
         
         // Check if we can form a certificate
-        if let Some(certificate) = aggregator.try_form_certificate(&self.committee)? {
+        // Only try if we have enough votes AND the header (votes can arrive before headers)
+        match aggregator.try_form_certificate(&self.committee) {
+            Ok(Some(certificate)) => {
             let header_id = certificate.header.id;
             info!("Created certificate for header {} with {} votes", 
                   header_id, aggregator.vote_count());
@@ -739,6 +726,16 @@ impl DagService {
             
             // Remove the aggregator for this header since we have a certificate
             self.vote_aggregators.remove(&vote.id);
+            }
+            Ok(None) => {
+                // Not enough votes yet to form a certificate
+                debug!("Not enough votes yet for header {} (have {} votes)", vote.id, aggregator.vote_count());
+            }
+            Err(e) => {
+                // This can happen when votes arrive before the header
+                debug!("Cannot form certificate yet: {}", e);
+                // Don't propagate the error - this is expected behavior
+            }
         }
 
         Ok(())

@@ -6,13 +6,14 @@ use crate::{
     dag::BullsharkDag,
     storage::ConsensusStorage,
     chain_state::{ChainStateProvider, DefaultChainState},
+    round_tracker::{RoundCompletionTracker, RoundTrackerStats},
 };
 use narwhal::{
     types::{Certificate, Committee, PublicKey as NarwhalPublicKey},
     Transaction as NarwhalTransaction,
 };
 use alloy_primitives::B256;
-use std::time::{SystemTime, UNIX_EPOCH, Instant};
+use std::time::{SystemTime, UNIX_EPOCH, Instant, Duration};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{info, warn, error, debug};
@@ -50,6 +51,8 @@ pub struct BftService {
     storage: Option<std::sync::Arc<dyn ConsensusStorage>>,
     /// Node's public key for leader determination
     node_public_key: Option<NarwhalPublicKey>,
+    /// Round completion tracker for batching certificates
+    round_tracker: RoundCompletionTracker,
 }
 
 impl std::fmt::Debug for BftService {
@@ -81,6 +84,9 @@ impl BftService {
         // Create consensus algorithm
         let consensus = BullsharkConsensus::new(committee.clone(), config.clone());
 
+        // Initialize round tracker with configured timeout for leader certificates
+        let round_tracker = RoundCompletionTracker::new(config.round_completion_timeout);
+
         Self {
             config,
             consensus,
@@ -96,6 +102,7 @@ impl BftService {
             last_block_time: Instant::now(),
             storage: None,
             node_public_key: None,
+            round_tracker,
         }
     }
     
@@ -114,6 +121,9 @@ impl BftService {
         // Create consensus algorithm with storage
         let consensus = BullsharkConsensus::with_storage(committee.clone(), config.clone(), storage.clone());
 
+        // Initialize round tracker with configured timeout
+        let round_tracker = RoundCompletionTracker::new(config.round_completion_timeout);
+
         Self {
             config,
             consensus,
@@ -129,6 +139,7 @@ impl BftService {
             last_block_time: Instant::now(),
             storage: Some(storage),
             node_public_key: None,
+            round_tracker,
         }
     }
     
@@ -187,54 +198,211 @@ impl BftService {
         
         info!("BFT service waiting for certificates...");
 
+        // Create a timer for periodic round checks
+        let mut round_check_interval = tokio::time::interval(Duration::from_millis(50));
+        round_check_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
         loop {
-            match self.certificate_receiver.recv().await {
-                Some(certificate) => {
+            tokio::select! {
+                // Check for new certificates
+                Some(certificate) = self.certificate_receiver.recv() => {
                     info!("BFT: Received certificate from Narwhal for round {}", certificate.round());
                     debug!("Received certificate from Narwhal: {:?}", certificate);
 
-            match self.process_certificate(certificate).await {
-                Ok(finalized_count) => {
-                    if finalized_count > 0 {
-                        info!("Finalized {} batches in this round", finalized_count);
-                        self.metrics.record_finalization(finalized_count, 1); // TODO: calculate actual latency
-                    }
-                }
-                Err(e) => {
-                    // Only log as error if it's not a batch not found error
-                    match &e {
-                        BullsharkError::BatchNotFound { .. } => {
-                            debug!("Certificate processing skipped: {}", e);
+                    match self.process_certificate(certificate).await {
+                        Ok(finalized_count) => {
+                            if finalized_count > 0 {
+                                info!("Finalized {} batches in this round", finalized_count);
+                                self.metrics.record_finalization(finalized_count, 1); // TODO: calculate actual latency
+                            }
                         }
-                        _ => {
-                            error!("Error processing certificate: {}", e);
+                        Err(e) => {
+                            // Only log as error if it's not a batch not found error
+                            match &e {
+                                BullsharkError::BatchNotFound { .. } => {
+                                    debug!("Certificate processing skipped: {}", e);
+                                }
+                                _ => {
+                                    error!("Error processing certificate: {}", e);
+                                }
+                            }
+                            // Continue processing other certificates
                         }
                     }
-                    // Continue processing other certificates
-                }
-            }
 
-            // Update metrics
-            self.metrics.update_dag_size(self.dag.stats().total_certificates);
-            
+                    // Update metrics
+                    self.metrics.update_dag_size(self.dag.stats().total_certificates);
+                    
                     // Log metrics periodically
                     if self.consensus_index % 100 == 0 {
                         debug!("Consensus metrics: {:?}", self.metrics);
                     }
                 }
-                None => {
-                    warn!("Certificate receiver channel closed, shutting down BFT service");
-                    break;
+                
+                // Periodic check for pending rounds
+                _ = round_check_interval.tick() => {
+                    // Check if any pending rounds are ready for finalization
+                    match self.check_pending_rounds().await {
+                        Ok(finalized_count) => {
+                            if finalized_count > 0 {
+                                debug!("Periodic check finalized {} rounds", finalized_count);
+                            }
+                        }
+                        Err(e) => {
+                            debug!("Error in periodic round check: {}", e);
+                        }
+                    }
                 }
             }
         }
-
-        warn!("Certificate receiver channel closed, shutting down BFT service");
-        Ok(())
     }
 
     /// Process a single certificate through the consensus algorithm
     async fn process_certificate(&mut self, certificate: Certificate) -> BullsharkResult<usize> {
+        let cert_round = certificate.round();
+        
+        // Add certificate to round tracker
+        self.round_tracker.add_certificate(certificate.clone(), &self.committee);
+        
+        // Run the consensus algorithm to update DAG state
+        let consensus_outputs = self.consensus.process_certificate(
+            &mut self.dag,
+            self.consensus_index,
+            certificate,
+        )?;
+        
+        let outputs_count = consensus_outputs.len();
+        info!("Consensus produced {} outputs for certificate round {}", outputs_count, cert_round);
+        
+        // Update consensus index for all outputs
+        for output in &consensus_outputs {
+            if output.consensus_index >= self.consensus_index {
+                self.consensus_index = output.consensus_index + 1;
+            }
+        }
+        
+        // Check all pending rounds to see if any are ready for finalization
+        let pending_rounds = self.round_tracker.get_pending_rounds();
+        let mut finalized_count = 0;
+        
+        for round in pending_rounds {
+            if self.round_tracker.should_finalize_round(round, &self.committee) {
+                // Create block for this complete round
+                match self.finalize_round(round).await {
+                    Ok(()) => {
+                        finalized_count += 1;
+                        // Mark round as complete
+                        self.round_tracker.mark_round_complete(round);
+                    }
+                    Err(e) => {
+                        warn!("Failed to finalize round {}: {}", round, e);
+                    }
+                }
+            }
+        }
+        
+        // Log round tracker statistics
+        let stats = self.round_tracker.stats();
+        debug!("Round tracker stats: {} total rounds, {} with leader, {} pending even rounds",
+               stats.total_rounds, stats.rounds_with_leader, stats.pending_even_rounds);
+        
+        Ok(finalized_count)
+    }
+    
+    /// Check pending rounds for finalization
+    async fn check_pending_rounds(&mut self) -> BullsharkResult<usize> {
+        let pending_rounds = self.round_tracker.get_pending_rounds();
+        let mut finalized_count = 0;
+        
+        for round in pending_rounds {
+            if self.round_tracker.should_finalize_round(round, &self.committee) {
+                // Create block for this complete round
+                match self.finalize_round(round).await {
+                    Ok(()) => {
+                        finalized_count += 1;
+                        // Mark round as complete
+                        self.round_tracker.mark_round_complete(round);
+                    }
+                    Err(e) => {
+                        debug!("Failed to finalize round {} in periodic check: {}", round, e);
+                    }
+                }
+            }
+        }
+        
+        Ok(finalized_count)
+    }
+    
+    /// Finalize a complete round and create a block
+    async fn finalize_round(&mut self, round: u64) -> BullsharkResult<()> {
+        // Get all certificates for this round
+        let certificates = self.round_tracker.get_round_certificates(round);
+        if certificates.is_empty() {
+            return Ok(());
+        }
+        
+        info!("Finalizing round {} with {} certificates", round, certificates.len());
+        
+        // Extract all transactions from certificates
+        let mut all_transactions = Vec::new();
+        for cert in &certificates {
+            match self.extract_transactions_from_certificate(cert).await {
+                Ok(txs) => all_transactions.extend(txs),
+                Err(BullsharkError::BatchNotFound { .. }) => {
+                    // Expected when no transactions
+                    debug!("No batch found for certificate");
+                }
+                Err(e) => {
+                    warn!("Failed to extract transactions: {}", e);
+                }
+            }
+        }
+        
+        // Check chain state before creating block
+        let current_state = self.chain_state.get_chain_state();
+        let next_block_number = current_state.block_number + 1;
+        
+        // Update our current_block_number from chain state
+        if current_state.block_number >= self.current_block_number {
+            self.current_block_number = current_state.block_number;
+        }
+        
+        // Only create block if we haven't already
+        if self.current_block_number < next_block_number {
+            // Check minimum block time
+            let elapsed = self.last_block_time.elapsed();
+            if elapsed < self.config.min_block_time {
+                debug!("Deferring block creation for round {} - only {:.1}s elapsed (min: {:.1}s)",
+                       round, elapsed.as_secs_f64(), self.config.min_block_time.as_secs_f64());
+                return Ok(());
+            }
+            
+            info!("Creating block from round {} with {} transactions from {} certificates",
+                  round, all_transactions.len(), certificates.len());
+            
+            // Create finalized batch
+            let finalized_batch = self.create_finalized_batch(
+                all_transactions,
+                round, // Use the actual round (already even)
+                certificates,
+            ).await?;
+            
+            // Update tracking
+            self.last_block_time = Instant::now();
+            self.current_block_number = finalized_batch.block_number;
+            
+            // Send to Reth
+            info!("Sending finalized batch {} to Reth integration", finalized_batch.block_number);
+            if self.finalized_batch_sender.send(finalized_batch).is_err() {
+                return Err(BullsharkError::Network("Reth channel closed".to_string()));
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Original process_certificate method - kept for reference but unused
+    async fn process_certificate_old(&mut self, certificate: Certificate) -> BullsharkResult<usize> {
         // Extract transactions from the certificate
         let transactions = self.extract_transactions_from_certificate(&certificate).await?;
         
@@ -594,7 +762,9 @@ impl BftService {
         }
         
         // Determine leader index for this round
-        let leader_idx = (round as usize) % num_validators;
+        // CRITICAL FIX: Bullshark only has leaders on even rounds
+        // Use (round / 2) % num_validators to cycle through all validators
+        let leader_idx = ((round / 2) as usize) % num_validators;
         
         // Check if we have a node public key and if we're the leader
         if let Some(ref node_key) = self.node_public_key {
