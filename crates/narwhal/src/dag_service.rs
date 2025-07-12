@@ -688,9 +688,13 @@ impl DagService {
             m.record_vote_cast(&vote.author.to_string(), vote.round);
         }
         
-        // Find the vote aggregator for this header
-        let aggregator = self.vote_aggregators.get_mut(&vote.id)
-            .ok_or_else(|| DagError::Consensus(format!("No header found for vote: {}", vote.id)))?;
+        // Find or create the vote aggregator for this header
+        // Votes can arrive before headers due to network propagation delays
+        let aggregator = self.vote_aggregators.entry(vote.id)
+            .or_insert_with(|| {
+                debug!("Vote arrived before header for {}, creating pending aggregator", vote.id);
+                VotesAggregator::new()
+            });
         
         // Store vote in persistent storage
         let _timer = metrics().map(|m| MetricTimer::new(m.storage_operation_duration.clone(), vec!["write", "votes"]));

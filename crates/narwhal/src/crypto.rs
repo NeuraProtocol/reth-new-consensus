@@ -76,11 +76,13 @@ impl KeyPair {
         use fastcrypto::traits::ToFromBytes;
         
         // Create a deterministic seed from consensus key + network address
-        // This matches the derive_peer_id function
+        // CRITICAL: Use normalized address for consistent key generation
+        let normalized_addr = Self::normalize_socket_addr(network_address);
+        
         let mut hasher = Blake2b::new();
         hasher.update(b"narwhal_network_key:");
         hasher.update(consensus_key.as_bytes());
-        hasher.update(network_address.to_string().as_bytes());
+        hasher.update(normalized_addr.as_bytes());
         
         let hash = hasher.finalize();
         let mut key_bytes = [0u8; 32];
