@@ -309,10 +309,19 @@ impl DagService {
                     info!("⏰ Reset timer for round {} - will fire at {:?}", self.current_round, deadline);
                 }
             } else {
-                // Not ready to create header yet - reset timer_expired if it was from a previous iteration
-                if timer_expired && !enough_parents {
-                    debug!("Timer expired but lacking parents for round {} - will retry when we have consensus", self.current_round);
-                    timer_expired = false; // Don't carry over timer expiration if we can't act on it
+                // Not ready to create header yet
+                if timer_expired {
+                    if !enough_parents {
+                        debug!("Timer expired but lacking parents for round {} - will retry when we have consensus", self.current_round);
+                    } else if !enough_content {
+                        debug!("Timer expired but no content for round {} - will retry when we have transactions", self.current_round);
+                    }
+                    
+                    // CRITICAL: Reset the timer to prevent tight loops
+                    let deadline = tokio::time::Instant::now() + max_header_delay;
+                    timer.as_mut().reset(deadline);
+                    timer_expired = false;
+                    debug!("Reset timer to prevent tight loop - will check again at {:?}", deadline);
                 }
             }
             
