@@ -381,20 +381,26 @@ impl BftService {
                   round, all_transactions.len(), certificates.len());
             
             // Create finalized batch
-            let finalized_batch = self.create_finalized_batch(
+            match self.create_finalized_batch(
                 all_transactions,
                 round, // Use the actual round (already even)
                 certificates,
-            ).await?;
-            
-            // Update tracking
-            self.last_block_time = Instant::now();
-            self.current_block_number = finalized_batch.block_number;
-            
-            // Send to Reth
-            info!("Sending finalized batch {} to Reth integration", finalized_batch.block_number);
-            if self.finalized_batch_sender.send(finalized_batch).is_err() {
-                return Err(BullsharkError::Network("Reth channel closed".to_string()));
+            ).await? {
+                Some(finalized_batch) => {
+                    // Update tracking
+                    self.last_block_time = Instant::now();
+                    self.current_block_number = finalized_batch.block_number;
+                    
+                    // Send to Reth
+                    info!("Sending finalized batch {} to Reth integration", finalized_batch.block_number);
+                    if self.finalized_batch_sender.send(finalized_batch).is_err() {
+                        return Err(BullsharkError::Network("Reth channel closed".to_string()));
+                    }
+                }
+                None => {
+                    // No block created due to lack of canonical metadata
+                    debug!("Skipped block creation in round {} - no canonical metadata", round);
+                }
             }
         }
         
