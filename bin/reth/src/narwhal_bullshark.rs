@@ -88,6 +88,18 @@ where
     };
 
     // Create consensus config
+    let consensus_datadir = args.consensus_datadir
+        .clone()
+        .unwrap_or_else(|| {
+            // Default to a 'consensus' subdirectory under the current working directory
+            // In production, this should be set explicitly via --consensus-datadir
+            std::path::PathBuf::from("consensus_data")
+        });
+    
+    // Ensure the consensus data directory exists
+    std::fs::create_dir_all(&consensus_datadir)
+        .map_err(|e| eyre::eyre!("Failed to create consensus data directory: {}", e))?;
+    
     let config = ConsensusConfig {
         network_addr: args.network_address,
         validator_key_file: validator_key.name.clone(),
@@ -99,6 +111,7 @@ where
         committee_config_file: args.committee_config_file
             .as_ref()
             .map(|p| p.to_string_lossy().to_string()),
+        consensus_datadir,
         max_batch_delay_ms: args.max_batch_delay_ms,
         node_public_key: validator_key.public_key()
             .map_err(|e| eyre::eyre!("Failed to get public key: {}", e))?,

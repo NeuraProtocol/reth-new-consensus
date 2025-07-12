@@ -75,7 +75,7 @@ for i in {1..4}; do
     rm -rf /home/peastew/.neura/node$i/static_files || true
     
     # Remove consensus-specific data
-    rm -rf /home/peastew/.neura/node$i/consensus_db || true
+    rm -rf /home/peastew/.neura/node$i/consensus-db || true
     rm -rf /home/peastew/.neura/node$i/consensus-db || true
     
     # Remove transaction pool backup
@@ -123,6 +123,7 @@ USE_REAL_CONSENSUS=true $RETH_BINARY node \
   --validator.deterministic-consensus-key \
   --consensus-rpc-port 10001 \
   --consensus-rpc-enable-admin \
+  --consensus-datadir /home/peastew/.neura/node1/consensus-db \
   --narwhal.max-batch-delay-ms 50 \
   --narwhal.max-batch-size 100000 \
   --narwhal.gc-depth 50 \
@@ -178,6 +179,7 @@ USE_REAL_CONSENSUS=true $RETH_BINARY node \
   --validator.deterministic-consensus-key \
   --consensus-rpc-port 10002 \
   --consensus-rpc-enable-admin \
+  --consensus-datadir /home/peastew/.neura/node2/consensus-db \
   --narwhal.max-batch-delay-ms 50 \
   --narwhal.max-batch-size 100000 \
   --narwhal.gc-depth 50 \
@@ -233,6 +235,7 @@ USE_REAL_CONSENSUS=true $RETH_BINARY node \
   --validator.deterministic-consensus-key \
   --consensus-rpc-port 10003 \
   --consensus-rpc-enable-admin \
+  --consensus-datadir /home/peastew/.neura/node3/consensus-db \
   --narwhal.max-batch-delay-ms 50 \
   --narwhal.max-batch-size 100000 \
   --narwhal.gc-depth 50 \
@@ -288,6 +291,7 @@ USE_REAL_CONSENSUS=true $RETH_BINARY node \
   --validator.deterministic-consensus-key \
   --consensus-rpc-port 10004 \
   --consensus-rpc-enable-admin \
+  --consensus-datadir /home/peastew/.neura/node4/consensus-db \
   --narwhal.max-batch-delay-ms 50 \
   --narwhal.max-batch-size 100000 \
   --narwhal.gc-depth 50 \

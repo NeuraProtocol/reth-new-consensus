@@ -40,6 +40,8 @@ pub struct ConsensusConfig {
     pub validator_config_dir: String,
     /// Optional path to committee configuration file (overrides directory scanning)
     pub committee_config_file: Option<String>,
+    /// Directory for consensus data (database, logs, etc.)
+    pub consensus_datadir: std::path::PathBuf,
     /// Maximum batch delay in milliseconds
     pub max_batch_delay_ms: u64,
     /// Maximum batch size in bytes
@@ -74,6 +76,7 @@ impl Default for ConsensusConfig {
             validator_key_file: String::new(),
             validator_config_dir: String::new(),
             committee_config_file: None,
+            consensus_datadir: std::path::PathBuf::from("consensus_data"),
             max_batch_delay_ms: 100,
             max_batch_size: 100_000,
             min_block_time_ms: 500,

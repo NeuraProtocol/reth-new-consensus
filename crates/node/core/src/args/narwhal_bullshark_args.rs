@@ -2,6 +2,7 @@
 
 use clap::{Args, ArgAction};
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use fastcrypto::traits::KeyPair;
 use serde::{Deserialize, Serialize};
 
@@ -229,6 +230,11 @@ pub struct NarwhalBullsharkArgs {
     /// Use engine tree executor for proper canonical state updates
     #[arg(long = "narwhal.use-engine-tree", action = ArgAction::SetTrue, help = "Use Reth's internal engine tree for block execution instead of direct DB writes. This ensures canonical state is updated correctly.")]
     pub use_engine_tree: bool,
+    
+    /// Directory for consensus-specific data (database, logs, etc.)
+    /// If not specified, uses a 'consensus' subdirectory under the main datadir
+    #[arg(long = "consensus-datadir", value_name = "PATH", help = "Directory for consensus database and data. Allows separate disk optimization for consensus vs EVM data.")]
+    pub consensus_datadir: Option<PathBuf>,
 }
 
 impl Default for NarwhalBullsharkArgs {
@@ -281,6 +287,7 @@ impl Default for NarwhalBullsharkArgs {
             worker_base_port: 19000,
             worker_bind_address: None,
             use_engine_tree: false,
+            consensus_datadir: None,
         }
     }
 }

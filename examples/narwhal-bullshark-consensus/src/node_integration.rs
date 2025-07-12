@@ -93,14 +93,18 @@ where
         
         // Create consensus storage using Redb (completely isolated from Reth's MDBX)
         let storage = Some({
-            // Create consensus database in a subdirectory
-            let db_path = format!("consensus_db_{}.redb", self.config.consensus_port);
-            let redb_storage = RedbConsensusStorage::new(&db_path)
+            // Use the consensus data directory from config
+            let db_filename = format!("consensus_db_{}.redb", self.config.consensus_port);
+            let db_path = self.config.consensus_datadir.join(db_filename);
+            
+            info!("Creating consensus database at: {:?}", db_path);
+            
+            let redb_storage = RedbConsensusStorage::new(db_path.to_str().unwrap())
                 .map_err(|e| anyhow::anyhow!("Failed to create Redb storage: {}", e))?;
             
             info!("✅ REAL: Using Redb consensus storage - completely isolated from Reth's database");
             info!("✅ REAL: This eliminates ALL lock contention between consensus and engine operations");
-            info!("✅ REAL: Consensus database path: {}", db_path);
+            info!("✅ REAL: Consensus database path: {:?}", db_path);
             
             // The bridge expects MdbxConsensusStorage, so we get the inner storage
             // which is properly configured with Redb database operations
