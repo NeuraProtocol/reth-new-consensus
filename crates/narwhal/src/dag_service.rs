@@ -78,6 +78,9 @@ pub struct DagService {
     certificates: HashMap<CertificateDigest, Certificate>,
     /// Latest certificates by author for parent tracking (for DAG parents)
     latest_certificates: HashMap<PublicKey, Certificate>,
+    /// Certificates organized by round for proper parent checking
+    /// Maps Round -> Author -> Certificate
+    certificates_by_round: HashMap<Round, HashMap<PublicKey, Certificate>>,
     /// Current transaction batch being assembled
     current_batch: Vec<Transaction>,
     /// Worker batch digests ready to be included in the next header
@@ -129,6 +132,7 @@ impl DagService {
             vote_aggregators: HashMap::new(),
             certificates: HashMap::new(),
             latest_certificates: HashMap::new(),
+            certificates_by_round: HashMap::new(),
             current_batch: Vec::new(),
             worker_batches: IndexMap::new(),
             gc_round: 0,
@@ -210,9 +214,15 @@ impl DagService {
             } else {
                 let prev_round = self.current_round.saturating_sub(1);
                 let mut total_stake = 0u64;
-                for (author, cert) in &self.latest_certificates {
-                    if cert.round() == prev_round {
+                let mut cert_count = 0;
+                let mut authors_with_certs = Vec::new();
+                
+                // Use round-specific certificate tracking instead of latest_certificates
+                if let Some(round_certs) = self.certificates_by_round.get(&prev_round) {
+                    for (author, _cert) in round_certs {
                         total_stake += self.committee.stake(author);
+                        cert_count += 1;
+                        authors_with_certs.push(author.encode_base64());
                     }
                 }
                 
@@ -228,7 +238,15 @@ impl DagService {
                     self.committee.quorum_threshold()
                 };
                 
-                total_stake >= required_stake
+                let has_enough = total_stake >= required_stake;
+                
+                // Log parent certificate status periodically
+                if self.current_round <= 5 || timer_expired || (self.current_round % 10 == 0 && !has_enough) {
+                    info!("Parent check for round {}: {} certs from round {} (authors: {:?}), stake {}/{}, enough={}",
+                          self.current_round, cert_count, prev_round, authors_with_certs, total_stake, required_stake, has_enough);
+                }
+                
+                has_enough
             };
             
             let enough_content = !self.current_batch.is_empty() || !self.worker_batches.is_empty();
@@ -254,8 +272,8 @@ impl DagService {
                 const BOOTSTRAP_ROUNDS: u64 = 10;
                 let have_own_cert = if self.current_round > 1 && self.current_round >= BOOTSTRAP_ROUNDS {
                     let prev_round = self.current_round.saturating_sub(1);
-                    self.latest_certificates.get(&self.name)
-                        .map(|cert| cert.round() == prev_round)
+                    self.certificates_by_round.get(&prev_round)
+                        .map(|round_certs| round_certs.contains_key(&self.name))
                         .unwrap_or(false)
                 } else {
                     true // Genesis case or bootstrap phase
@@ -492,11 +510,19 @@ impl DagService {
                  .map(|_| CertificateDigest::default()) // Genesis certificates
                  .collect()
          } else {
-             self.certificates
-                 .values()
-                 .filter(|cert| cert.round() == prev_round)
-                 .map(|cert| cert.digest())
-                 .collect()
+             // Use round-specific tracking for accurate parent collection
+             if let Some(round_certs) = self.certificates_by_round.get(&prev_round) {
+                 round_certs.values()
+                     .map(|cert| cert.digest())
+                     .collect()
+             } else {
+                 // Fallback to scanning all certificates if round tracking is empty
+                 self.certificates
+                     .values()
+                     .filter(|cert| cert.round() == prev_round)
+                     .map(|cert| cert.digest())
+                     .collect()
+             }
          };
              
          info!("Including {} certificates from round {} as parents", parents.len(), prev_round);
@@ -831,6 +857,12 @@ impl DagService {
          self.certificates.insert(cert_digest, certificate.clone());
          self.latest_certificates.insert(author.clone(), certificate.clone());
          
+         // CRITICAL: Also track by round for proper parent checking
+         self.certificates_by_round
+             .entry(cert_round)
+             .or_insert_with(HashMap::new)
+             .insert(author.clone(), certificate.clone());
+         
          // Log certificate tracking
          let certs_in_round = self.certificates.values()
              .filter(|c| c.round() == cert_round)
@@ -874,8 +906,9 @@ impl DagService {
          let mut certificates_for_round = Vec::new();
          let mut authors_with_certs = Vec::new();
          
-         for (author, cert) in &self.latest_certificates {
-             if cert.round() == cert_round {
+         // Use round-specific tracking
+         if let Some(round_certs) = self.certificates_by_round.get(&cert_round) {
+             for (author, cert) in round_certs {
                  total_stake += self.committee.stake(author);
                  certificates_for_round.push(cert.clone());
                  authors_with_certs.push(author.encode_base64());
@@ -929,6 +962,9 @@ impl DagService {
              
              // Clean up old certificates (but keep latest certificates for parent tracking)
              self.certificates.retain(|_, cert| cert.round() > self.gc_round);
+             
+             // Clean up old round-based certificate tracking
+             self.certificates_by_round.retain(|&round, _| round > self.gc_round);
              
              // Clean up vote aggregators for old headers
              self.vote_aggregators.retain(|header_id, _| {
