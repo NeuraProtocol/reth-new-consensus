@@ -153,8 +153,10 @@ impl BullsharkDag {
                 .map(|(_, cert)| committee.stake(&cert.origin()))
                 .sum();
 
-            let threshold = committee.validity_threshold();
-            info!("Support stake: {} / {} (threshold)", support_stake, threshold);
+            // CRITICAL: We need quorum threshold (2f+1) not validity threshold (f+1)
+            // This ensures we can't continue without proper Byzantine fault tolerance
+            let threshold = committee.quorum_threshold();
+            info!("Support stake: {} / {} (quorum threshold)", support_stake, threshold);
             
             support_stake >= threshold
         } else {
