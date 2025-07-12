@@ -318,11 +318,19 @@ impl NarwhalNetwork {
             .start(router)
             .map_err(|e| DagError::Network(format!("Failed to start network: {}", e)))?;
 
+        let our_peer_id = network.peer_id();
         info!(
             "Narwhal network started - listening on {} with peer ID {}",
             network.local_addr(),
-            network.peer_id()
+            our_peer_id
         );
+        
+        // Debug: let's also derive what our PeerId should be according to our logic
+        let expected_peer_id = Self::derive_peer_id(&node_key, &bind_address);
+        debug!("Expected PeerId based on derive_peer_id: {}", expected_peer_id);
+        if expected_peer_id != our_peer_id {
+            warn!("MISMATCH: Actual PeerId {} != Expected PeerId {}", our_peer_id, expected_peer_id);
+        }
 
         // Convert config to retry configuration
         let retry_config = config.to_retry_config();
@@ -389,7 +397,7 @@ impl NarwhalNetwork {
             .event_sender
             .send(NetworkEvent::PeerConnected(consensus_key.clone()));
 
-        info!("Connected to peer {} ({})", consensus_key, peer_id);
+        info!("Connected to peer {} (PeerId: {})", consensus_key, peer_id);
         Ok(())
     }
 
@@ -399,6 +407,26 @@ impl NarwhalNetwork {
         peer_addresses: HashMap<PublicKey, SocketAddr>,
     ) -> DagResult<()> {
         let mut connection_tasks = Vec::new();
+
+        // First, add all known peers to the anemo network's known_peers list
+        // This helps anemo establish connections using the correct peer identities
+        for (authority, _stake) in &self.committee.authorities {
+            if authority != &self.node_key {
+                if let Some(address) = peer_addresses.get(authority) {
+                    // Derive the expected PeerId from the consensus key and network address
+                    // This should match how the peer generates its own network key
+                    let expected_peer_id = Self::derive_peer_id(authority, address);
+                    
+                    let peer_info = anemo::types::PeerInfo {
+                        peer_id: expected_peer_id,
+                        affinity: anemo::types::PeerAffinity::High,
+                        address: vec![anemo::types::Address::from(*address)],
+                    };
+                    self.network.known_peers().insert(peer_info);
+                    debug!("Added {} to known peers with derived PeerId", authority);
+                }
+            }
+        }
 
         for (authority, _stake) in &self.committee.authorities {
             if authority != &self.node_key {
@@ -728,6 +756,42 @@ impl NarwhalNetwork {
         }
         
         Ok(successful_sends)
+    }
+
+    /// Derive a PeerId from a network public key (following reference implementation)
+    fn derive_peer_id_from_network_key(network_public_key: &[u8]) -> PeerId {
+        // Reference implementation: PeerId(public_key.0.to_bytes())
+        // The PeerId is just the raw bytes of the network public key
+        let mut peer_id_bytes = [0u8; 32];
+        let len = std::cmp::min(network_public_key.len(), 32);
+        peer_id_bytes[..len].copy_from_slice(&network_public_key[..len]);
+        PeerId(peer_id_bytes)
+    }
+
+    /// Derive a PeerId from a consensus public key and network address
+    /// This ensures consistent PeerId generation across nodes
+    fn derive_peer_id(consensus_key: &PublicKey, network_address: &SocketAddr) -> PeerId {
+        // Generate the network keypair the same way we do when creating the network
+        let network_private_key_bytes = crate::crypto::KeyPair::derive_network_keypair(
+            consensus_key,
+            network_address
+        );
+        
+        // Extract the public key from the private key
+        use fastcrypto::ed25519::{Ed25519KeyPair, Ed25519PrivateKey};
+        use fastcrypto::traits::KeyPair;
+        if let Ok(private_key) = Ed25519PrivateKey::from_bytes(&network_private_key_bytes) {
+            let keypair = Ed25519KeyPair::from(private_key);
+            let public_key_bytes = keypair.public().as_bytes();
+            // Use the reference implementation approach: PeerId is just the public key bytes
+            let peer_id = Self::derive_peer_id_from_network_key(public_key_bytes);
+            debug!("Generated PeerId from network public key for {}: {}", consensus_key, peer_id);
+            peer_id
+        } else {
+            // Fallback to using the derived bytes directly
+            debug!("Failed to create Ed25519 key, using raw bytes as PeerId");
+            PeerId(network_private_key_bytes)
+        }
     }
 }
 

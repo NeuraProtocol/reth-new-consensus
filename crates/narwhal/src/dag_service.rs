@@ -367,6 +367,40 @@ impl DagService {
         
                  Ok(())
      }
+     
+     /// Create canonical metadata if this node is the leader for the current round
+     fn create_canonical_metadata_if_leader(&self) -> Vec<u8> {
+         // Determine if we are the leader for this round using the same algorithm as BFT service
+         let mut validators: Vec<_> = self.committee.authorities.keys().cloned().collect();
+         validators.sort_by_key(|k| k.encode_base64());
+         
+         let num_validators = validators.len();
+         if num_validators == 0 {
+             return Vec::new();
+         }
+         
+         let leader_idx = (self.current_round as usize) % num_validators;
+         let is_leader = validators.get(leader_idx) == Some(&self.name);
+         
+         if is_leader {
+             info!("Node is leader for round {} - creating canonical metadata", self.current_round);
+             
+             // Create simple canonical metadata with round-based deterministic values
+             // This will be used by all nodes to create identical blocks
+             let metadata_string = format!(
+                 "round:{},epoch:{},timestamp:{},base_fee:{}",
+                 self.current_round,
+                 self.committee.epoch,
+                 1700000000u64 + (self.current_round * 12), // Deterministic timestamp
+                 875_000_000u64, // Default base fee
+             );
+             
+             metadata_string.into_bytes()
+         } else {
+             debug!("Node is not leader for round {} (leader idx: {})", self.current_round, leader_idx);
+             Vec::new()
+         }
+     }
 
      /// Create and propose a new header (adapted from reference implementation)
      async fn create_and_propose_header(&mut self) -> DagResult<()> {
@@ -410,6 +444,9 @@ impl DagService {
                if self.current_batch.is_empty() { 0 } else { 1 },
                self.worker_batches.len());
 
+         // Determine if we are the leader for this round
+         let canonical_metadata = self.create_canonical_metadata_if_leader();
+         
          // Create header
          let mut header = Header {
              author: self.name.clone(),
@@ -419,6 +456,7 @@ impl DagService {
              parents,
              id: HeaderDigest::default(),
              signature: Signature::default(),
+             canonical_metadata,
          };
 
          // Sign header

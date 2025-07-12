@@ -295,6 +295,8 @@ pub struct Header {
     pub id: HeaderDigest,
     /// Author's signature
     pub signature: Signature,
+    /// Canonical metadata for deterministic block construction (only set by round leader, empty for non-leaders)
+    pub canonical_metadata: Vec<u8>,
 }
 
 impl HeaderBuilder {
@@ -311,6 +313,7 @@ impl HeaderBuilder {
             parents: self.parents.unwrap(),
             id: HeaderDigest::default(),
             signature: Signature::default(),
+            canonical_metadata: self.canonical_metadata.unwrap_or_default(),
         };
 
         let id = h.digest();

@@ -25,6 +25,7 @@ use tokio::{
 use tracing::{info, debug, warn};
 use std::{sync::Arc, time::Duration, net::{SocketAddr, Ipv4Addr}};
 use tower::ServiceBuilder;
+use fastcrypto::traits::ToFromBytes;
 
 /// Channels for worker components
 pub struct WorkerChannels {
@@ -232,14 +233,45 @@ impl Worker {
             .layer(TraceLayer::new())
             .service(routes);
         
-        // Start network
+        // Generate network private key that will produce the correct PeerId
+        // This must match the derive_worker_peer_id function
+        let network_private_key_bytes = crate::crypto::KeyPair::derive_worker_network_keypair(
+            &self.primary_name,
+            self.id,
+            &self.worker_address
+        );
+        
+        // Debug: Calculate what PeerId this key will produce
+        {
+            use fastcrypto::ed25519::{Ed25519KeyPair, Ed25519PrivateKey};
+            use fastcrypto::traits::KeyPair as _;
+            if let Ok(private_key) = Ed25519PrivateKey::from_bytes(&network_private_key_bytes) {
+                let keypair = Ed25519KeyPair::from(private_key);
+                let public_key_bytes = keypair.public().as_bytes();
+                debug!("Worker {} will have PeerId from public key: {:02x?}", 
+                      self.id, &public_key_bytes[..8]);
+            }
+        }
+        
+        // Start network with the derived private key
         let network = Network::bind(self.worker_address)
             .server_name("narwhal-worker")
-            .private_key(self.keypair.private_key_bytes())
+            .private_key(network_private_key_bytes)
             .start(service)
             .expect("Failed to start worker network");
         
-        info!("Worker {} network started on {}", self.id, self.worker_address);
+        let actual_peer_id = network.peer_id();
+        info!("Worker {} network started on {} with PeerId: {}", 
+              self.id, self.worker_address, actual_peer_id);
+        
+        // Debug: Show expected PeerId for this worker
+        let expected_peer_id = Self::derive_worker_peer_id(&self.primary_name, self.id, &self.worker_address);
+        info!("Worker {} expected PeerId (for verification): {}", self.id, expected_peer_id);
+        
+        if actual_peer_id != expected_peer_id {
+            warn!("⚠️ Worker {} PeerId mismatch! Actual: {} Expected: {}", 
+                  self.id, actual_peer_id, expected_peer_id);
+        }
         
         // Add known peers (other workers and primary)
         self.add_known_peers(&network);
@@ -254,9 +286,8 @@ impl Worker {
             .expect("Our primary not in committee");
         
         if let Ok(primary_addr) = primary_info.primary_address.parse::<SocketAddr>() {
-            // Convert public key to bytes for PeerId
-            use fastcrypto::traits::ToFromBytes;
-            let peer_id = PeerId(primary_info.network_key.as_bytes().to_vec().try_into().unwrap_or([0u8; 32]));
+            // Derive PeerId consistently with how the primary generates its network key
+            let peer_id = Self::derive_peer_id(&self.primary_name, &primary_addr);
             let peer_info = anemo::types::PeerInfo {
                 peer_id,
                 affinity: anemo::types::PeerAffinity::High,
@@ -266,26 +297,96 @@ impl Worker {
             info!("Added primary {} as known peer", self.primary_name);
         }
         
-        // Add other workers as known peers
+        // Add other validators' primaries as known peers
         for (name, authority) in &self.committee.authorities {
             if name == &self.primary_name {
-                continue; // Skip our own primary's workers
+                continue; // Skip our own primary
             }
             
+            if let Ok(primary_addr) = authority.primary_address.parse::<SocketAddr>() {
+                // Derive PeerId for other validators' primaries
+                let peer_id = Self::derive_peer_id(name, &primary_addr);
+                let peer_info = anemo::types::PeerInfo {
+                    peer_id,
+                    affinity: anemo::types::PeerAffinity::High,
+                    address: vec![anemo::types::Address::from(primary_addr)],
+                };
+                network.known_peers().insert(peer_info);
+                debug!("Added validator {} primary as known peer", name);
+            }
+            
+            // Add other workers as known peers
             for (worker_id, worker_addr) in authority.workers.get_all_worker_addresses() {
                 if let Ok(addr) = worker_addr.parse::<SocketAddr>() {
-                    // Use the authority's network key for worker peer ID
-                    use fastcrypto::traits::ToFromBytes;
-                    let peer_id = PeerId(authority.network_key.as_bytes().to_vec().try_into().unwrap_or([0u8; 32]));
+                    // Workers use a derived PeerId based on primary + worker ID
+                    let peer_id = Self::derive_worker_peer_id(name, worker_id, &addr);
                     let peer_info = anemo::types::PeerInfo {
-                        peer_id,
+                        peer_id: peer_id.clone(),
                         affinity: anemo::types::PeerAffinity::High,
                         address: vec![anemo::types::Address::from(addr)],
                     };
                     network.known_peers().insert(peer_info);
-                    debug!("Added worker {} of {} as known peer", worker_id, name);
+                    info!("Added worker {} of {} as known peer with PeerId: {}", 
+                          worker_id, name, peer_id);
                 }
             }
+        }
+    }
+    
+    /// Derive a PeerId from a network public key (following reference implementation)
+    /// This ensures consistent PeerId generation across nodes
+    fn derive_peer_id_from_network_key(network_public_key: &[u8]) -> PeerId {
+        // Reference implementation: PeerId(public_key.0.to_bytes())
+        // The PeerId is just the raw bytes of the network public key
+        let mut peer_id_bytes = [0u8; 32];
+        let len = std::cmp::min(network_public_key.len(), 32);
+        peer_id_bytes[..len].copy_from_slice(&network_public_key[..len]);
+        PeerId(peer_id_bytes)
+    }
+    
+    /// Derive a PeerId from a consensus public key and network address
+    /// This ensures consistent PeerId generation across nodes
+    fn derive_peer_id(consensus_key: &PublicKey, network_address: &SocketAddr) -> PeerId {
+        // Generate the network keypair the same way we do in setup_network
+        let network_private_key_bytes = crate::crypto::KeyPair::derive_network_keypair(
+            consensus_key,
+            network_address
+        );
+        
+        // Extract the public key from the private key
+        use fastcrypto::ed25519::{Ed25519KeyPair, Ed25519PrivateKey};
+        use fastcrypto::traits::KeyPair as _;
+        if let Ok(private_key) = Ed25519PrivateKey::from_bytes(&network_private_key_bytes) {
+            let keypair = Ed25519KeyPair::from(private_key);
+            let public_key_bytes = keypair.public().as_bytes();
+            // Use the reference implementation approach: PeerId is just the public key bytes
+            Self::derive_peer_id_from_network_key(public_key_bytes)
+        } else {
+            // Fallback to using the derived bytes directly
+            PeerId(network_private_key_bytes)
+        }
+    }
+    
+    /// Derive a PeerId for a worker based on primary key, worker ID, and address
+    fn derive_worker_peer_id(primary_key: &PublicKey, worker_id: u32, network_address: &SocketAddr) -> PeerId {
+        // Generate the worker network keypair the same way we do in setup_network
+        let network_private_key_bytes = crate::crypto::KeyPair::derive_worker_network_keypair(
+            primary_key,
+            worker_id,
+            network_address
+        );
+        
+        // Extract the public key from the private key
+        use fastcrypto::ed25519::{Ed25519KeyPair, Ed25519PrivateKey};
+        use fastcrypto::traits::KeyPair as _;
+        if let Ok(private_key) = Ed25519PrivateKey::from_bytes(&network_private_key_bytes) {
+            let keypair = Ed25519KeyPair::from(private_key);
+            let public_key_bytes = keypair.public().as_bytes();
+            // Use the reference implementation approach: PeerId is just the public key bytes
+            Self::derive_peer_id_from_network_key(public_key_bytes)
+        } else {
+            // Fallback to using the derived bytes directly
+            PeerId(network_private_key_bytes)
         }
     }
     

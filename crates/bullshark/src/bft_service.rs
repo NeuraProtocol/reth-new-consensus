@@ -8,7 +8,7 @@ use crate::{
     chain_state::{ChainStateProvider, DefaultChainState},
 };
 use narwhal::{
-    types::{Certificate, Committee},
+    types::{Certificate, Committee, PublicKey as NarwhalPublicKey},
     Transaction as NarwhalTransaction,
 };
 use alloy_primitives::B256;
@@ -48,6 +48,8 @@ pub struct BftService {
     last_block_time: Instant,
     /// Consensus storage for persistent state
     storage: Option<std::sync::Arc<dyn ConsensusStorage>>,
+    /// Node's public key for leader determination
+    node_public_key: Option<NarwhalPublicKey>,
 }
 
 impl std::fmt::Debug for BftService {
@@ -93,6 +95,7 @@ impl BftService {
             chain_state: std::sync::Arc::new(DefaultChainState),
             last_block_time: Instant::now(),
             storage: None,
+            node_public_key: None,
         }
     }
     
@@ -125,6 +128,7 @@ impl BftService {
             chain_state: std::sync::Arc::new(DefaultChainState),
             last_block_time: Instant::now(),
             storage: Some(storage),
+            node_public_key: None,
         }
     }
     
@@ -136,6 +140,11 @@ impl BftService {
     /// Set the chain state provider
     pub fn set_chain_state(&mut self, chain_state: std::sync::Arc<dyn ChainStateProvider>) {
         self.chain_state = chain_state;
+    }
+    
+    /// Set node public key for leader determination
+    pub fn set_node_public_key(&mut self, public_key: NarwhalPublicKey) {
+        self.node_public_key = Some(public_key);
     }
 
     /// Spawn the BFT service
@@ -256,14 +265,31 @@ impl BftService {
                   skip_count, self.consensus_index);
         }
         
+        // Log the rounds of the outputs for debugging
+        if outputs_count > 0 {
+            let rounds: Vec<u64> = consensus_outputs.iter()
+                .map(|o| o.certificate.round())
+                .take(10)
+                .collect();
+            debug!("First 10 consensus output rounds: {:?}", rounds);
+        }
+        
         // When catching up, limit how many blocks we create in one batch
         // This prevents the system from getting overwhelmed
         const MAX_BLOCKS_PER_BATCH: usize = 10;
         let mut blocks_created_this_batch = 0;
 
         let mut finalized_count = 0;
+        
+        // When processing consensus outputs, we need to batch them appropriately
+        // to avoid creating blocks for every single certificate in the DAG
+        let mut highest_round = 0u64;
+        let mut batched_transactions = Vec::new();
+        let mut batched_certificates = Vec::new();
 
         // Process any finalized outputs
+        debug!("Processing {} consensus outputs starting from index {}", outputs_count, self.consensus_index);
+        
         for (idx, output) in consensus_outputs.into_iter().enumerate() {
             // Skip certificates we've already processed
             if output.consensus_index < self.consensus_index {
@@ -273,13 +299,39 @@ impl BftService {
             }
             
             debug!("Processing consensus output {} of {} for round {}", idx + 1, outputs_count, output.certificate.round());
+            
+            // Track the highest round we've seen
+            let cert_round = output.certificate.round();
+            if cert_round > highest_round {
+                highest_round = cert_round;
+            }
+            
+            // Extract transactions from this certificate
+            match self.extract_transactions_from_certificate(&output.certificate).await {
+                Ok(txs) => {
+                    batched_transactions.extend(txs);
+                    batched_certificates.push(output.certificate.clone());
+                }
+                Err(BullsharkError::BatchNotFound { .. }) => {
+                    // Expected when no transactions
+                    debug!("No batch found for certificate");
+                }
+                Err(e) => {
+                    warn!("Failed to extract transactions: {}", e);
+                }
+            }
+            
+            // Update consensus index for this certificate
             self.consensus_index = output.consensus_index + 1;
             
-            // Early check for minimum block time to avoid unnecessary work
+            // Check if we should create a block
             let elapsed = self.last_block_time.elapsed();
-            if elapsed < self.config.min_block_time {
-                // Skip this certificate - we're creating blocks too fast
-                // Don't log each skip to avoid spam when catching up
+            let should_create_block = 
+                elapsed >= self.config.min_block_time || // Enough time has passed
+                idx == outputs_count - 1 || // Last certificate in batch
+                batched_certificates.len() >= 10; // Accumulated enough certificates
+            
+            if !should_create_block {
                 continue;
             }
             
@@ -299,31 +351,34 @@ impl BftService {
             
             // Only create a finalized batch if we haven't already created this block number
             if self.current_block_number == 0 || self.current_block_number < next_block_number {
-                // Now extract transactions since we're actually going to use them
-                let cert_transactions = self.extract_transactions_from_certificate(&output.certificate).await?;
+                // Create finalized batch with batched transactions
+                let tx_count = batched_transactions.len();
+                let cert_count = batched_certificates.len();
                 
-                // Create finalized batch even if empty (for consistent block times)
-                let tx_count = cert_transactions.len();
                 if tx_count == 0 {
-                    debug!("Processing empty certificate - will create empty block for consistent block times");
+                    debug!("Creating empty block from {} certificates for consistent block times", cert_count);
                 } else {
-                    info!("Creating finalized batch with {} transactions from certificate", tx_count);
+                    info!("Creating finalized batch with {} transactions from {} certificates", tx_count, cert_count);
                 }
                 
+                // Use the highest round from all batched certificates
+                info!("CRITICAL: Creating batch from highest round {} (batched {} certificates)", 
+                      highest_round, cert_count);
+                
                 let finalized_batch = self.create_finalized_batch(
-                    cert_transactions,
-                    output.certificate.round(),
-                    vec![output.certificate],
+                    batched_transactions.clone(),
+                    highest_round,
+                    batched_certificates.clone(),
                 ).await?;
                 
                 // Update last block time
                 self.last_block_time = Instant::now();
                 
-                // NOTE: Do NOT update current_block_number here!
-                // It should only be updated after successful engine API submission
-                // This prevents getting ahead of the actual persisted chain state
+                // Update current_block_number immediately to prevent duplicate batches
+                // This is critical to prevent creating multiple batches for the same block
                 let batch_block_number = finalized_batch.block_number;
-                info!("Created finalized batch for block {} (current_block_number will be updated after engine API submission)", batch_block_number);
+                self.current_block_number = batch_block_number;
+                info!("Created finalized batch for block {} and updated current_block_number", batch_block_number);
 
                 // Send to Reth integration
                 info!("Sending finalized batch {} to Reth integration", batch_block_number);
@@ -334,6 +389,11 @@ impl BftService {
 
                 finalized_count += 1;
                 blocks_created_this_batch += 1;
+                
+                // Reset batched data for next block
+                batched_transactions.clear();
+                batched_certificates.clear();
+                highest_round = 0;
                 
                 // If we've created enough blocks in this batch, stop processing
                 // This prevents overwhelming the system when catching up
@@ -348,6 +408,11 @@ impl BftService {
             }
         }
 
+        // Check if we need to create a block anyway (minimum block time elapsed)
+        if finalized_count == 0 && outputs_count > 0 {
+            debug!("Processed {} outputs but created 0 blocks - all outputs were skipped or throttled", outputs_count);
+        }
+        
         Ok(finalized_count)
     }
 
@@ -432,6 +497,49 @@ impl BftService {
             .as_secs();
         let timestamp = current_time.max(chain_state.parent_timestamp + 1);
 
+        info!("create_finalized_batch called with round={}, block_number={}", round, block_number);
+        
+        // CRITICAL: Extract canonical metadata from certificates
+        // The leader's certificate will contain the canonical metadata
+        let mut canonical_metadata_bytes = None;
+        
+        // Search through certificates to find the one with canonical metadata
+        for cert in &certificates {
+            if !cert.header.canonical_metadata.is_empty() {
+                use fastcrypto::traits::EncodeDecodeBase64;
+                info!("Found canonical metadata in certificate from round {} (author: {})", 
+                      cert.round(), cert.origin().encode_base64());
+                canonical_metadata_bytes = Some(cert.header.canonical_metadata.clone());
+                break; // Use the first metadata we find
+            }
+        }
+        
+        // If no metadata found in certificates, check if we're the leader and create it
+        if canonical_metadata_bytes.is_none() {
+            let is_leader = self.is_leader_for_round(round);
+            
+            if is_leader {
+                // This should not happen if DAG service is working correctly
+                warn!("Leader for round {} but no canonical metadata found in certificates - creating locally", round);
+                
+                // Create canonical metadata locally as fallback
+                let metadata_string = format!(
+                    "block:{},parent:{},timestamp:{},round:{},base_fee:{}",
+                    block_number,
+                    parent_hash,
+                    timestamp,
+                    round,
+                    875_000_000u64, // Default base fee
+                );
+                canonical_metadata_bytes = Some(metadata_string.into_bytes());
+            } else {
+                // Non-leader and no metadata in certificates
+                warn!("Not leader and no canonical metadata provided - blocks will diverge!");
+            }
+        }
+        
+        let has_metadata = canonical_metadata_bytes.is_some();
+        
         let batch = FinalizedBatchInternal {
             block_number,
             parent_hash,
@@ -439,18 +547,49 @@ impl BftService {
             timestamp,
             round,
             certificates,
+            canonical_metadata_bytes,
         };
 
         info!(
-            "Created finalized batch for block {} with {} transactions at round {} (parent: {})",
+            "Created finalized batch for block {} with {} transactions at round {} (parent: {}, has_metadata: {})",
             batch.block_number,
             batch.transactions.len(),
             batch.round,
-            batch.parent_hash
+            batch.parent_hash,
+            has_metadata
         );
 
         Ok(batch)
     }
+
+    /// Determine if this node is the leader for a given round
+    fn is_leader_for_round(&self, round: u64) -> bool {
+        use fastcrypto::traits::EncodeDecodeBase64;
+        
+        // IMPORTANT: Sort validators for deterministic ordering across all nodes
+        let mut validators: Vec<_> = self.committee.authorities.keys().cloned().collect();
+        validators.sort_by_key(|k| k.encode_base64());
+        
+        let num_validators = validators.len();
+        if num_validators == 0 {
+            return false;
+        }
+        
+        // Determine leader index for this round
+        let leader_idx = (round as usize) % num_validators;
+        
+        // Check if we have a node public key and if we're the leader
+        if let Some(ref node_key) = self.node_public_key {
+            let is_leader = validators.get(leader_idx) == Some(node_key);
+            if is_leader {
+                info!("Node is leader for round {} (idx: {})", round, leader_idx);
+            }
+            is_leader
+        } else {
+            false
+        }
+    }
+    
 
     /// Update the committee configuration
     pub async fn update_committee(&mut self, new_committee: Committee) -> BullsharkResult<()> {

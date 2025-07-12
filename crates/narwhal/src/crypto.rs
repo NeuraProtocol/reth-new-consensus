@@ -69,4 +69,43 @@ impl KeyPair {
             public_key,
         }
     }
+    
+    /// Derive a network (ed25519) keypair for a primary from consensus key and network address
+    pub fn derive_network_keypair(consensus_key: &PublicKey, network_address: &std::net::SocketAddr) -> [u8; 32] {
+        use blake2::{Blake2b, Digest};
+        use fastcrypto::traits::ToFromBytes;
+        
+        // Create a deterministic seed from consensus key + network address
+        // This matches the derive_peer_id function
+        let mut hasher = Blake2b::new();
+        hasher.update(b"narwhal_network_key:");
+        hasher.update(consensus_key.as_bytes());
+        hasher.update(network_address.to_string().as_bytes());
+        
+        let hash = hasher.finalize();
+        let mut key_bytes = [0u8; 32];
+        key_bytes.copy_from_slice(&hash[..32]);
+        
+        key_bytes
+    }
+
+    /// Derive a network (ed25519) keypair for a worker from primary key and worker ID
+    pub fn derive_worker_network_keypair(primary_key: &PublicKey, worker_id: u32, worker_address: &std::net::SocketAddr) -> [u8; 32] {
+        use blake2::{Blake2b, Digest};
+        use fastcrypto::traits::ToFromBytes;
+        
+        // Create a deterministic seed from primary key + worker ID + network address
+        // This matches the derive_worker_peer_id function
+        let mut hasher = Blake2b::new();
+        hasher.update(b"narwhal_worker_key:");
+        hasher.update(primary_key.as_bytes());
+        hasher.update(&worker_id.to_le_bytes());
+        hasher.update(worker_address.to_string().as_bytes());
+        
+        let hash = hasher.finalize();
+        let mut key_bytes = [0u8; 32];
+        key_bytes.copy_from_slice(&hash[..32]);
+        
+        key_bytes
+    }
 }
