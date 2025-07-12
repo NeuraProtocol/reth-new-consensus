@@ -530,13 +530,27 @@ impl BftService {
                 }
                 
                 // CRITICAL: For Bullshark, we must use an EVEN round for the block
-                // Find the highest EVEN round from all batched certificates
+                // AND the certificate MUST have canonical metadata (from the leader)
                 let mut highest_even_round = 0u64;
+                let mut has_canonical_metadata = false;
+                
                 for cert in &batched_certificates {
                     let round = cert.round();
                     if round % 2 == 0 && round > highest_even_round {
                         highest_even_round = round;
                     }
+                    
+                    // Check if any certificate has canonical metadata
+                    if !cert.header.canonical_metadata.is_empty() {
+                        has_canonical_metadata = true;
+                        debug!("Found canonical metadata in certificate from round {}", round);
+                    }
+                }
+                
+                // CRITICAL: Only create blocks if we have canonical metadata
+                if !has_canonical_metadata {
+                    warn!("No canonical metadata found in {} certificates - skipping block creation", cert_count);
+                    continue;
                 }
                 
                 // If we don't have any even rounds, use the previous even round

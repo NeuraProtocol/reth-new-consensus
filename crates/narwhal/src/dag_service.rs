@@ -220,28 +220,55 @@ impl DagService {
             let enough_content = !self.current_batch.is_empty() || !self.worker_batches.is_empty();
             let mut timer_expired = timer.is_elapsed();
             
-            // Create header if conditions are met (following reference implementation logic)
-            // Always create on timer expiration, even without content (for continuous block production)
-            // Or when we have content AND parents
-            if timer_expired || (enough_content && enough_parents) {
-                if timer_expired {
-                    info!("Timer expired for round {}, creating header", self.current_round);
+            // CRITICAL FIX: Only create headers when we have proper consensus
+            // We need:
+            // 1. Quorum of certificates from previous round (including our own)
+            // 2. Either content to propose OR timer expiration (for liveness)
+            // But NEVER create without parents - that breaks consensus
+            
+            if enough_parents && (timer_expired || enough_content) {
+                // Additional check: ensure we have our own certificate from previous round
+                let have_own_cert = if self.current_round > 1 {
+                    let prev_round = self.current_round.saturating_sub(1);
+                    self.latest_certificates.get(&self.name)
+                        .map(|cert| cert.round() == prev_round)
+                        .unwrap_or(false)
                 } else {
-                    debug!("Creating header for round {} due to available content", self.current_round);
+                    true // Genesis case
+                };
+                
+                if !have_own_cert {
+                    debug!("Waiting for our own certificate from round {} before proposing round {}", 
+                           self.current_round - 1, self.current_round);
+                } else {
+                    if timer_expired {
+                        info!("Timer expired and have consensus for round {}, creating header", self.current_round);
+                    } else {
+                        debug!("Creating header for round {} due to available content and consensus", self.current_round);
+                    }
+                    
+                    // Create and propose header
+                    match self.create_and_propose_header().await {
+                        Ok(()) => {
+                            debug!("Successfully created header for round {}", self.current_round - 1);
+                        }
+                        Err(e) => {
+                            warn!("Failed to create header: {}", e);
+                            // Continue processing to avoid getting stuck
+                        }
+                    }
                 }
                 
-                // Create and propose header
-                match self.create_and_propose_header().await {
-                    Ok(()) => {
-                        debug!("Successfully created header for round {}", self.current_round - 1);
-                    }
-                    Err(e) => {
-                        warn!("Failed to create header: {}", e);
-                        // Continue processing to avoid getting stuck
-                    }
-                }
-                
-                // Reset timer (reference implementation pattern)
+                // Reset timer
+                let deadline = tokio::time::Instant::now() + max_header_delay;
+                timer.as_mut().reset(deadline);
+                timer_expired = false;
+            } else if timer_expired {
+                // Timer expired but we don't have consensus
+                debug!("Timer expired but lacking consensus for round {} (have_parents: {})", 
+                       self.current_round, enough_parents);
+                       
+                // Reset timer to check again later
                 let deadline = tokio::time::Instant::now() + max_header_delay;
                 timer.as_mut().reset(deadline);
                 timer_expired = false;
@@ -832,13 +859,15 @@ impl DagService {
              info!("Collected quorum of certificates for round {}, can advance to round {}", 
                    cert_round, self.current_round + 1);
              
-             // Check if we should advance the round
-             // We advance if:
-             // 1. We have pending transactions OR
-             // 2. We're falling behind (the certificates are from the previous round) OR
-             // 3. Always advance to ensure consistent block production
-             // Always create headers to ensure empty block production
-             self.create_and_propose_header().await?;
+             // CRITICAL FIX: Don't automatically create headers here
+             // The main loop will handle header creation when appropriate
+             // This separation ensures we only create headers when we have:
+             // 1. Proper consensus from previous round
+             // 2. Our own certificate from previous round
+             // 3. Either content or timer expiration
+             
+             // Just log that we're ready to advance
+             debug!("Round {} has quorum, header creation will be handled by main loop", cert_round);
          }
          
          Ok(())
