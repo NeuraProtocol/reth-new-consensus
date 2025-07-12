@@ -36,9 +36,9 @@ done
 echo "🚀 Starting Neura Multivalidator Test (Chain ID: 266, Coin: ANKR)"
 echo "🔑 Using REAL Validator Key Management (No Random Keys!)"
 echo "🏛️ Committee loaded from test_validators/ directory"
-echo "⏱️  Block Time: 500ms (configurable with --bullshark.min-block-time-ms)"
-echo "   For faster blocks: --bullshark.min-block-time-ms 100"
-echo "   For slower blocks: --bullshark.min-block-time-ms 1000"
+echo "⏱️  Block Time: 100ms ultra-fast (configurable with --bullshark.min-block-time-ms)"
+echo "   Default: --bullshark.min-block-time-ms 100 (10 blocks/sec)"
+echo "   For slower blocks: --bullshark.min-block-time-ms 500 (2 blocks/sec)"
 if [ -n "$ENGINE_TREE_FLAG" ]; then
     echo "🌳 Engine tree executor ENABLED for canonical state updates"
 fi
@@ -123,10 +123,10 @@ USE_REAL_CONSENSUS=true $RETH_BINARY node \
   --validator.deterministic-consensus-key \
   --consensus-rpc-port 10001 \
   --consensus-rpc-enable-admin \
-  --narwhal.max-batch-delay-ms 100 \
+  --narwhal.max-batch-delay-ms 50 \
   --narwhal.max-batch-size 100000 \
   --narwhal.gc-depth 50 \
-  --bullshark.min-block-time-ms 500 \
+  --bullshark.min-block-time-ms 100 \
   --narwhal.cache-size 1000 \
   --narwhal.max-concurrent-requests 200 \
   --narwhal.connection-timeout-ms 5000 \
@@ -146,7 +146,7 @@ USE_REAL_CONSENSUS=true $RETH_BINARY node \
   --bullshark.leader-rotation-frequency 2 \
   --bullshark.max-dag-walk-depth 10 \
   --bullshark.enable-detailed-metrics \
-  --bullshark.max-certificates-per-dag 200 \
+  --bullshark.max-certificates-per-dag 50 \
   $ENGINE_TREE_FLAG \
   $EXTRA_ARGS \
   > /home/peastew/.neura/node1/node.log 2>&1 &
@@ -178,10 +178,10 @@ USE_REAL_CONSENSUS=true $RETH_BINARY node \
   --validator.deterministic-consensus-key \
   --consensus-rpc-port 10002 \
   --consensus-rpc-enable-admin \
-  --narwhal.max-batch-delay-ms 100 \
+  --narwhal.max-batch-delay-ms 50 \
   --narwhal.max-batch-size 100000 \
   --narwhal.gc-depth 50 \
-  --bullshark.min-block-time-ms 500 \
+  --bullshark.min-block-time-ms 100 \
   --narwhal.cache-size 1000 \
   --narwhal.max-concurrent-requests 200 \
   --narwhal.connection-timeout-ms 5000 \
@@ -201,7 +201,7 @@ USE_REAL_CONSENSUS=true $RETH_BINARY node \
   --bullshark.leader-rotation-frequency 2 \
   --bullshark.max-dag-walk-depth 10 \
   --bullshark.enable-detailed-metrics \
-  --bullshark.max-certificates-per-dag 200 \
+  --bullshark.max-certificates-per-dag 50 \
   $ENGINE_TREE_FLAG \
   $EXTRA_ARGS \
   > /home/peastew/.neura/node2/node.log 2>&1 &
@@ -233,10 +233,10 @@ USE_REAL_CONSENSUS=true $RETH_BINARY node \
   --validator.deterministic-consensus-key \
   --consensus-rpc-port 10003 \
   --consensus-rpc-enable-admin \
-  --narwhal.max-batch-delay-ms 100 \
+  --narwhal.max-batch-delay-ms 50 \
   --narwhal.max-batch-size 100000 \
   --narwhal.gc-depth 50 \
-  --bullshark.min-block-time-ms 500 \
+  --bullshark.min-block-time-ms 100 \
   --narwhal.cache-size 1000 \
   --narwhal.max-concurrent-requests 200 \
   --narwhal.connection-timeout-ms 5000 \
@@ -256,7 +256,7 @@ USE_REAL_CONSENSUS=true $RETH_BINARY node \
   --bullshark.leader-rotation-frequency 2 \
   --bullshark.max-dag-walk-depth 10 \
   --bullshark.enable-detailed-metrics \
-  --bullshark.max-certificates-per-dag 200 \
+  --bullshark.max-certificates-per-dag 50 \
   $ENGINE_TREE_FLAG \
   $EXTRA_ARGS \
   > /home/peastew/.neura/node3/node.log 2>&1 &
@@ -288,10 +288,10 @@ USE_REAL_CONSENSUS=true $RETH_BINARY node \
   --validator.deterministic-consensus-key \
   --consensus-rpc-port 10004 \
   --consensus-rpc-enable-admin \
-  --narwhal.max-batch-delay-ms 100 \
+  --narwhal.max-batch-delay-ms 50 \
   --narwhal.max-batch-size 100000 \
   --narwhal.gc-depth 50 \
-  --bullshark.min-block-time-ms 500 \
+  --bullshark.min-block-time-ms 100 \
   --narwhal.cache-size 1000 \
   --narwhal.max-concurrent-requests 200 \
   --narwhal.connection-timeout-ms 5000 \
@@ -311,7 +311,7 @@ USE_REAL_CONSENSUS=true $RETH_BINARY node \
   --bullshark.leader-rotation-frequency 2 \
   --bullshark.max-dag-walk-depth 10 \
   --bullshark.enable-detailed-metrics \
-  --bullshark.max-certificates-per-dag 200 \
+  --bullshark.max-certificates-per-dag 50 \
   $ENGINE_TREE_FLAG \
   $EXTRA_ARGS \
   > /home/peastew/.neura/node4/node.log 2>&1 &
@@ -347,7 +347,7 @@ echo "  • Primary addresses still need CLI args for binding and peer discovery
 echo ""
 echo "🔧 Narwhal Configuration Options:"
 echo "  --narwhal.max-batch-size: Maximum batch size in bytes (default: 1024)"
-echo "  --narwhal.max-batch-delay-ms: Maximum batch delay in ms (default: 100)"
+echo "  --narwhal.max-batch-delay-ms: Maximum batch delay in ms (default: 50 for ultra-fast blocks)"
 echo "  --narwhal.num-workers: Number of workers per authority (default: 4)"
 echo "  --narwhal.gc-depth: Garbage collection depth for old certificates (default: 50)"
 echo "  --narwhal.cache-size: Certificate cache size (default: 1000)"
@@ -373,7 +373,7 @@ echo "  --bullshark.leader-rotation-frequency: Leader rotation frequency in roun
 echo "  --bullshark.min-leader-round: Minimum round for leader election (default: 0)"
 echo "  --bullshark.max-dag-walk-depth: Maximum DAG walk depth for consensus (default: 10)"
 echo "  --bullshark.enable-detailed-metrics: Enable detailed consensus metrics"
-echo "  --bullshark.max-certificates-per-dag: Max certificates per DAG traversal (default: 500, using 200 for faster catchup)"
+echo "  --bullshark.max-certificates-per-dag: Max certificates per DAG traversal (default: 50 for ultra-fast processing)"
 echo ""
 echo "🔧 Monitoring Commands:"
 echo "  Monitor all logs: tail -f /home/peastew/.neura/node*/node.log"

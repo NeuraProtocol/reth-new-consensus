@@ -215,6 +215,7 @@ where
                 let batch = FinalizedBatch {
                     round: next_block,
                     block_number: next_block,
+                    parent_hash: state.block_hash,
                     transactions: vec![], // Empty for now
                     certificate_digest: B256::random(),
                     proposer: Address::ZERO,
@@ -222,6 +223,9 @@ where
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap()
                         .as_secs(),
+                    consensus_round: next_block,
+                    validator_signatures: vec![],
+                    canonical_metadata: None,
                 };
                 
                 if sender.send(batch).is_err() {

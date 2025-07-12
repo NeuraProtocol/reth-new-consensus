@@ -228,6 +228,7 @@ impl FinalityEngine {
             timestamp,
             round,
             certificates,
+            canonical_metadata_bytes: None, // Will be set by the leader in the service layer
         };
 
         debug!(

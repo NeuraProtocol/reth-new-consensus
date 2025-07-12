@@ -25,6 +25,8 @@ pub struct FinalizedBatch {
     pub consensus_round: u64,
     /// Validator signatures for this batch
     pub validator_signatures: Vec<(narwhal::types::PublicKey, Vec<u8>)>,
+    /// Canonical metadata for deterministic block construction (if leader)
+    pub canonical_metadata: Option<crate::canonical_block_metadata::CanonicalBlockMetadata>,
 }
 
 /// Configuration for the consensus service

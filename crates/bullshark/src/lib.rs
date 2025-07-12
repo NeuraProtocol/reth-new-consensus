@@ -13,6 +13,7 @@ pub mod utils;
 pub mod config;
 pub mod storage;
 pub mod chain_state;
+pub mod canonical_injection;
 
 // Re-export key types
 pub use bft_service::BftService;
@@ -45,6 +46,8 @@ pub struct FinalizedBatchInternal {
     pub round: Round,
     /// Certificates that led to this finalization
     pub certificates: Vec<NarwhalCertificate>,
+    /// Canonical metadata for deterministic block construction (leader-generated)
+    pub canonical_metadata_bytes: Option<Vec<u8>>,
 }
 
 /// Output from the consensus protocol

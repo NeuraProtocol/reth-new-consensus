@@ -97,7 +97,7 @@ where
                 NextBlockEnvAttributes {
                     timestamp: batch.timestamp,
                     suggested_fee_recipient: batch.proposer,
-                    prev_randao: B256::random(), // For post-merge
+                    prev_randao: B256::ZERO, // Deterministic for BFT consensus
                     gas_limit: parent_header.gas_limit(), // Use parent's gas limit to avoid validation errors
                     parent_beacon_block_root: Some(B256::ZERO),
                     withdrawals: Some(vec![].into()),
@@ -164,7 +164,7 @@ where
         // Create payload attributes
         let attributes = PayloadAttributes {
             timestamp: batch.timestamp,
-            prev_randao: B256::random(),
+            prev_randao: B256::ZERO,
             suggested_fee_recipient: batch.proposer,
             withdrawals: Some(vec![]),
             parent_beacon_block_root: Some(B256::ZERO),

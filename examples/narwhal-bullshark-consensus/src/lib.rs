@@ -34,6 +34,11 @@ pub use types::{FinalizedBatch, ConsensusConfig};
 pub use validator_keys::{ValidatorKeyPair, ValidatorRegistry};
 pub use chain_state::{ChainState, ChainStateTracker};
 
+// Canonical hash tracking
+pub mod canonical_hash_tracker;
+pub mod canonical_block_metadata;
+pub mod transaction_ordering;
+
 // These modules contain complex implementations that need significant work
 // to adapt to the current Reth APIs. They are included to show the structure
 // but are not fully functional.

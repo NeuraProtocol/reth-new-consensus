@@ -47,6 +47,7 @@ where
         transactions: vec![],
         certificate_digest: B256::random(),
         validator_signatures: vec![],
+        canonical_metadata: None,
     };
     
     // Build the block
@@ -70,6 +71,7 @@ where
         transactions: vec![], // TODO: Add test transactions
         certificate_digest: B256::random(),
         validator_signatures: vec![],
+        canonical_metadata: None,
     };
     
     let block2 = builder.build_block(batch2)?;

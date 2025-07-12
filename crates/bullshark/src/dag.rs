@@ -6,7 +6,7 @@ use narwhal::{
     types::{Certificate, CertificateDigest, PublicKey, Committee},
 };
 use std::collections::HashMap;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use fastcrypto::Hash;
 
 /// Type alias for the DAG structure
@@ -32,13 +32,16 @@ impl BullsharkDag {
 
         // Insert genesis certificates at round 0
         let mut genesis_round = HashMap::new();
+        info!("Creating DAG with {} genesis certificates", genesis_certificates.len());
         for cert in genesis_certificates {
             let digest = cert.digest();
             let author = cert.origin();
+            info!("Inserting genesis certificate from {} at round 0", author);
             genesis_round.insert(author.clone(), (digest, cert.clone()));
             last_committed.insert(author, 0);
         }
         dag.insert(0, genesis_round);
+        info!("DAG initialized with {} authorities at round 0", dag.get(&0).map(|r| r.len()).unwrap_or(0));
 
         Self {
             dag,
@@ -101,10 +104,23 @@ impl BullsharkDag {
     pub fn get_leader_certificate(&self, round: Round, committee: &Committee) -> Option<&Certificate> {
         // Only even rounds have leaders in Bullshark
         if round % 2 != 0 {
+            debug!("Round {} is odd, no leader", round);
             return None;
         }
 
         let leader = committee.leader(round);
+        info!("Looking for leader {} at round {}", leader, round);
+        
+        let round_certs = self.dag.get(&round);
+        if let Some(certs) = round_certs {
+            info!("Round {} has {} certificates", round, certs.len());
+            for (author, _) in certs.iter() {
+                debug!("  - Certificate from {}", author);
+            }
+        } else {
+            warn!("Round {} has no certificates in DAG!", round);
+        }
+        
         self.dag
             .get(&round)
             .and_then(|round_certs| round_certs.get(leader))

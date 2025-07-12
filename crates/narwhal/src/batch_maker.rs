@@ -28,7 +28,7 @@ impl Default for BatchMakerConfig {
     fn default() -> Self {
         Self {
             max_batch_size: 500_000, // 500KB default
-            max_batch_delay: Duration::from_millis(200),
+            max_batch_delay: Duration::from_millis(50), // 50ms for ultra-fast batch creation to support 100ms blocks
         }
     }
 }

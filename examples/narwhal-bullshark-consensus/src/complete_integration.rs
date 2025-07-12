@@ -6,6 +6,7 @@ use crate::{
     narwhal_bullshark_service::NarwhalBullsharkService,
     mempool_bridge::{MempoolBridge, MempoolOperations},
     consensus_storage::MdbxConsensusStorage,
+    canonical_hash_tracker::CanonicalHashTracker,
 };
 use narwhal::{types::{Committee, PublicKey}, NarwhalNetwork};
 use reth_primitives::{
@@ -110,6 +111,8 @@ pub struct NarwhalRethBridge {
     node_public_key: PublicKey,
     /// Chain specification for base fee calculations
     chain_spec: Option<Arc<ChainSpec>>,
+    /// Canonical hash tracker
+    canonical_hash_tracker: Arc<CanonicalHashTracker>,
 }
 
 impl std::fmt::Debug for NarwhalRethBridge {
@@ -205,24 +208,33 @@ impl NarwhalRethBridge {
                 
                 // Generate unique network private key from validator consensus key
                 let network_private_key = {
-                    use std::collections::hash_map::DefaultHasher;
-                    use std::hash::{Hash, Hasher};
+                    use blake2::{Blake2b, Digest, digest::consts::U64};
+                    use fastcrypto::ed25519::{Ed25519KeyPair, Ed25519PrivateKey};
+                    use fastcrypto::traits::{KeyPair as _, ToFromBytes};
                     
                     let consensus_key_bytes = config.node_config.node_public_key.as_bytes();
-                    let mut hasher = DefaultHasher::new();
-                    b"narwhal_network_key:".hash(&mut hasher);
-                    consensus_key_bytes.hash(&mut hasher);
-                    bind_address.to_string().hash(&mut hasher);
+                    let mut hasher = Blake2b::<U64>::new();
+                    hasher.update(b"narwhal_network_key:");
+                    hasher.update(consensus_key_bytes);
+                    hasher.update(bind_address.to_string().as_bytes());
                     
-                    let hash_value = hasher.finish();
-                    let mut key = [0u8; 32];
+                    let hash = hasher.finalize();
+                    let mut seed = [0u8; 32];
+                    seed.copy_from_slice(&hash[..32]);
                     
-                    // Fill the key with hash-derived bytes
-                    for (i, chunk) in hash_value.to_le_bytes().iter().cycle().take(32).enumerate() {
-                        key[i] = *chunk;
-                    }
+                    // Create Ed25519 keypair from seed
+                    let private_key = Ed25519PrivateKey::from_bytes(&seed)
+                        .expect("Failed to create Ed25519 private key");
+                    let keypair = Ed25519KeyPair::from(private_key);
                     
-                    key
+                    // Get public key for debugging
+                    let public_key_hex = hex::encode(keypair.public().as_bytes());
+                    debug!("Generated network Ed25519 key for {} at {} - public key: {}", 
+                           config.node_config.node_public_key, bind_address, 
+                           public_key_hex);
+                    
+                    // anemo expects the private key seed bytes directly
+                    seed
                 };
                 
                 let (network, network_events) = NarwhalNetwork::new(
@@ -254,24 +266,33 @@ impl NarwhalRethBridge {
             
             // Generate unique network private key from validator consensus key
             let network_private_key = {
-                use std::collections::hash_map::DefaultHasher;
-                use std::hash::{Hash, Hasher};
+                use blake2::{Blake2b, Digest, digest::consts::U64};
+                use fastcrypto::ed25519::{Ed25519KeyPair, Ed25519PrivateKey};
+                use fastcrypto::traits::{KeyPair as _, ToFromBytes};
                 
                 let consensus_key_bytes = config.node_config.node_public_key.as_bytes();
-                let mut hasher = DefaultHasher::new();
-                b"narwhal_network_key:".hash(&mut hasher);
-                consensus_key_bytes.hash(&mut hasher);
-                bind_address.to_string().hash(&mut hasher);
+                let mut hasher = Blake2b::<U64>::new();
+                hasher.update(b"narwhal_network_key:");
+                hasher.update(consensus_key_bytes);
+                hasher.update(bind_address.to_string().as_bytes());
                 
-                let hash_value = hasher.finish();
-                let mut key = [0u8; 32];
+                let hash = hasher.finalize();
+                let mut seed = [0u8; 32];
+                seed.copy_from_slice(&hash[..32]);
                 
-                // Fill the key with hash-derived bytes
-                for (i, chunk) in hash_value.to_le_bytes().iter().cycle().take(32).enumerate() {
-                    key[i] = *chunk;
-                }
+                // Create Ed25519 keypair from seed
+                let private_key = Ed25519PrivateKey::from_bytes(&seed)
+                    .expect("Failed to create Ed25519 private key");
+                let keypair = Ed25519KeyPair::from(private_key);
                 
-                key
+                // Get public key for debugging
+                let public_key_hex = hex::encode(keypair.public().as_bytes());
+                debug!("Generated network Ed25519 key for {} at {} - public key: {}", 
+                       config.node_config.node_public_key, bind_address, 
+                       public_key_hex);
+                
+                // anemo expects the private key seed bytes directly
+                seed
             };
             
             let (network, network_events) = NarwhalNetwork::new(
@@ -341,6 +362,7 @@ impl NarwhalRethBridge {
             committee: committee_clone,
             node_public_key: node_public_key_clone,
             chain_spec: None,
+            canonical_hash_tracker: Arc::new(CanonicalHashTracker::new()),
         })
     }
 
@@ -694,8 +716,8 @@ impl NarwhalRethBridge {
             timestamp: block_timestamp,
             difficulty: U256::ZERO, // No PoW in Narwhal/Bullshark
             nonce: Default::default(),
-            // Use certificate digest as mix_hash for consensus proof reference
-            mix_hash: batch.certificate_digest,
+            // Mix hash should be deterministic - zero for BFT consensus
+            mix_hash: B256::ZERO,
             beneficiary: Address::ZERO, // No coinbase in this consensus
             state_root: B256::ZERO, // Will be calculated during execution
             transactions_root: alloy_consensus::proofs::calculate_transaction_root(&batch.transactions),
@@ -722,6 +744,35 @@ impl NarwhalRethBridge {
         
         // Seal the block with proper hash calculation
         let sealed_block = SealedBlock::seal_slow(block);
+
+        // Track the block hash for this validator
+        // Determine if we are the leader for this round
+        let validators: Vec<_> = self.committee.authorities.keys().cloned().collect();
+        let leader_idx = (batch.round as usize) % validators.len();
+        let is_leader = validators.get(leader_idx).map_or(false, |leader| leader == &self.node_public_key);
+        
+        // Convert our consensus public key to EVM address
+        // For now, use a deterministic mapping
+        let our_address = Address::from_slice(&self.node_public_key.as_bytes()[0..20]);
+        
+        // Record the hash
+        if let Err(e) = self.canonical_hash_tracker.record_validator_hash(
+            batch.block_number,
+            batch.round,
+            our_address,
+            sealed_block.hash(),
+            is_leader,
+        ) {
+            warn!("Failed to track block hash: {}", e);
+        }
+        
+        info!(
+            "Block #{} hash {} recorded for validator {} (leader: {})",
+            batch.block_number,
+            sealed_block.hash(),
+            our_address,
+            is_leader
+        );
 
         // Update our state
         // batch.block_number is the block we just created
@@ -874,6 +925,16 @@ impl NarwhalRethBridge {
             *guard = None;
         }
         warn!("Cleared parent block cache due to reorganization or rejected blocks");
+    }
+    
+    /// Get canonical hash for a block number
+    pub fn get_canonical_hash(&self, block_number: u64) -> Option<B256> {
+        self.canonical_hash_tracker.get_canonical_hash(block_number)
+    }
+    
+    /// Get consensus summary for recent blocks
+    pub fn get_consensus_summary(&self, last_n_blocks: u64) -> Vec<(u64, bool, usize, usize)> {
+        self.canonical_hash_tracker.get_consensus_summary(last_n_blocks)
     }
 }
 

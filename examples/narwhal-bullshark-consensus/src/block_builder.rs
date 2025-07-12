@@ -4,7 +4,8 @@
 //! ensuring proper state execution and hash calculation.
 
 use crate::types::FinalizedBatch;
-use alloy_primitives::{B256, U256, Bytes, Bloom, BloomInput};
+use crate::canonical_hash_tracker::CanonicalHashTracker;
+use alloy_primitives::{B256, U256, Bytes, Bloom, BloomInput, Address};
 use serde::{Serialize, Deserialize};
 use alloy_consensus::{Header, Typed2718};
 use alloy_eips::eip7685::EMPTY_REQUESTS_HASH;
@@ -18,7 +19,7 @@ use alloy_consensus::proofs::{calculate_receipt_root, calculate_transaction_root
 use reth_chainspec::ChainSpec;
 use alloy_eips::eip4895::Withdrawals;
 use std::sync::Arc;
-use tracing::{info, debug};
+use tracing::{info, debug, warn, error};
 use anyhow::Result;
 use fastcrypto;
 
@@ -137,22 +138,60 @@ where
     /// 
     /// Creates a block with certificate digest as consensus proof in extra_data
     pub fn build_block(&self, batch: FinalizedBatch) -> Result<SealedBlock> {
+        use crate::transaction_ordering::order_transactions_deterministically;
+        
+        // Apply deterministic transaction ordering
+        let ordered_txs = {
+            let txs = batch.transactions.clone(); // Clone to avoid moving
+            if let Some(ref metadata) = batch.canonical_metadata {
+                // Verify transaction order matches metadata
+                use crate::transaction_ordering::verify_transaction_order;
+                if !verify_transaction_order(&txs, &metadata.tx_hashes) {
+                    warn!("Transaction order doesn't match canonical metadata!");
+                }
+                order_transactions_deterministically(txs)
+            } else {
+                warn!("No canonical metadata - applying local transaction ordering");
+                order_transactions_deterministically(txs)
+            }
+        };
+        
+        let mut batch_with_ordered_txs = batch;
+        batch_with_ordered_txs.transactions = ordered_txs;
+        
         // If there are no transactions, we can calculate the state root directly
-        if batch.transactions.is_empty() {
-            return self.build_empty_block(batch);
+        if batch_with_ordered_txs.transactions.is_empty() {
+            return self.build_empty_block(batch_with_ordered_txs);
         }
         
         // For blocks with transactions, we need to execute them to get the correct state root
-        self.build_block_with_execution(batch)
+        self.build_block_with_execution(batch_with_ordered_txs)
     }
     
     /// Build an empty block (no transactions)
     fn build_empty_block(&self, batch: FinalizedBatch) -> Result<SealedBlock> {
-        // Use certificate digest as extra_data (exactly 32 bytes as required by Ethereum)
-        // This provides consensus proof while meeting engine API validation requirements
-        let extra_data = Bytes::from(batch.certificate_digest.to_vec());
+        // Check if we have canonical metadata
+        let (timestamp, base_fee, gas_limit, extra_data) = if let Some(ref metadata) = batch.canonical_metadata {
+            info!("Using canonical metadata for deterministic block construction");
+            (
+                metadata.timestamp,
+                metadata.base_fee_per_gas.try_into().unwrap_or(875_000_000),
+                metadata.gas_limit,
+                metadata.extra_data.clone(),
+            )
+        } else {
+            warn!("No canonical metadata provided - block will not be deterministic across validators!");
+            // Fallback to local values (this causes divergence)
+            (
+                batch.timestamp,
+                875_000_000u64, // Default base fee
+                134_217_728u64, // Default gas limit
+                Bytes::from(batch.certificate_digest.to_vec()),
+            )
+        };
         
-        debug!("Building empty block with {} bytes of extra_data", extra_data.len());
+        debug!("Building block with timestamp={}, base_fee={}, gas_limit={}", 
+               timestamp, base_fee, gas_limit);
 
         // Get the parent block
         let parent_number = batch.block_number.saturating_sub(1);
@@ -184,10 +223,8 @@ where
         // Use placeholder state root - engine integration will correct it if needed
         let state_root = alloy_consensus::constants::EMPTY_ROOT_HASH;
 
-        // Get parent gas limit for proper validation
-        // Based on the error message, the parent gas limit is 134,217,728 (0x8000000)
-        // We need to stay within 1/1024 of this value
-        let parent_gas_limit = 134_217_728u64;
+        // Mix hash should be deterministic - always use zero for BFT consensus
+        let mix_hash = B256::ZERO;
 
         // Create the block header
         let header = Header {
@@ -200,13 +237,13 @@ where
             logs_bloom,
             difficulty: U256::ZERO,
             number: batch.block_number,
-            gas_limit: parent_gas_limit,
+            gas_limit,
             gas_used: cumulative_gas_used,
-            timestamp: batch.timestamp,
+            timestamp,
             extra_data,
-            mix_hash: B256::ZERO,
+            mix_hash,
             nonce: alloy_primitives::FixedBytes::default(),
-            base_fee_per_gas: Some(875_000_000), // Parent block base fee
+            base_fee_per_gas: Some(base_fee),
             withdrawals_root: Some(alloy_consensus::constants::EMPTY_WITHDRAWALS),
             blob_gas_used: Some(0),
             excess_blob_gas: Some(0),
@@ -225,6 +262,22 @@ where
         let block = Block { header, body };
         // Seal the block by computing its hash
         let sealed_block = SealedBlock::seal_slow(block);
+
+        // Validate block hash if canonical metadata provided expected values
+        if let Some(ref metadata) = batch.canonical_metadata {
+            let block_hash = sealed_block.hash();
+            let state_root = sealed_block.state_root;
+            let receipts_root = sealed_block.receipts_root;
+            
+            if let Err(e) = metadata.validate_execution(block_hash, state_root, receipts_root) {
+                error!("Block validation failed: {}", e);
+                error!("Block #{} hash: {}", sealed_block.number, block_hash);
+                // In production, we might want to halt consensus here
+                // For now, we continue with a warning
+            } else {
+                info!("✅ Block #{} validated successfully against canonical metadata", sealed_block.number);
+            }
+        }
 
         info!(
             "Built block #{} with {} transactions, hash: {}",

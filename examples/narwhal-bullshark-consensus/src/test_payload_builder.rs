@@ -38,6 +38,8 @@ mod tests {
             round: 1,
             validator_signatures: vec![],
             proposer: Address::ZERO,
+            consensus_round: 1,
+            canonical_metadata: None,
         };
         
         // Build block from batch

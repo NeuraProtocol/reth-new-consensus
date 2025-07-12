@@ -48,6 +48,8 @@ impl ChainStateProvider for ChainStateAdapter {
             block_number: state.block_number,
             parent_hash: state.parent_hash,
             parent_timestamp: state.timestamp,
+            gas_limit: state.gas_limit,
+            base_fee_per_gas: state.base_fee_per_gas,
         }
     }
 }

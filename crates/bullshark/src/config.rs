@@ -40,8 +40,8 @@ impl Default for BftConfig {
             max_certificates_per_round: 1000,
             leader_rotation_frequency: 2, // Change leader every 2 rounds
             min_leader_round: 0, // Temporarily set to 0 for testing
-            min_block_time: Duration::from_millis(500), // 500ms minimum between blocks
-            max_certificates_per_dag: 500, // Limit DAG traversal output
+            min_block_time: Duration::from_millis(100), // 100ms minimum between blocks for ultra-fast EVM
+            max_certificates_per_dag: 50, // Reduce to process certificates more frequently
         }
     }
 } 

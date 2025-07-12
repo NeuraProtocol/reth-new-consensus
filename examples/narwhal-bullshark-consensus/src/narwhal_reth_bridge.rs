@@ -115,26 +115,36 @@ impl NarwhalRethBridge {
             let bind_address = network_config.network_address;
             info!("Starting Narwhal network on {}", bind_address);
             
-            // Generate unique network private key from validator consensus key
+            // Generate network private key that will produce the correct PeerId
+            // This must match the derive_peer_id function in network.rs
             let network_private_key = {
-                use std::collections::hash_map::DefaultHasher;
-                use std::hash::{Hash, Hasher};
+                use blake2::{Blake2b, Digest, digest::consts::U64};
+                use fastcrypto::ed25519::{Ed25519KeyPair, Ed25519PrivateKey};
+                use fastcrypto::traits::{KeyPair as _, ToFromBytes};
                 
                 let consensus_key_bytes = node_public_key.as_bytes();
-                let mut hasher = DefaultHasher::new();
-                b"narwhal_network_key:".hash(&mut hasher);
-                consensus_key_bytes.hash(&mut hasher);
-                bind_address.to_string().hash(&mut hasher);
+                let mut hasher = Blake2b::<U64>::new();
+                hasher.update(b"narwhal_network_key:");
+                hasher.update(consensus_key_bytes);
+                hasher.update(bind_address.to_string().as_bytes());
                 
-                let hash_value = hasher.finish();
-                let mut key = [0u8; 32];
+                let hash = hasher.finalize();
+                let mut seed = [0u8; 32];
+                seed.copy_from_slice(&hash[..32]);
                 
-                // Fill the key with hash-derived bytes
-                for (i, chunk) in hash_value.to_le_bytes().iter().cycle().take(32).enumerate() {
-                    key[i] = *chunk;
-                }
+                // Create Ed25519 keypair from seed
+                let private_key = Ed25519PrivateKey::from_bytes(&seed)
+                    .expect("Failed to create Ed25519 private key");
+                let keypair = Ed25519KeyPair::from(private_key);
                 
-                key
+                // Get public key for debugging
+                let public_key_hex = hex::encode(keypair.public().as_bytes());
+                debug!("Generated network Ed25519 key for {} at {} - public key: {}", 
+                       node_public_key, bind_address, 
+                       public_key_hex);
+                
+                // anemo expects the private key seed bytes directly
+                seed
             };
             
             let (network, network_events) = NarwhalNetwork::new(

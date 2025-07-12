@@ -14,6 +14,10 @@ pub struct ChainState {
     pub parent_hash: B256,
     /// Parent block timestamp (to ensure monotonic timestamps)
     pub parent_timestamp: u64,
+    /// Current gas limit
+    pub gas_limit: u64,
+    /// Current base fee per gas
+    pub base_fee_per_gas: u64,
 }
 
 impl Default for ChainState {
@@ -22,6 +26,8 @@ impl Default for ChainState {
             block_number: 0,
             parent_hash: B256::ZERO,
             parent_timestamp: 0,
+            gas_limit: 30_000_000,
+            base_fee_per_gas: 875_000_000,
         }
     }
 }

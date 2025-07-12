@@ -95,17 +95,35 @@ impl KeyPair {
         use fastcrypto::traits::ToFromBytes;
         
         // Create a deterministic seed from primary key + worker ID + network address
-        // This matches the derive_worker_peer_id function
+        // CRITICAL: Use normalized address representation for consistent hashing
+        let normalized_addr = Self::normalize_socket_addr(worker_address);
+        
         let mut hasher = Blake2b::new();
         hasher.update(b"narwhal_worker_key:");
         hasher.update(primary_key.as_bytes());
         hasher.update(&worker_id.to_le_bytes());
-        hasher.update(worker_address.to_string().as_bytes());
+        hasher.update(normalized_addr.as_bytes());
         
         let hash = hasher.finalize();
         let mut key_bytes = [0u8; 32];
         key_bytes.copy_from_slice(&hash[..32]);
         
         key_bytes
+    }
+    
+    /// Normalize socket address to ensure consistent string representation
+    fn normalize_socket_addr(addr: &std::net::SocketAddr) -> String {
+        // Always use the IP:port format, converting IPv4-mapped IPv6 to IPv4
+        match addr {
+            std::net::SocketAddr::V4(v4) => v4.to_string(),
+            std::net::SocketAddr::V6(v6) => {
+                // Check if this is an IPv4-mapped IPv6 address
+                if let Some(ipv4) = v6.ip().to_ipv4_mapped() {
+                    format!("{}:{}", ipv4, v6.port())
+                } else {
+                    v6.to_string()
+                }
+            }
+        }
     }
 }

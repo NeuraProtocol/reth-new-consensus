@@ -96,6 +96,7 @@ impl NarwhalBullsharkService {
         let batch = FinalizedBatch {
             round: *round,
             block_number: *block,
+            parent_hash: B256::ZERO, // TODO: Track parent hash
             transactions: vec![], // Empty for now
             certificate_digest: B256::random(),
             proposer: self.validator_key.evm_address,
@@ -103,6 +104,9 @@ impl NarwhalBullsharkService {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_secs(),
+            consensus_round: *round,
+            validator_signatures: vec![],
+            canonical_metadata: None,
         };
         
         info!(

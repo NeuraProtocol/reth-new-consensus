@@ -20,7 +20,7 @@ use anyhow::Result;
 use reth_primitives::TransactionSigned as RethTransaction;
 use tokio::sync::{mpsc, watch, RwLock};
 use tokio::task::JoinHandle;
-use tracing::{info, warn, debug};
+use tracing::{info, warn, debug, error};
 use std::sync::Arc;
 use std::net::SocketAddr;
 use alloy_rlp::Decodable;
@@ -242,6 +242,10 @@ impl NarwhalBullsharkService {
             storage,
         );
         
+        // Set node public key for leader determination
+        bft_service.set_node_public_key(self.node_config.node_public_key.clone());
+        info!("✅ BFT service configured with node public key for leader determination");
+        
         // Create batch store for BFT service if we have storage
         if let Some(ref mdbx_storage) = self.storage {
             let batch_store = Arc::new(BatchStorageAdapter::new(mdbx_storage.clone()));
@@ -344,6 +348,7 @@ impl NarwhalBullsharkService {
     ) -> Result<JoinHandle<()>> {
         let finalized_sender = self.finalized_batch_sender.clone();
         let mut committee_receiver = self.committee_receiver.clone();
+        let node_public_key = self.node_config.node_public_key.clone();
 
         let handle = tokio::spawn(async move {
             info!("🏭 Batch processor active: Bullshark → Reth");
@@ -404,6 +409,84 @@ impl NarwhalBullsharkService {
                     }
                 }
                 
+                // Determine if we are the leader for this round
+                // IMPORTANT: Sort validators for deterministic ordering across all nodes
+                let mut validators: Vec<_> = committee.authorities.keys().cloned().collect();
+                validators.sort_by_key(|k| k.encode_base64());
+                let leader_idx = (consensus_round as usize) % validators.len();
+                let leader_pubkey = validators.get(leader_idx).cloned();
+                let is_leader = leader_pubkey.as_ref() == Some(&node_public_key);
+                
+                debug!("Leader determination: round={}, leader_idx={}, leader={:?}, us={}, is_leader={}", 
+                      consensus_round, leader_idx, 
+                      leader_pubkey.as_ref().map(|k| k.encode_base64()), 
+                      node_public_key.encode_base64(), is_leader);
+                
+                // Handle canonical metadata
+                let canonical_metadata = if let Some(metadata_bytes) = &internal_batch.canonical_metadata_bytes {
+                    // Try to parse the simple string format first
+                    if let Ok(metadata_str) = std::str::from_utf8(metadata_bytes) {
+                        // Parse simple format: "block:1,parent:0x...,timestamp:123,round:1,base_fee:875000000"
+                        let mut block_number = 0u64;
+                        let mut parent_hash = B256::ZERO;
+                        let mut timestamp = 0u64;
+                        let mut base_fee = 875_000_000u64;
+                        
+                        for part in metadata_str.split(',') {
+                            if let Some((key, value)) = part.split_once(':') {
+                                match key {
+                                    "block" => block_number = value.parse().unwrap_or(0),
+                                    "parent" => parent_hash = value.parse().unwrap_or(B256::ZERO),
+                                    "timestamp" => timestamp = value.parse().unwrap_or(0),
+                                    "base_fee" => base_fee = value.parse().unwrap_or(875_000_000),
+                                    _ => {}
+                                }
+                            }
+                        }
+                        
+                        info!("📋 Parsed simple canonical metadata for block {} from consensus", block_number);
+                        
+                        use crate::canonical_block_metadata::CanonicalBlockMetadata;
+                        Some(CanonicalBlockMetadata::new(
+                            block_number,
+                            parent_hash,
+                            timestamp,
+                            alloy_primitives::U256::from(base_fee),
+                            134_217_728, // Default gas limit
+                            reth_transactions.iter().map(|tx| *tx.hash()).collect(),
+                        ))
+                    } else {
+                        // Try binary decoding as fallback
+                        use crate::canonical_block_metadata::CanonicalBlockMetadata;
+                        match CanonicalBlockMetadata::decode(metadata_bytes) {
+                            Ok(metadata) => {
+                                info!("📋 Decoded binary canonical metadata for block {} from consensus", internal_batch.block_number);
+                                Some(metadata)
+                            }
+                            Err(e) => {
+                                error!("Failed to decode canonical metadata: {}", e);
+                                None
+                            }
+                        }
+                    }
+                } else if is_leader {
+                    // We're the leader but didn't receive metadata - this shouldn't happen in production
+                    // as the leader should have injected it during consensus
+                    warn!("Leader for round {} but no canonical metadata in batch - creating now", consensus_round);
+                    use crate::canonical_block_metadata::{CanonicalBlockMetadata, CanonicalMetadataBuilder};
+                    
+                    let metadata = CanonicalMetadataBuilder::new(
+                        internal_batch.block_number,
+                        internal_batch.parent_hash,
+                    )
+                    .build(consensus_round, reth_transactions.iter().map(|tx| *tx.hash()).collect::<Vec<_>>());
+                    
+                    Some(metadata)
+                } else {
+                    warn!("Not leader and no canonical metadata provided - blocks will diverge!");
+                    None
+                };
+                
                 let finalized_batch = FinalizedBatch {
                     round: consensus_round,
                     block_number: internal_batch.block_number,
@@ -414,6 +497,7 @@ impl NarwhalBullsharkService {
                     certificate_digest,
                     proposer: Address::ZERO,  // TODO: Convert from Narwhal PublicKey to Address
                     validator_signatures,
+                    canonical_metadata,
                 };
 
                 info!("✅ Finalized batch {} with {}/{} transactions (decode errors: {})",
@@ -590,6 +674,7 @@ impl NarwhalBullsharkService {
         
         let mut worker_tx_channels = Vec::new();
         let mut worker_handles = Vec::new();
+        let mut worker_networks = Vec::new();
         
         for worker_id in 0..num_workers {
             // Get worker address from authority configuration
@@ -629,6 +714,9 @@ impl NarwhalBullsharkService {
             // Spawn worker and get channels
             let (channels, handles, network) = worker.create_and_spawn();
             
+            // Store worker network for later registration
+            worker_networks.push(network.clone());
+            
             // Store transaction sender channel
             worker_tx_channels.push(channels.tx_transaction);
             
@@ -663,6 +751,31 @@ impl NarwhalBullsharkService {
             
             info!("✅ Spawned worker {} on {} with network active", worker_id, worker_address);
         }
+        
+        // Now register all workers with each other
+        info!("Registering workers with each other for batch replication...");
+        for (authority_name, authority_info) in &committee.authorities {
+            for worker_id in 0..authority_info.workers.num_workers {
+                if let Some(worker_addr_str) = authority_info.workers.get_worker_address(worker_id) {
+                    if let Ok(worker_addr) = worker_addr_str.parse::<SocketAddr>() {
+                        let worker_info = narwhal::worker_network::WorkerInfo {
+                            primary: authority_name.clone(),
+                            worker_id,
+                            worker_address: worker_addr,
+                        };
+                        
+                        // Register this worker with all our workers
+                        for network in &worker_networks {
+                            if let Err(e) = network.register_worker(worker_info.clone()).await {
+                                warn!("Failed to register worker {} of {} with our workers: {:?}", 
+                                    worker_id, authority_name, e);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        info!("✅ Worker registration complete");
         
         Ok((worker_tx_channels, worker_handles))
     }

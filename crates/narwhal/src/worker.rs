@@ -16,6 +16,7 @@ use crate::{
     storage_trait::BatchStore,
     DagError, DagResult,
 };
+use fastcrypto::traits::EncodeDecodeBase64;
 use anemo::{Network, PeerId};
 use anemo_tower::{callback::CallbackLayer, trace::TraceLayer};
 use tokio::{
@@ -235,6 +236,8 @@ impl Worker {
         
         // Generate network private key that will produce the correct PeerId
         // This must match the derive_worker_peer_id function
+        info!("Worker {} generating network key with primary: {}, id: {}, address: {}", 
+              self.id, self.primary_name.encode_base64(), self.id, self.worker_address);
         let network_private_key_bytes = crate::crypto::KeyPair::derive_worker_network_keypair(
             &self.primary_name,
             self.id,
@@ -318,16 +321,20 @@ impl Worker {
             // Add other workers as known peers
             for (worker_id, worker_addr) in authority.workers.get_all_worker_addresses() {
                 if let Ok(addr) = worker_addr.parse::<SocketAddr>() {
+                    // CRITICAL: Normalize the address to ensure consistent PeerId derivation
+                    // Always use the parsed SocketAddr to ensure consistent formatting
+                    let normalized_addr = addr;
+                    
                     // Workers use a derived PeerId based on primary + worker ID
-                    let peer_id = Self::derive_worker_peer_id(name, worker_id, &addr);
+                    let peer_id = Self::derive_worker_peer_id(name, worker_id, &normalized_addr);
                     let peer_info = anemo::types::PeerInfo {
                         peer_id: peer_id.clone(),
                         affinity: anemo::types::PeerAffinity::High,
-                        address: vec![anemo::types::Address::from(addr)],
+                        address: vec![anemo::types::Address::from(normalized_addr)],
                     };
                     network.known_peers().insert(peer_info);
-                    info!("Added worker {} of {} as known peer with PeerId: {}", 
-                          worker_id, name, peer_id);
+                    info!("Added worker {} of {} as known peer with PeerId: {} (addr: {})", 
+                          worker_id, name, peer_id, normalized_addr);
                 }
             }
         }
@@ -370,6 +377,8 @@ impl Worker {
     /// Derive a PeerId for a worker based on primary key, worker ID, and address
     fn derive_worker_peer_id(primary_key: &PublicKey, worker_id: u32, network_address: &SocketAddr) -> PeerId {
         // Generate the worker network keypair the same way we do in setup_network
+        debug!("Deriving worker PeerId for primary: {}, worker: {}, address: {}", 
+               primary_key.encode_base64(), worker_id, network_address);
         let network_private_key_bytes = crate::crypto::KeyPair::derive_worker_network_keypair(
             primary_key,
             worker_id,

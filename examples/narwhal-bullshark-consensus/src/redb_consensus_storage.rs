@@ -258,13 +258,13 @@ impl DatabaseOps for RedbDatabaseOps {
         let read_tx = self.db.begin_read()?;
         
         let certs_table = read_tx.open_table(CERTIFICATES_TABLE)?;
-        let certs_count = certs_table.len()? as u64;
+        let certs_count = certs_table.iter()?.count() as u64;
         
         let batches_table = read_tx.open_table(BATCHES_TABLE)?;
-        let batches_count = batches_table.len()? as u64;
+        let batches_count = batches_table.iter()?.count() as u64;
         
         let vertices_table = read_tx.open_table(DAG_VERTICES_TABLE)?;
-        let vertices_count = vertices_table.len()? as u64;
+        let vertices_count = vertices_table.iter()?.count() as u64;
         
         Ok((certs_count, batches_count, vertices_count))
     }

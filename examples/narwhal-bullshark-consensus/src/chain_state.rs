@@ -20,6 +20,10 @@ pub struct ChainState {
     pub proposer: Address,
     /// Timestamp of last block
     pub timestamp: u64,
+    /// Current gas limit
+    pub gas_limit: u64,
+    /// Current base fee per gas
+    pub base_fee_per_gas: u64,
 }
 
 impl Default for ChainState {
@@ -31,6 +35,8 @@ impl Default for ChainState {
             state_root: B256::ZERO,
             proposer: Address::ZERO,
             timestamp: 0,
+            gas_limit: 30_000_000,
+            base_fee_per_gas: 875_000_000,
         }
     }
 }

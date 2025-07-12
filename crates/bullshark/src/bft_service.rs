@@ -274,9 +274,9 @@ impl BftService {
             debug!("First 10 consensus output rounds: {:?}", rounds);
         }
         
-        // When catching up, limit how many blocks we create in one batch
-        // This prevents the system from getting overwhelmed
-        const MAX_BLOCKS_PER_BATCH: usize = 10;
+        // When catching up, allow more blocks per batch for faster sync
+        // With 100ms block times, we can handle more blocks
+        const MAX_BLOCKS_PER_BATCH: usize = 100;
         let mut blocks_created_this_batch = 0;
 
         let mut finalized_count = 0;
@@ -327,9 +327,9 @@ impl BftService {
             // Check if we should create a block
             let elapsed = self.last_block_time.elapsed();
             let should_create_block = 
-                elapsed >= self.config.min_block_time || // Enough time has passed
+                elapsed >= self.config.min_block_time || // Enough time has passed (100ms)
                 idx == outputs_count - 1 || // Last certificate in batch
-                batched_certificates.len() >= 10; // Accumulated enough certificates
+                batched_certificates.len() >= 2; // Create blocks more frequently with just 2 certificates
             
             if !should_create_block {
                 continue;

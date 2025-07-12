@@ -172,12 +172,12 @@ impl Default for NarwhalConfig {
     fn default() -> Self {
         Self {
             max_batch_size: 1024 * 1024,  // 1MB
-            max_batch_delay: Duration::from_millis(200),
+            max_batch_delay: Duration::from_millis(50), // 50ms for ultra-fast blocks
             num_workers: 4,
             gc_depth: 50,
             committee_size: 4,
             max_header_size: 1024 * 1024,  // 1MB
-            max_header_delay: Duration::from_millis(200),
+            max_header_delay: Duration::from_millis(50), // 50ms to match block times
             sync_retry_delay: Duration::from_millis(5000),
             sync_retry_nodes: 3,
             batch_storage_memory: true, // Default to in-memory for now
@@ -193,13 +193,13 @@ impl Default for NarwhalConfig {
 impl Default for WorkerConfig {
     fn default() -> Self {
         Self {
-            batch_timeout: Duration::from_secs(10),
-            quorum_timeout: Duration::from_secs(5),
+            batch_timeout: Duration::from_millis(500), // 500ms for fast replication
+            quorum_timeout: Duration::from_millis(200), // 200ms for fast consensus
             max_batch_requests: 1000,
             cache_size: 10_000,
             batch_expiration: Duration::from_secs(60),
             batch_retry_attempts: 3,
-            batch_retry_delay: Duration::from_millis(500),
+            batch_retry_delay: Duration::from_millis(50), // 50ms for fast retries
         }
     }
 }
@@ -253,7 +253,7 @@ impl Default for PerformanceConfig {
             tx_prealloc_size: 1000,
             batch_prealloc_size: 100,
             channel_buffer_size: 10_000,
-            yield_interval: Duration::from_millis(100),
+            yield_interval: Duration::from_millis(10), // 10ms for better responsiveness
             max_concurrent_tasks: 1000,
             cpu_affinity: None,
             memory_pool_size: 100 * 1024 * 1024, // 100MB
