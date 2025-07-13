@@ -9,6 +9,7 @@ use crate::{
     round_tracker::{RoundCompletionTracker, RoundTrackerStats},
 };
 use std::collections::HashMap;
+use fastcrypto::Hash;
 use narwhal::{
     types::{Certificate, Committee, PublicKey as NarwhalPublicKey},
     Transaction as NarwhalTransaction,
