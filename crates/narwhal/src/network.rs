@@ -279,6 +279,7 @@ impl Clone for NarwhalNetwork {
             peer_executors: self.peer_executors.clone(),
             global_executor: self.global_executor.clone(),
             config: self.config.clone(),
+            connection_health: self.connection_health.clone(),
         }
     }
 }

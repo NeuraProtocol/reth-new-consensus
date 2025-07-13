@@ -293,7 +293,7 @@ impl DagService {
             
             // BACKPRESSURE: Check if we have too many pending rounds
             let pending_rounds = self.current_round.saturating_sub(self.last_finalized_round);
-            if pending_rounds > self.max_pending_rounds {
+            if pending_rounds > self.max_pending_rounds as u64 {
                 if timer_expired {
                     // Reset timer to prevent tight loop
                     let deadline = tokio::time::Instant::now() + max_header_delay;
