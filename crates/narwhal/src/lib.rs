@@ -172,3 +172,6 @@ pub struct FinalizedOutput {
 
 // Re-export NarwhalConfig from config module
 pub use config::NarwhalConfig;
+
+#[cfg(test)]
+mod test_bls_format;

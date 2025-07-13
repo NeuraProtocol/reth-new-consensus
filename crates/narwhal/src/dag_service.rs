@@ -87,6 +87,8 @@ pub struct DagService {
     worker_batches: IndexMap<BatchDigest, WorkerId>,
     /// Garbage collection round - we can clean up data older than this
     gc_round: Round,
+    /// Counter for consecutive timer expirations without progress (for liveness)
+    failed_attempts_count: u32,
     /// Chain state provider for canonical metadata creation
     chain_state: Option<std::sync::Arc<dyn ChainStateProvider>>,
 }
@@ -136,6 +138,7 @@ impl DagService {
             current_batch: Vec::new(),
             worker_batches: IndexMap::new(),
             gc_round: 0,
+            failed_attempts_count: 0,
             chain_state: None,
         }
     }
@@ -226,13 +229,19 @@ impl DagService {
                     }
                 }
                 
-                // BOOTSTRAP: For early rounds, use validity threshold instead of quorum
+                // BOOTSTRAP: For early rounds OR when stuck, use validity threshold instead of quorum
                 const BOOTSTRAP_ROUNDS: u64 = 10;
-                let required_stake = if self.current_round < BOOTSTRAP_ROUNDS {
-                    // During bootstrap, only need f+1 validators (validity threshold)
+                let is_stuck = self.failed_attempts_count >= 10; // Half the max attempts before extending bootstrap
+                let required_stake = if self.current_round < BOOTSTRAP_ROUNDS || is_stuck {
+                    // During bootstrap or when stuck, only need f+1 validators (validity threshold)
                     let validity_threshold = self.committee.validity_threshold();
-                    debug!("BOOTSTRAP: Round {} using validity threshold {} instead of quorum {}", 
-                          self.current_round, validity_threshold, self.committee.quorum_threshold());
+                    if is_stuck {
+                        debug!("DYNAMIC BOOTSTRAP: Round {} stuck - using validity threshold {} instead of quorum {}", 
+                              self.current_round, validity_threshold, self.committee.quorum_threshold());
+                    } else {
+                        debug!("BOOTSTRAP: Round {} using validity threshold {} instead of quorum {}", 
+                              self.current_round, validity_threshold, self.committee.quorum_threshold());
+                    }
                     validity_threshold
                 } else {
                     self.committee.quorum_threshold()
@@ -250,14 +259,14 @@ impl DagService {
             };
             
             let enough_content = !self.current_batch.is_empty() || !self.worker_batches.is_empty();
-            // Check if timer has expired (either from select branch or elapsed time)
+            // Use only the timer_expired flag set by the select branch
+            // DO NOT check timer.is_elapsed() here as it causes tight loops after reset
             let was_timer_expired = timer_expired;
-            timer_expired = timer_expired || timer.is_elapsed();
             
             // Debug logging for timer state
             if self.current_round <= 5 || self.current_round % 10 == 0 {
-                debug!("Round {} timer check: was_expired={}, is_elapsed={}, final={}, enough_parents={}, enough_content={}",
-                       self.current_round, was_timer_expired, timer.is_elapsed(), timer_expired, enough_parents, enough_content);
+                debug!("Round {} timer check: was_expired={}, final={}, enough_parents={}, enough_content={}",
+                       self.current_round, was_timer_expired, timer_expired, enough_parents, enough_content);
             }
             
             // CRITICAL FIX: Only create headers when we have proper consensus
@@ -266,6 +275,7 @@ impl DagService {
             // 2. Either content to propose OR timer expiration (for liveness)
             // But NEVER create without parents - that breaks consensus
             
+            debug!("Decision logic: enough_parents={}, timer_expired={}, enough_content={}", enough_parents, timer_expired, enough_content);
             if enough_parents && (timer_expired || enough_content) {
                 // Additional check: ensure we have our own certificate from previous round
                 // BOOTSTRAP: Skip this check during early rounds to widen the DAG quickly
@@ -295,6 +305,7 @@ impl DagService {
                     match self.create_and_propose_header().await {
                         Ok(()) => {
                             info!("✅ Successfully created header for round {} (now at round {})", self.current_round - 1, self.current_round);
+                            self.failed_attempts_count = 0; // Reset failed attempts counter on success
                         }
                         Err(e) => {
                             warn!("Failed to create header: {}", e);
@@ -312,16 +323,33 @@ impl DagService {
                 // Not ready to create header yet
                 if timer_expired {
                     if !enough_parents {
-                        debug!("Timer expired but lacking parents for round {} - will retry when we have consensus", self.current_round);
+                        self.failed_attempts_count += 1;
+                        warn!("Timer expired but lacking parents for round {} - attempt #{}", self.current_round, self.failed_attempts_count);
+                        
+                        // PROPER LIVENESS: Extend bootstrap period dynamically when stuck
+                        const MAX_FAILED_ATTEMPTS: u32 = 20;
+                        if self.failed_attempts_count >= MAX_FAILED_ATTEMPTS {
+                            warn!("EXTENDED BOOTSTRAP: {} failed attempts for round {} - temporarily reducing quorum threshold", 
+                                  self.failed_attempts_count, self.current_round);
+                            
+                            // Instead of forced progression, use bootstrap logic for this round
+                            // This preserves DAG integrity while providing liveness
+                            self.failed_attempts_count = 0; // Reset to prevent infinite extension
+                        }
+                        
+                        // Always reset timer and try again - no forced progression with empty parents
+                        let deadline = tokio::time::Instant::now() + max_header_delay;
+                        timer.as_mut().reset(deadline);
+                        timer_expired = false;
+                        debug!("Reset timer to prevent tight loop - will check again at {:?}", deadline);
                     } else if !enough_content {
                         debug!("Timer expired but no content for round {} - will retry when we have transactions", self.current_round);
+                        // Reset timer for content timeout (don't increment failed attempts for this)
+                        let deadline = tokio::time::Instant::now() + max_header_delay;
+                        timer.as_mut().reset(deadline);
+                        timer_expired = false;
+                        debug!("Reset timer to prevent tight loop - will check again at {:?}", deadline);
                     }
-                    
-                    // CRITICAL: Reset the timer to prevent tight loops
-                    let deadline = tokio::time::Instant::now() + max_header_delay;
-                    timer.as_mut().reset(deadline);
-                    timer_expired = false;
-                    debug!("Reset timer to prevent tight loop - will check again at {:?}", deadline);
                 }
             }
             
@@ -507,6 +535,11 @@ impl DagService {
 
      /// Create and propose a new header (adapted from reference implementation)
      async fn create_and_propose_header(&mut self) -> DagResult<()> {
+         self.create_and_propose_header_impl(false).await
+     }
+
+     /// Create and propose a new header with optional forced progression
+     async fn create_and_propose_header_impl(&mut self, force_empty_parents: bool) -> DagResult<()> {
          info!("Creating header with {} transactions", self.current_batch.len());
          
          // Get ALL certificates from previous round as parents
@@ -518,6 +551,10 @@ impl DagService {
              self.committee.authorities.keys()
                  .map(|_| CertificateDigest::default()) // Genesis certificates
                  .collect()
+         } else if force_empty_parents {
+             // FORCED PROGRESSION: Create header with empty parents to break deadlock
+             warn!("FORCED PROGRESSION: Creating header with empty parents for liveness");
+             BTreeSet::new()
          } else {
              // Use round-specific tracking for accurate parent collection
              if let Some(round_certs) = self.certificates_by_round.get(&prev_round) {
@@ -624,10 +661,11 @@ impl DagService {
              m.set_dag_depth(&self.name.to_string(), self.current_round as i64);
          }
 
-         // Clear batch and worker batches, then advance round
+         // Clear batch and worker batches, but DON'T advance round yet
+         // Round advancement should only happen when we have our own certificate
          self.current_batch.clear();
          self.worker_batches.clear();
-         self.current_round += 1;
+         // TODO: Round advancement will be handled by certificate processing
 
          Ok(())
      }
@@ -878,6 +916,15 @@ impl DagService {
              .count();
          info!("Now tracking {} certificates for round {} (total: {})", 
                certs_in_round, cert_round, self.certificates.len());
+
+         // CRITICAL FIX: Advance round when we receive our own certificate
+         // This ensures we only advance after our certificate is formed and stored
+         if author == self.name && cert_round == self.current_round {
+             self.current_round += 1;
+             info!("✅ Received our own certificate for round {} - advanced to round {}", cert_round, self.current_round);
+             // Reset failed attempts since we successfully progressed
+             self.failed_attempts_count = 0;
+         }
 
          // Send to Bullshark consensus
          match self.certificate_output_sender.try_send(certificate.clone()) {

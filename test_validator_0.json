@@ -2,8 +2,8 @@
   "name": "Test Validator 0",
   "evm_address": "0x19e7e376e7c213b7e7e7e46cc70a5dd086daff2a",
   "evm_private_key": "0x1111111111111111111111111111111111111111111111111111111111111111",
-  "consensus_private_key": "Zps/5zoe3TmK8gDCuAuQmJDghHfTQSDm7svIiKFd0eo=",
-  "consensus_public_key": "lBUYJAfUwdHyezP/rfRCCy3UDrx7R2h/Xh0iskG5+wL3y3kE0uG6UTfKvfnje1XzFqmkmht2SARzZaBT6G+0JwQ9vphfHrrnCTTX6dqqFlB4g/BYUbBTaS3rrdR/JzB3",
+  "consensus_private_key": "DX7sNw+CbWwrHpoDl1qWvM+Buz357yVWfOjyMOsPQtM=",
+  "consensus_public_key": "Cc5AxiHpYJfOP497gC8PXSeO2sIC05fUPTh3nJ4SeSIG3wCiLy8o0veBiM7c1iU4AAf6jWrqkWPmbmpnTL81XrAhKym2cAQkqEBAOhmkqyN+HO1VDDQUGVred/WpnlrD",
   "stake": 1000,
   "network_address": "127.0.0.1:9001",
   "worker_port_range": "19000:19003"

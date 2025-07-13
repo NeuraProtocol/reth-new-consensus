@@ -1,15 +1,10 @@
 {
-  "metadata": {
-    "name": "Test Validator 3",
-    "description": "Fourth validator for testing consensus",
-    "contact": "validator3@test.local"
-  },
+  "name": "Test Validator 3",
+  "evm_address": "0x7564105e977516c53be337314c7e53838967bdac",
   "evm_private_key": "0x4444444444444444444444444444444444444444444444444444444444444444",
-  "consensus_private_key": "WxPW2GbpVS9s7zN6BLvkft425XVl9OZGg/q3xag/G9s=",
+  "consensus_private_key": "Ua+5naDN/VSFmaFDoGWgR95IL4/ius9B01Y30fXQUvY=",
+  "consensus_public_key": "kY5HwXHlQkZBHtHPU4DL5YTBoU9YKWBzSdhx/ukprQl/OEU46aK5yT0zLa9NPMr4Fav/VsQHOoJ53PhKZyK2GrbLB0l6DLl91AebDKbk52mW6xh8sUWWuOF7evQ3frGy",
   "stake": 1000,
-  "active": true,
   "network_address": "127.0.0.1:9004",
-  "worker_port_range": "19012:19015",
-  "consensus_public_key": "TVugGseCvBQid3AhDBYtX6V/YMYJsNpwBBS93IbmSyuJw7T3xObRsWBbkf92G8Nw",
-  "evm_address": "0xd3be3f7d0cd5e5332e5a579311adaa0aa62106e9"
+  "worker_port_range": "19012:19015"
 }
