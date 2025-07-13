@@ -91,6 +91,10 @@ pub struct DagService {
     failed_attempts_count: u32,
     /// Chain state provider for canonical metadata creation
     chain_state: Option<std::sync::Arc<dyn ChainStateProvider>>,
+    /// Track the last round that was finalized by BFT
+    last_finalized_round: Round,
+    /// Maximum allowed pending rounds before applying backpressure
+    max_pending_rounds: u32,
 }
 
 impl std::fmt::Debug for DagService {
@@ -140,6 +144,8 @@ impl DagService {
             gc_round: 0,
             failed_attempts_count: 0,
             chain_state: None,
+            last_finalized_round: 0,
+            max_pending_rounds: 50, // Allow up to 50 rounds pending finalization
         }
     }
     
@@ -183,6 +189,14 @@ impl DagService {
     /// Set the chain state provider
     pub fn set_chain_state(&mut self, chain_state: std::sync::Arc<dyn ChainStateProvider>) {
         self.chain_state = Some(chain_state);
+    }
+    
+    /// Update the last finalized round (called by BFT when it finalizes rounds)
+    pub fn update_finalized_round(&mut self, round: Round) {
+        if round > self.last_finalized_round {
+            self.last_finalized_round = round;
+            info!("Updated last finalized round to {}", round);
+        }
     }
 
     /// Spawn the DAG service
@@ -276,7 +290,21 @@ impl DagService {
             // But NEVER create without parents - that breaks consensus
             
             debug!("Decision logic: enough_parents={}, timer_expired={}, enough_content={}", enough_parents, timer_expired, enough_content);
-            if enough_parents && (timer_expired || enough_content) {
+            
+            // BACKPRESSURE: Check if we have too many pending rounds
+            let pending_rounds = self.current_round.saturating_sub(self.last_finalized_round);
+            if pending_rounds > self.max_pending_rounds {
+                if timer_expired {
+                    // Reset timer to prevent tight loop
+                    let deadline = tokio::time::Instant::now() + max_header_delay;
+                    timer.as_mut().reset(deadline);
+                    timer_expired = false;
+                    
+                    warn!("BACKPRESSURE: {} rounds pending finalization (last finalized: {}, current: {}). Pausing header creation.",
+                          pending_rounds, self.last_finalized_round, self.current_round);
+                }
+                // Skip header creation until BFT catches up
+            } else if enough_parents && (timer_expired || enough_content) {
                 // Additional check: ensure we have our own certificate from previous round
                 // BOOTSTRAP: Skip this check during early rounds to widen the DAG quickly
                 const BOOTSTRAP_ROUNDS: u64 = 10;
@@ -1059,6 +1087,15 @@ impl DagService {
     pub fn advance_round(&mut self) {
         self.current_round += 1;
         info!("Advanced to round {}", self.current_round);
+    }
+    
+    /// Update the last finalized round to relieve backpressure
+    pub fn update_last_finalized_round(&mut self, round: Round) {
+        if round > self.last_finalized_round {
+            let previous = self.last_finalized_round;
+            self.last_finalized_round = round;
+            info!("Updated last finalized round from {} to {} (backpressure relief)", previous, round);
+        }
     }
 }
 

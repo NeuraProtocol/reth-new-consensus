@@ -13,7 +13,7 @@ use narwhal::{
 };
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use fastcrypto::Hash;
 
 /// Trait for consensus protocols that process certificates
@@ -142,9 +142,14 @@ impl ConsensusProtocol for BullsharkConsensus {
         let support_round = commit_round + 1;
         info!("Checking support for leader {} in round {} from certificates in round {}", 
               leader.origin(), commit_round, support_round);
+        
         if !dag.leader_has_support(&leader_digest, commit_round, &self.committee) {
-            info!("Leader {} in round {} does not have sufficient support", leader.origin(), commit_round);
-            return Ok(Vec::new());
+            info!("Leader {} in round {} does not have sufficient support yet", leader.origin(), commit_round);
+            // Return a special error to indicate retry is needed
+            return Err(crate::BullsharkError::LeaderLacksSupport { 
+                round: commit_round,
+                leader: leader.origin(),
+            });
         }
 
         info!("Leader {} in round {} has sufficient support, committing sequence", leader.origin(), commit_round);

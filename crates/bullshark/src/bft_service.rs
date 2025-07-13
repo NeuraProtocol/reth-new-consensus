@@ -8,6 +8,7 @@ use crate::{
     chain_state::{ChainStateProvider, DefaultChainState},
     round_tracker::{RoundCompletionTracker, RoundTrackerStats},
 };
+use std::collections::HashMap;
 use narwhal::{
     types::{Certificate, Committee, PublicKey as NarwhalPublicKey},
     Transaction as NarwhalTransaction,
@@ -53,6 +54,8 @@ pub struct BftService {
     node_public_key: Option<NarwhalPublicKey>,
     /// Round completion tracker for batching certificates
     round_tracker: RoundCompletionTracker,
+    /// Track rounds that need retry for leader support
+    pending_leader_rounds: HashMap<u64, (Instant, u32)>, // round -> (first_attempt_time, retry_count)
 }
 
 impl std::fmt::Debug for BftService {
@@ -103,6 +106,7 @@ impl BftService {
             storage: None,
             node_public_key: None,
             round_tracker,
+            pending_leader_rounds: HashMap::new(),
         }
     }
     
@@ -140,6 +144,7 @@ impl BftService {
             storage: Some(storage),
             node_public_key: None,
             round_tracker,
+            pending_leader_rounds: HashMap::new(),
         }
     }
     
@@ -252,6 +257,9 @@ impl BftService {
                             debug!("Error in periodic round check: {}", e);
                         }
                     }
+                    
+                    // Check rounds pending leader support retry
+                    self.retry_pending_leader_rounds();
                 }
             }
         }
@@ -265,11 +273,27 @@ impl BftService {
         self.round_tracker.add_certificate(certificate.clone(), &self.committee);
         
         // Run the consensus algorithm to update DAG state
-        let consensus_outputs = self.consensus.process_certificate(
+        let consensus_outputs = match self.consensus.process_certificate(
             &mut self.dag,
             self.consensus_index,
             certificate,
-        )?;
+        ) {
+            Ok(outputs) => outputs,
+            Err(BullsharkError::LeaderLacksSupport { round, leader }) => {
+                // Track this round for retry
+                let entry = self.pending_leader_rounds.entry(round).or_insert_with(|| {
+                    (Instant::now(), 0)
+                });
+                entry.1 += 1; // Increment retry count
+                
+                info!("Leader {} in round {} lacks support, marking for retry (attempt {})", 
+                      leader, round, entry.1);
+                
+                // Continue processing other certificates
+                return Ok(0);
+            }
+            Err(e) => return Err(e),
+        };
         
         let outputs_count = consensus_outputs.len();
         info!("Consensus produced {} outputs for certificate round {}", outputs_count, cert_round);
@@ -846,6 +870,64 @@ impl BftService {
             committee_epoch: self.committee.epoch,
             dag_stats: self.dag.stats(),
             metrics: self.metrics.clone(),
+        }
+    }
+    
+    /// Retry rounds that are pending leader support
+    fn retry_pending_leader_rounds(&mut self) {
+        let now = Instant::now();
+        let mut rounds_to_retry = Vec::new();
+        let mut rounds_to_remove = Vec::new();
+        
+        // Check which rounds are ready for retry
+        for (&round, &(first_attempt, retry_count)) in &self.pending_leader_rounds {
+            let elapsed = now.duration_since(first_attempt);
+            
+            // Check if we should give up on this round
+            if retry_count >= self.config.max_leader_support_retries {
+                warn!("Giving up on round {} after {} retries", round, retry_count);
+                rounds_to_remove.push(round);
+                continue;
+            }
+            
+            // Check if enough time has passed for retry
+            let retry_delay = self.config.leader_support_retry_delay * retry_count;
+            if elapsed >= retry_delay {
+                rounds_to_retry.push(round);
+            }
+        }
+        
+        // Remove rounds we're giving up on
+        for round in rounds_to_remove {
+            self.pending_leader_rounds.remove(&round);
+        }
+        
+        // Retry rounds that are ready
+        for round in rounds_to_retry {
+            debug!("Retrying leader support check for round {}", round);
+            
+            // Try to get the leader certificate and check support again
+            if let Some(leader_cert) = self.dag.get_leader_certificate(round, &self.committee) {
+                let leader_digest = leader_cert.digest();
+                
+                if self.dag.leader_has_support(&leader_digest, round, &self.committee) {
+                    info!("Leader in round {} now has sufficient support!", round);
+                    
+                    // Remove from pending and try to finalize
+                    self.pending_leader_rounds.remove(&round);
+                    
+                    // Mark for immediate finalization on next round check
+                    // The round is still in the round_tracker and will be picked up
+                    // by the next check_pending_rounds call
+                    info!("Round {} now has support and will be finalized on next check", round);
+                } else {
+                    // Still no support, update retry count
+                    if let Some(entry) = self.pending_leader_rounds.get_mut(&round) {
+                        entry.1 += 1;
+                        debug!("Round {} still lacks support, retry count: {}", round, entry.1);
+                    }
+                }
+            }
         }
     }
 }

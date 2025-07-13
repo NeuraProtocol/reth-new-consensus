@@ -28,6 +28,10 @@ pub struct BftConfig {
     pub max_certificates_per_dag: usize,
     /// Timeout for waiting for leader certificates in round completion
     pub round_completion_timeout: Duration,
+    /// Maximum retry attempts for leader support checks
+    pub max_leader_support_retries: u32,
+    /// Delay between retry attempts for leader support
+    pub leader_support_retry_delay: Duration,
 }
 
 impl Default for BftConfig {
@@ -45,6 +49,8 @@ impl Default for BftConfig {
             min_block_time: Duration::from_millis(100), // 100ms minimum between blocks for ultra-fast EVM
             max_certificates_per_dag: 50, // Reduce to process certificates more frequently
             round_completion_timeout: Duration::from_millis(200), // Wait up to 200ms for leader certificates
+            max_leader_support_retries: 5, // Try up to 5 times for leader support
+            leader_support_retry_delay: Duration::from_millis(50), // 50ms between retries
         }
     }
 } 

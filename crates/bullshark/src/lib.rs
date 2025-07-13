@@ -103,4 +103,11 @@ pub enum BullsharkError {
         source: anyhow::Error,
         context: String,
     },
+    
+    /// Leader lacks sufficient support, needs retry
+    #[error("Leader {leader} in round {round} lacks sufficient support")]
+    LeaderLacksSupport {
+        round: Round,
+        leader: narwhal::types::PublicKey,
+    },
 }

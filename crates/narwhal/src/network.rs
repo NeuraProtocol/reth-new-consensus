@@ -21,7 +21,7 @@ use std::{
     collections::HashMap,
     net::SocketAddr,
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::sync::{broadcast, RwLock};
 use tower::ServiceBuilder;
@@ -250,6 +250,8 @@ pub struct NarwhalNetwork {
     global_executor: BoundedExecutor,
     /// Configuration
     config: crate::config::NarwhalConfig,
+    /// Connection health tracking: peer -> (last_success, failure_count)
+    connection_health: Arc<RwLock<HashMap<PublicKey, (Instant, u32)>>>,
 }
 
 impl std::fmt::Debug for NarwhalNetwork {
@@ -353,6 +355,7 @@ impl NarwhalNetwork {
             peer_executors: Arc::new(RwLock::new(HashMap::new())),
             global_executor,
             config,
+            connection_health: Arc::new(RwLock::new(HashMap::new())),
         };
 
         Ok((narwhal_network, event_receiver))
@@ -677,9 +680,20 @@ impl NarwhalNetwork {
         );
         
         // Wait for the result
-        handle.await
-            .map_err(|e| DagError::Network(format!("Task join error: {}", e)))?
-            .map_err(|e| DagError::Network(format!("Network error: {}", e)))
+        let result = handle.await
+            .map_err(|e| DagError::Network(format!("Task join error: {}", e)))?;
+            
+        // Record success or failure
+        match &result {
+            Ok(_) => {
+                self.record_peer_success(&peer_key).await;
+            }
+            Err(_) => {
+                self.record_peer_failure(&peer_key).await;
+            }
+        }
+        
+        result.map_err(|e| DagError::Network(format!("Network error: {}", e)))
     }
 
     /// Broadcast a message to all peers with retry logic
@@ -792,6 +806,108 @@ impl NarwhalNetwork {
             debug!("Failed to create Ed25519 key, using raw bytes as PeerId");
             PeerId(network_private_key_bytes)
         }
+    }
+    
+    /// Record a successful communication with a peer
+    pub async fn record_peer_success(&self, peer: &PublicKey) {
+        let mut health = self.connection_health.write().await;
+        health.insert(peer.clone(), (Instant::now(), 0));
+    }
+    
+    /// Record a failed communication with a peer
+    pub async fn record_peer_failure(&self, peer: &PublicKey) {
+        let mut health = self.connection_health.write().await;
+        let entry = health.entry(peer.clone()).or_insert((Instant::now(), 0));
+        entry.1 += 1; // Increment failure count
+        
+        // Log if failures are getting high
+        if entry.1 > 5 {
+            warn!("Peer {} has {} consecutive failures", peer, entry.1);
+        }
+    }
+    
+    /// Get connection health statistics
+    pub async fn get_connection_health(&self) -> HashMap<PublicKey, (Duration, u32)> {
+        let health = self.connection_health.read().await;
+        let now = Instant::now();
+        
+        health.iter()
+            .map(|(k, (last_success, failures))| {
+                (k.clone(), (now.duration_since(*last_success), *failures))
+            })
+            .collect()
+    }
+    
+    /// Monitor and retry failed connections
+    pub async fn monitor_connections(&self) {
+        let committee_members: Vec<_> = self.committee.authorities.keys().cloned().collect();
+        let connected_peers = self.peer_map.read().await;
+        
+        for member in committee_members {
+            if member == self.node_key {
+                continue; // Skip self
+            }
+            
+            if !connected_peers.contains_key(&member) {
+                // Not connected, check if we should retry
+                let should_retry = {
+                    let health = self.connection_health.read().await;
+                    match health.get(&member) {
+                        Some((last_attempt, failures)) => {
+                            // Exponential backoff: 2^failures seconds, max 300 seconds
+                            let backoff = Duration::from_secs((2_u64.pow(*failures)).min(300));
+                            Instant::now().duration_since(*last_attempt) > backoff
+                        }
+                        None => true, // Never tried, attempt now
+                    }
+                };
+                
+                if should_retry {
+                    if let Some(authority) = self.committee.authorities.get(&member) {
+                        let network_address: SocketAddr = authority.primary_address.parse()
+                            .unwrap_or_else(|_| SocketAddr::from(([127, 0, 0, 1], 9000)));
+                        
+                        info!("Attempting to reconnect to peer {} at {}", member, network_address);
+                        
+                        // Record attempt
+                        self.record_peer_failure(&member).await;
+                        
+                        // Try to connect
+                        if let Err(e) = self.add_peer(member.clone(), network_address).await {
+                            warn!("Failed to reconnect to peer {}: {}", member, e);
+                        } else {
+                            // Success, reset failure count
+                            self.record_peer_success(&member).await;
+                            info!("Successfully reconnected to peer {}", member);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    /// Spawn a task to periodically monitor connections
+    pub fn spawn_connection_monitor(self: Arc<Self>) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(30));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            
+            loop {
+                interval.tick().await;
+                
+                // Log connection health
+                let health = self.get_connection_health().await;
+                let connected_count = health.iter()
+                    .filter(|(_, (_, failures))| *failures == 0)
+                    .count();
+                let total = self.committee.authorities.len() - 1; // Exclude self
+                
+                info!("Connection health: {}/{} peers connected", connected_count, total);
+                
+                // Monitor and retry connections
+                self.monitor_connections().await;
+            }
+        })
     }
 }
 
