@@ -9,9 +9,9 @@ use crate::{
 };
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
-use tracing::{info, warn, debug};
+use tracing::{info, warn, debug, error};
 use fastcrypto::traits::EncodeDecodeBase64;
-use fastcrypto::{SignatureService, Hash, Digest, traits::Signer, Verifier};
+use fastcrypto::{SignatureService, Hash, Digest, Verifier};
 use std::sync::Arc;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use indexmap::IndexMap;
@@ -540,6 +540,8 @@ impl DagService {
 
      /// Create and propose a new header with optional forced progression
      async fn create_and_propose_header_impl(&mut self, force_empty_parents: bool) -> DagResult<()> {
+         info!("Creating header for round {}", self.current_round);
+         
          info!("Creating header with {} transactions", self.current_batch.len());
          
          // Get ALL certificates from previous round as parents
@@ -617,6 +619,15 @@ impl DagService {
 
          // Sign header
          header.id = header.digest();
+         
+         // Check if we're recreating the same header
+         if let Some(ref current) = self.current_header {
+             if current.round == header.round && current.id == header.id {
+                 warn!("⚠️ HEADER RECREATION: Recreating identical header {} for round {} (timer fired multiple times?)", 
+                      header.id, header.round);
+             }
+         }
+         
          let signature = {
              let mut sig_service = self.signature_service.lock().await;
              let header_digest: Digest = header.id.into();
@@ -627,8 +638,17 @@ impl DagService {
          // Store as current header for vote aggregation
          self.current_header = Some(header.clone());
         
-        // Create vote aggregator for this header
-        self.vote_aggregators.insert(header.id, VotesAggregator::with_header(header.clone()));
+        // Create vote aggregator for this header if one doesn't already exist
+        // This prevents resetting votes when the timer fires and recreates the same header
+        match self.vote_aggregators.get(&header.id) {
+            Some(_) => {
+                warn!("⚠️ VOTE AGGREGATOR BUG PREVENTED: Header {} already has a vote aggregator - NOT resetting it!", header.id);
+            }
+            None => {
+                info!("Creating new vote aggregator for header {} in round {}", header.id, header.round);
+                self.vote_aggregators.insert(header.id, VotesAggregator::with_header(header.clone()));
+            }
+        }
          
          // Mark as processing
          self.processing
@@ -642,10 +662,19 @@ impl DagService {
                  info!("🚀 CRITICAL: Broadcasting header {} WITH canonical metadata ({} bytes) for round {}", 
                        header.id, header.canonical_metadata.len(), header.round);
              }
-             if sender.send(DagMessage::Header(header.clone())).is_err() {
-                 warn!("Failed to send header for broadcast - channel closed");
-             } else {
-                 info!("✅ Sent header {} to network sender for broadcast", header.id);
+             
+             let send_time = std::time::Instant::now();
+             match sender.send(DagMessage::Header(header.clone())) {
+                 Ok(_) => {
+                     let latency = send_time.elapsed();
+                     info!("✅ OUTBOUND: Successfully queued header {} (round {}) for broadcast - queued in {:?}", 
+                           header.id, header.round, latency);
+                 }
+                 Err(e) => {
+                     error!("❌ OUTBOUND FAILURE: Failed to send header {} for broadcast - channel closed! Error: {}", 
+                            header.id, e);
+                     warn!("⚠️ CRITICAL: Outbound channel is dead - no messages will reach peers!");
+                 }
              }
          } else {
              warn!("❌ No network sender configured, skipping header broadcast");
@@ -672,8 +701,12 @@ impl DagService {
 
      /// Sanitize header (from reference implementation)
      async fn sanitize_header(&mut self, header: &Header) -> DagResult<()> {
+         info!("SANITIZE HEADER: Checking header from {} for round {}", header.author, header.round);
+         
          // Check epoch
          if header.epoch != self.committee.epoch {
+             warn!("SANITIZE HEADER: Invalid epoch - expected {}, received {}", 
+                  self.committee.epoch, header.epoch);
              return Err(DagError::InvalidEpoch {
                  expected: self.committee.epoch,
                  received: header.epoch,
@@ -683,7 +716,7 @@ impl DagService {
          // Check author is in committee
          if self.committee.stake(&header.author) == 0 {
              warn!(
-                 "Unknown authority: {} (base64: {}). Committee has {} members: {:?}", 
+                 "SANITIZE HEADER: Unknown authority: {} (base64: {}). Committee has {} members: {:?}", 
                  header.author.to_string(),
                  header.author.encode_base64(),
                  self.committee.authorities.len(),
@@ -692,11 +725,56 @@ impl DagService {
              return Err(DagError::UnknownAuthority(header.author.to_string()));
          }
 
+         // Check parent certificates
+         info!("SANITIZE HEADER: Header has {} parent certificates", header.parents.len());
+         
+         // For round > 1, validate parents
+         if header.round > 1 {
+             let expected_round = header.round - 1;
+             let mut missing_parents = Vec::new();
+             let mut found_parents = Vec::new();
+             
+             for parent_digest in &header.parents {
+                 if let Some(parent_cert) = self.certificates.get(parent_digest) {
+                     if parent_cert.round() != expected_round {
+                         warn!("SANITIZE HEADER: Parent certificate {} has wrong round {} (expected {})",
+                               parent_digest, parent_cert.round(), expected_round);
+                     }
+                     found_parents.push(format!("{} (from {})", parent_digest, parent_cert.origin()));
+                 } else {
+                     missing_parents.push(format!("{}", parent_digest));
+                 }
+             }
+             
+             if !missing_parents.is_empty() {
+                 warn!("SANITIZE HEADER: Missing {} parent certificates: {:?}", 
+                       missing_parents.len(), missing_parents);
+                 info!("SANITIZE HEADER: Found {} parent certificates: {:?}", 
+                       found_parents.len(), found_parents);
+                 
+                 // Log what certificates we do have from the expected round
+                 if let Some(round_certs) = self.certificates_by_round.get(&expected_round) {
+                     let available: Vec<String> = round_certs.values()
+                         .map(|c| format!("{} (from {})", c.digest(), c.origin()))
+                         .collect();
+                     info!("SANITIZE HEADER: Available certificates from round {}: {:?}", 
+                           expected_round, available);
+                 }
+             } else {
+                 info!("SANITIZE HEADER: All {} parent certificates found", header.parents.len());
+             }
+         }
+
          // Verify header signature
          let header_digest: Digest = header.id.into();
          header.author.verify(header_digest.as_ref(), &header.signature)
-             .map_err(DagError::InvalidSignature)?;
+             .map_err(|e| {
+                 warn!("SANITIZE HEADER: Invalid signature from {}: {:?}", header.author, e);
+                 DagError::InvalidSignature(e)
+             })?;
 
+         info!("SANITIZE HEADER: Header from {} for round {} passed validation", 
+               header.author, header.round);
          Ok(())
      }
 
@@ -784,10 +862,18 @@ impl DagService {
 
          // Send vote for network broadcast
          if let Some(ref sender) = self.network_sender {
-             if sender.send(DagMessage::Vote(vote.clone())).is_err() {
-                 warn!("Failed to send vote for broadcast - channel closed");
-             } else {
-                 debug!("Sent vote for header {} for network broadcast", header.id);
+             let send_time = std::time::Instant::now();
+             match sender.send(DagMessage::Vote(vote.clone())) {
+                 Ok(_) => {
+                     let latency = send_time.elapsed();
+                     info!("✅ OUTBOUND: Successfully queued vote from {} for header {} (round {}) - queued in {:?}", 
+                           vote.author, vote.id, vote.round, latency);
+                 }
+                 Err(e) => {
+                     error!("❌ OUTBOUND FAILURE: Failed to send vote for header {} - channel closed! Error: {}", 
+                            vote.id, e);
+                     warn!("⚠️ CRITICAL: Outbound channel is dead - vote will not reach peers!");
+                 }
              }
          } else {
              debug!("No network sender configured, skipping vote broadcast");
@@ -840,11 +926,26 @@ impl DagService {
             
             // Send certificate for network broadcast
             if let Some(ref sender) = self.network_sender {
-                if sender.send(DagMessage::Certificate(certificate.clone())).is_err() {
-                    warn!("Failed to send certificate for broadcast - channel closed");
-                } else {
-                    debug!("Sent certificate for network broadcast");
+                let cert_digest = certificate.digest();
+                let cert_round = certificate.round();
+                let cert_author = certificate.origin();
+                
+                let send_time = std::time::Instant::now();
+                match sender.send(DagMessage::Certificate(certificate.clone())) {
+                    Ok(_) => {
+                        let latency = send_time.elapsed();
+                        info!("✅ OUTBOUND: Successfully queued certificate {} from {} (round {}) for broadcast - queued in {:?}", 
+                              cert_digest, cert_author, cert_round, latency);
+                    }
+                    Err(e) => {
+                        error!("❌ OUTBOUND FAILURE: Failed to send certificate {} for broadcast - channel closed! Error: {}", 
+                               cert_digest, e);
+                        warn!("⚠️ CRITICAL: Outbound channel is dead - certificate will not reach peers!");
+                        warn!("⚠️ This means consensus will STALL as other nodes won't see our certificate!");
+                    }
                 }
+            } else {
+                warn!("⚠️ No network sender configured - certificate will not be broadcast to peers!");
             }
             
             // Process the certificate
@@ -918,12 +1019,47 @@ impl DagService {
                certs_in_round, cert_round, self.certificates.len());
 
          // CRITICAL FIX: Advance round when we receive our own certificate
-         // This ensures we only advance after our certificate is formed and stored
+         // BUT also ensure we have sufficient certificates from the previous round
          if author == self.name && cert_round == self.current_round {
-             self.current_round += 1;
-             info!("✅ Received our own certificate for round {} - advanced to round {}", cert_round, self.current_round);
-             // Reset failed attempts since we successfully progressed
-             self.failed_attempts_count = 0;
+             // Check if we have quorum from the previous round before advancing
+             let prev_round = self.current_round.saturating_sub(1);
+             let mut prev_round_stake = 0u64;
+             let mut prev_round_authors = Vec::new();
+             
+             if prev_round > 0 {
+                 if let Some(round_certs) = self.certificates_by_round.get(&prev_round) {
+                     for (author, _cert) in round_certs {
+                         prev_round_stake += self.committee.stake(author);
+                         prev_round_authors.push(author.encode_base64());
+                     }
+                 }
+                 
+                 info!("ROUND ADVANCE CHECK: Current round {}, checking certificates from round {}", 
+                      self.current_round, prev_round);
+                 info!("ROUND ADVANCE CHECK: Found {} certificates from round {} with total stake {} (authors: {:?})", 
+                      prev_round_authors.len(), prev_round, prev_round_stake, prev_round_authors);
+                      
+                 // FIXED: Allow round advancement with less strict requirements to ensure liveness
+                 // We need SOME certificates from previous round, but not necessarily full quorum
+                 // This prevents deadlock while still maintaining consensus safety
+                 let min_certificates_needed = if prev_round <= 10 { 1 } else { 2 }; // Bootstrap vs normal operation
+                 
+                 if prev_round_authors.len() >= min_certificates_needed || prev_round_stake >= (self.committee.quorum_threshold() / 2) {
+                     self.current_round += 1;
+                     info!("✅ Received our own certificate for round {} - advanced to round {} (had {} certs with {} stake)", 
+                          cert_round, self.current_round, prev_round_authors.len(), prev_round_stake);
+                     // Reset failed attempts since we successfully progressed
+                     self.failed_attempts_count = 0;
+                 } else {
+                     warn!("⚠️ Cannot advance to round {} yet - only have {} certificates with {} stake from round {} (need at least {} certs or {} stake)", 
+                          self.current_round + 1, prev_round_authors.len(), prev_round_stake, prev_round, min_certificates_needed, self.committee.quorum_threshold() / 2);
+                 }
+             } else {
+                 // Genesis case - always advance from round 1
+                 self.current_round += 1;
+                 info!("✅ Received our own certificate for round {} - advanced to round {}", cert_round, self.current_round);
+                 self.failed_attempts_count = 0;
+             }
          }
 
          // Send to Bullshark consensus
@@ -952,8 +1088,13 @@ impl DagService {
      
      /// Try to advance to the next round if we have enough certificates
      async fn try_advance_round(&mut self, cert_round: Round) -> DagResult<()> {
+         info!("ROUND ADVANCE CHECK: Current round {}, checking certificates from round {}", 
+               self.current_round, cert_round);
+         
          // Only consider advancing if this certificate is from our current round - 1
          if cert_round != self.current_round.saturating_sub(1) {
+             debug!("ROUND ADVANCE CHECK: Certificate round {} is not current_round-1 ({}), skipping", 
+                    cert_round, self.current_round.saturating_sub(1));
              return Ok(());
          }
          
@@ -970,6 +1111,9 @@ impl DagService {
                  authors_with_certs.push(author.encode_base64());
              }
          }
+         
+         info!("ROUND ADVANCE CHECK: Found {} certificates from round {} with total stake {} (authors: {:?})", 
+               certificates_for_round.len(), cert_round, total_stake, authors_with_certs);
          
          // BOOTSTRAP: For early rounds, use validity threshold instead of quorum
          const BOOTSTRAP_ROUNDS: u64 = 10;

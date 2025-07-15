@@ -69,15 +69,30 @@ impl RoundCompletionTracker {
     
     /// Check if a round should be finalized
     pub fn should_finalize_round(&self, round: Round, committee: &Committee) -> bool {
+        info!("FINALIZATION CHECK: Checking if round {} should be finalized", round);
+        
         // Only finalize even rounds (Bullshark leaders)
         if round % 2 != 0 {
+            info!("FINALIZATION CHECK: Round {} is odd, skipping (only even rounds have leaders)", round);
             return false;
         }
         
         let certs = match self.round_certificates.get(&round) {
-            Some(c) => c,
-            None => return false,
+            Some(c) => {
+                info!("FINALIZATION CHECK: Round {} has {} certificates", round, c.len());
+                c
+            },
+            None => {
+                info!("FINALIZATION CHECK: Round {} has no certificates yet", round);
+                return false;
+            }
         };
+        
+        // Log certificate authors
+        let cert_authors: Vec<String> = certs.keys()
+            .map(|pk| format!("{}", pk))
+            .collect();
+        debug!("FINALIZATION CHECK: Round {} certificates from: {:?}", round, cert_authors);
         
         // Check if we have quorum
         let total_stake: u64 = certs.keys()
@@ -85,33 +100,52 @@ impl RoundCompletionTracker {
             .sum();
         
         let quorum_threshold = committee.quorum_threshold();
+        info!("FINALIZATION CHECK: Round {} stake: {} / {} (quorum threshold)", 
+              round, total_stake, quorum_threshold);
+        
         if total_stake < quorum_threshold {
-            debug!("Round {} has stake {} < quorum {}", round, total_stake, quorum_threshold);
+            info!("FINALIZATION CHECK: Round {} lacks quorum (need {} more stake)", 
+                  round, quorum_threshold - total_stake);
             return false;
         }
         
         // Check if we have the leader's certificate
+        let leader = committee.leader(round);
         let has_leader = self.leader_certificates.get(&round).copied().unwrap_or(false);
+        
+        info!("FINALIZATION CHECK: Round {} leader is {}, have leader cert: {}", 
+              round, leader, has_leader);
+        
+        // Check if leader certificate has canonical metadata
+        if has_leader {
+            if let Some(leader_cert) = certs.get(leader) {
+                let has_metadata = !leader_cert.header.canonical_metadata.is_empty();
+                info!("FINALIZATION CHECK: Leader certificate has canonical metadata: {} ({} bytes)", 
+                      has_metadata, leader_cert.header.canonical_metadata.len());
+            }
+        }
         
         // If we have the leader certificate, finalize immediately for fast block times
         if has_leader {
-            info!("Round {} ready to finalize: has leader certificate", round);
+            info!("FINALIZATION CHECK: Round {} READY TO FINALIZE - has leader certificate", round);
             return true;
         }
         
         // Otherwise, check if enough time has passed since first certificate
-        let elapsed = self.round_first_seen.get(&round)
-            .map(|t| t.elapsed() >= self.round_completion_timeout)
-            .unwrap_or(false);
+        let first_seen = self.round_first_seen.get(&round);
+        let elapsed_time = first_seen.map(|t| t.elapsed()).unwrap_or(Duration::ZERO);
+        let timeout_exceeded = elapsed_time >= self.round_completion_timeout;
         
-        if elapsed {
-            warn!("Round {} ready to finalize: timeout exceeded (no leader certificate)", round);
+        info!("FINALIZATION CHECK: Round {} timeout status - elapsed: {:.1}s, timeout: {:.1}s, exceeded: {}", 
+              round, elapsed_time.as_secs_f64(), self.round_completion_timeout.as_secs_f64(), timeout_exceeded);
+        
+        if timeout_exceeded {
+            warn!("FINALIZATION CHECK: Round {} READY TO FINALIZE - timeout exceeded (no leader certificate after {:.1}s)", 
+                 round, elapsed_time.as_secs_f64());
             true
         } else {
-            let remaining = self.round_first_seen.get(&round)
-                .map(|t| self.round_completion_timeout.saturating_sub(t.elapsed()))
-                .unwrap_or(Duration::ZERO);
-            debug!("Round {} not ready: waiting for leader or timeout ({:.1}s remaining)", 
+            let remaining = self.round_completion_timeout.saturating_sub(elapsed_time);
+            info!("FINALIZATION CHECK: Round {} NOT READY - waiting for leader or timeout ({:.1}s remaining)", 
                    round, remaining.as_secs_f64());
             false
         }

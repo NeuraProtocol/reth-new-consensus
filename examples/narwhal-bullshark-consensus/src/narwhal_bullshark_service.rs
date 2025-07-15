@@ -44,6 +44,7 @@ use fastcrypto::{
     traits::{KeyPair as _, EncodeDecodeBase64, ToFromBytes},
     bls12381::BLS12381KeyPair,
     SignatureService,
+    Hash,
 };
 
 /// Thin coordination service that connects Narwhal DAG + Bullshark BFT
@@ -602,61 +603,155 @@ impl NarwhalBullsharkService {
         let handle = tokio::spawn(async move {
             info!("📡 OUTBOUND network bridge active: broadcasting DAG messages to peers");
             info!("🔍 Network handle available: {}", has_network);
-
+            
             let mut message_count = 0;
+            let mut header_count = 0;
+            let mut vote_count = 0;
+            let mut certificate_count = 0;
+            let mut error_count = 0;
+            let mut last_log_time = std::time::Instant::now();
+            let mut last_message_time = std::time::Instant::now();
+            let mut consecutive_timeouts = 0;
+            
             loop {
-                match outbound_receiver.recv().await {
-                    Some(dag_message) => {
+                // Log stats every 30 seconds
+                if last_log_time.elapsed() > std::time::Duration::from_secs(30) {
+                    let time_since_last_message = last_message_time.elapsed();
+                    info!("📊 Outbound bridge stats: {} total messages ({} headers, {} votes, {} certificates), {} errors",
+                          message_count, header_count, vote_count, certificate_count, error_count);
+                    info!("⏰ Time since last message: {:?}", time_since_last_message);
+                    
+                    // Warn if no messages for a while
+                    if time_since_last_message > std::time::Duration::from_secs(120) {
+                        warn!("⚠️ WARNING: No messages sent for {:?} - DAG may be stalled!", time_since_last_message);
+                    }
+                    
+                    last_log_time = std::time::Instant::now();
+                }
+                
+                // Use timeout to detect if channel is stuck
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(60),
+                    outbound_receiver.recv()
+                ).await {
+                    Ok(Some(dag_message)) => {
                         message_count += 1;
-                        info!("📨 Outbound bridge received message #{}", message_count);
+                        last_message_time = std::time::Instant::now();
+                        consecutive_timeouts = 0; // Reset timeout counter
+                        
+                        // Log every 100th message and all certificates
+                        let should_log = message_count % 100 == 0 || matches!(dag_message, DagMessage::Certificate(_));
+                        
+                        if should_log {
+                            info!("📨 Outbound bridge processing message #{}", message_count);
+                        }
                         
                         if let Some(network) = &network {
+                            let start_time = std::time::Instant::now();
+                            
                             match dag_message {
                                 DagMessage::Header(header) => {
-                                    info!("📤 Broadcasting header {} for round {}", header.id, header.round);
+                                    header_count += 1;
+                                    let header_id = header.id;
+                                    let round = header.round;
+                                    
+                                    info!("📤 Broadcasting header {} for round {}", header_id, round);
+                                    
                                     match network.broadcast_header(header).await {
-                                        Ok(()) => debug!("Header broadcast successful"),
+                                        Ok(()) => {
+                                            let latency = start_time.elapsed();
+                                            info!("✅ Header {} broadcast successful (latency: {:?})", header_id, latency);
+                                        }
                                         Err(e) => {
-                                            warn!("Failed to broadcast header: {:?}", e);
-                                            // Continue processing even if broadcast fails
+                                            error_count += 1;
+                                            error!("❌ Failed to broadcast header {} for round {}: {:?}", header_id, round, e);
+                                            error!("🔍 Error details: {}", e);
+                                            // Check if this is a network connectivity issue
+                                            if format!("{:?}", e).contains("connection") || format!("{:?}", e).contains("timeout") {
+                                                error!("🌐 Network connectivity issue detected - peers may be unreachable");
+                                            }
+                                            // Continue processing - don't let one failure stop the bridge
                                         }
                                     }
                                 }
                                 DagMessage::Vote(vote) => {
-                                    info!("📤 Broadcasting vote for round {}", vote.round);
+                                    vote_count += 1;
+                                    let round = vote.round;
+                                    let header_id = vote.id;
+                                    
+                                    if vote_count % 100 == 0 {
+                                        info!("📤 Broadcasting vote #{} for round {}", vote_count, round);
+                                    }
+                                    
                                     match network.broadcast_vote(vote).await {
-                                        Ok(()) => debug!("Vote broadcast successful"),
+                                        Ok(()) => {
+                                            if vote_count % 100 == 0 {
+                                                let latency = start_time.elapsed();
+                                                info!("✅ Vote broadcast successful (latency: {:?})", latency);
+                                            }
+                                        }
                                         Err(e) => {
-                                            warn!("Failed to broadcast vote: {:?}", e);
-                                            // Continue processing even if broadcast fails
+                                            error_count += 1;
+                                            error!("❌ Failed to broadcast vote for header {} round {}: {:?}", header_id, round, e);
                                         }
                                     }
                                 }
                                 DagMessage::Certificate(certificate) => {
-                                    info!("📤 Broadcasting certificate for round {}", certificate.header.round);
+                                    certificate_count += 1;
+                                    let round = certificate.header.round;
+                                    let origin = certificate.origin();
+                                    let digest = certificate.digest();
+                                    
+                                    info!("📤 Broadcasting certificate {} from {} for round {}", digest, origin, round);
+                                    
                                     match network.broadcast_certificate(certificate).await {
-                                        Ok(()) => debug!("Certificate broadcast successful"),
+                                        Ok(()) => {
+                                            let latency = start_time.elapsed();
+                                            info!("✅ Certificate {} broadcast successful (latency: {:?})", digest, latency);
+                                        }
                                         Err(e) => {
-                                            warn!("Failed to broadcast certificate: {:?}", e);
-                                            // Continue processing even if broadcast fails
+                                            error_count += 1;
+                                            error!("❌ Failed to broadcast certificate {} for round {}: {:?}", digest, round, e);
                                         }
                                     }
                                 }
                             }
                         } else {
-                            // ✅ FIX: Don't break - just skip broadcasting and continue processing
-                            debug!("No network handle available for broadcasting, skipping message");
-                            // Continue to next message instead of breaking
+                            warn!("⚠️ No network handle available for broadcasting - message #{} dropped", message_count);
+                            error_count += 1;
                         }
                     }
-                    None => {
-                        warn!("Outbound channel closed after {} messages - DAG service may have stopped", message_count);
+                    Ok(None) => {
+                        error!("❌ Outbound channel closed after {} messages - DAG service has stopped!", message_count);
                         break;
+                    }
+                    Err(_) => {
+                        // Timeout - channel might be empty or stuck
+                        consecutive_timeouts += 1;
+                        let time_since_last = last_message_time.elapsed();
+                        
+                        warn!("⏱️ Outbound bridge timeout #{} - no messages for 60s (processed {} so far, last message {:?} ago)", 
+                              consecutive_timeouts, message_count, time_since_last);
+                        
+                        // If we've had multiple consecutive timeouts, something might be wrong
+                        if consecutive_timeouts >= 3 {
+                            error!("🚨 CRITICAL: {} consecutive timeouts - channel may be permanently stuck!", consecutive_timeouts);
+                            error!("🔍 Last successful message was {:?} ago", time_since_last);
+                            
+                            // Try to check if channel is still functional
+                            // Since we can't directly check if closed, we'll just warn
+                            warn!("📡 Channel appears stuck - DAG service may not be producing messages");
+                            warn!("🔍 Consider checking if DAG service is blocked or has crashed");
+                        }
+                        
+                        // Continue waiting - don't exit unless channel is closed
                     }
                 }
             }
-
-            info!("🔚 Outbound network bridge stopped after processing {} messages", message_count);
+            
+            error!("🔚 CRITICAL: Outbound network bridge STOPPED after {} messages ({} errors)!", message_count, error_count);
+            error!("📊 Final stats: {} headers, {} votes, {} certificates", header_count, vote_count, certificate_count);
+            error!("⚠️ This means NO MORE messages will be broadcast to peers - consensus will STALL!");
         });
 
         Ok(handle)

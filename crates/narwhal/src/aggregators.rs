@@ -25,6 +25,8 @@ pub struct VotesAggregator {
     voters: HashSet<PublicKey>,
     /// Total stake accumulated from votes
     stake: u64,
+    /// Whether a certificate has already been formed from these votes
+    certificate_formed: bool,
 }
 
 impl VotesAggregator {
@@ -35,6 +37,7 @@ impl VotesAggregator {
             votes: Vec::new(),
             voters: HashSet::new(),
             stake: 0,
+            certificate_formed: false,
         }
     }
 
@@ -45,6 +48,7 @@ impl VotesAggregator {
             votes: Vec::new(),
             voters: HashSet::new(),
             stake: 0,
+            certificate_formed: false,
         }
     }
 
@@ -89,9 +93,15 @@ impl VotesAggregator {
 
     /// Try to form a certificate if we have quorum
     pub fn try_form_certificate(
-        &self,
+        &mut self,
         committee: &crate::types::Committee,
     ) -> DagResult<Option<Certificate>> {
+        // Check if we already formed a certificate
+        if self.certificate_formed {
+            debug!("Certificate already formed for this aggregator, skipping duplicate formation");
+            return Ok(None);
+        }
+        
         if !self.has_quorum(committee) {
             return Ok(None);
         }
@@ -102,8 +112,11 @@ impl VotesAggregator {
         // Create certificate with the collected votes
         let certificate = Certificate::new(committee, header.clone(), self.votes.clone())?;
         
+        // Mark that we've formed a certificate to prevent duplicates
+        self.certificate_formed = true;
+        
         info!(
-            "Formed certificate for round {} with {} votes (stake: {})",
+            "Formed certificate for round {} with {} votes (stake: {}) - FIRST TIME",
             header.round,
             self.votes.len(),
             self.stake

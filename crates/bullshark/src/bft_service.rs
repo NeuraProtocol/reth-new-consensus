@@ -207,13 +207,14 @@ impl BftService {
                 // Check for new certificates
                 Some(certificate) = self.certificate_receiver.recv() => {
                     info!("BFT: Received certificate from Narwhal for round {}", certificate.round());
-                    debug!("Received certificate from Narwhal: {:?}", certificate);
 
                     match self.process_certificate(certificate).await {
                         Ok(finalized_count) => {
                             if finalized_count > 0 {
-                                info!("Finalized {} batches in this round", finalized_count);
+                                info!("BFT: Finalized {} batches in this round", finalized_count);
                                 self.metrics.record_finalization(finalized_count, 1); // TODO: calculate actual latency
+                            } else {
+                                debug!("BFT: No outputs from this certificate");
                             }
                         }
                         Err(e) => {

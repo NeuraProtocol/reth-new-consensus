@@ -13,7 +13,7 @@ use narwhal::{
 };
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use fastcrypto::Hash;
 
 /// Trait for consensus protocols that process certificates
@@ -122,18 +122,31 @@ impl ConsensusProtocol for BullsharkConsensus {
         // Check if we already committed this round
         let dag_stats = dag.stats();
         if commit_round <= dag_stats.last_committed_round {
+            debug!("Round {} already committed (last committed: {})", commit_round, dag_stats.last_committed_round);
             return Ok(Vec::new());
         }
 
         // Get the leader certificate for this round
+        info!("Looking for leader {} at round {}", self.committee.leader(commit_round), commit_round);
+        let round_certs = dag.get_certificates_at_round(commit_round);
+        info!("Round {} has {} certificates", commit_round, round_certs.len());
+        
         let leader_result = dag.get_leader_certificate(commit_round, &self.committee);
         let (leader_digest, leader) = match leader_result {
             Some(leader_cert) => {
                 let digest = leader_cert.digest();
+                info!("Found leader certificate from {} for round {} (digest: {:?})", 
+                     leader_cert.origin(), commit_round, digest);
                 (digest, leader_cert.clone())
             }
             None => {
-                debug!("No leader found for round {}", commit_round);
+                warn!("No leader certificate found for round {} - expected leader: {}", 
+                     commit_round, self.committee.leader(commit_round));
+                let round_certs = dag.get_certificates_at_round(commit_round);
+                if !round_certs.is_empty() {
+                    let cert_authors: Vec<_> = round_certs.iter().map(|c| c.origin()).collect();
+                    info!("Certificates in round {} from: {:?}", commit_round, cert_authors);
+                }
                 return Ok(Vec::new());
             }
         };

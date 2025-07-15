@@ -56,13 +56,30 @@ impl BullsharkDag {
         let author = certificate.origin();
         let digest = certificate.digest();
 
-        debug!("Inserting certificate {} from {} at round {}", digest, author, round);
+        info!("DAG INSERT: Certificate from {} at round {} (digest: {:?})", author, round, digest);
+
+        // Check if we already have this certificate
+        if let Some(round_certs) = self.dag.get(&round) {
+            if round_certs.contains_key(&author) {
+                debug!("DAG INSERT: Already have certificate from {} at round {}", author, round);
+                return Ok(());
+            }
+        }
+
+        // Log parent information
+        debug!("DAG INSERT: Certificate has {} parents", certificate.header.parents.len());
+        for parent in &certificate.header.parents {
+            debug!("DAG INSERT: Parent: {:?}", parent);
+        }
 
         // Add to DAG
-        self.dag
+        let round_certs = self.dag
             .entry(round)
-            .or_insert_with(HashMap::new)
-            .insert(author, (digest, certificate));
+            .or_insert_with(HashMap::new);
+        
+        round_certs.insert(author, (digest, certificate));
+        
+        info!("DAG INSERT: Round {} now has {} certificates", round, round_certs.len());
 
         Ok(())
     }
@@ -137,16 +154,25 @@ impl BullsharkDag {
         let child_round = round + 1;
         
         if let Some(child_certs) = self.dag.get(&child_round) {
-            // Debug: list all certificates in child round
-            info!("Checking support for leader in round {} (digest: {:?})", round, leader_digest);
-            info!("Found {} certificates in child round {}", child_certs.len(), child_round);
+            info!("SUPPORT CHECK: Checking support for leader in round {} (digest: {:?})", round, leader_digest);
+            info!("SUPPORT CHECK: Found {} certificates in child round {}", child_certs.len(), child_round);
+            
+            // Log all certificates in the child round
+            for (author, cert) in child_certs {
+                debug!("SUPPORT CHECK: Round {} has cert from {}", child_round, author);
+            }
             
             let supporting_certs: Vec<_> = child_certs
                 .values()
                 .filter(|(_, cert)| cert.header.parents.contains(leader_digest))
                 .collect();
                 
-            info!("Certificates with leader as parent: {}", supporting_certs.len());
+            info!("SUPPORT CHECK: Certificates with leader as parent: {}", supporting_certs.len());
+            
+            // Log which certificates support the leader
+            for (_, cert) in &supporting_certs {
+                info!("SUPPORT CHECK: Certificate from {} supports leader", cert.origin());
+            }
             
             let support_stake: u64 = supporting_certs
                 .iter()
@@ -170,11 +196,20 @@ impl BullsharkDag {
                 threshold
             };
             
-            info!("Support stake: {} / {} (effective threshold)", support_stake, effective_threshold);
+            info!("SUPPORT CHECK: Support stake: {} / {} (effective threshold)", support_stake, effective_threshold);
             
-            support_stake >= effective_threshold
+            let has_support = support_stake >= effective_threshold;
+            if has_support {
+                info!("SUPPORT CHECK: Leader {} in round {} HAS SUFFICIENT SUPPORT", 
+                     leader_digest, round);
+            } else {
+                warn!("SUPPORT CHECK: Leader {} in round {} LACKS SUPPORT (need {} more stake)", 
+                     leader_digest, round, effective_threshold - support_stake);
+            }
+            has_support
         } else {
-            info!("No certificates found in child round {} for leader in round {}", child_round, round);
+            warn!("SUPPORT CHECK: No certificates found in child round {} for leader in round {}", 
+                 child_round, round);
             false
         }
     }

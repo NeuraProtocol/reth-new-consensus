@@ -69,7 +69,16 @@ impl NarwhalConsensus for NarwhalConsensusService {
         request: Request<Header>,
     ) -> Result<Response<HeaderResponse>, anemo::rpc::Status> {
         let header = request.into_inner();
-        debug!("Received header: {:?}", header);
+        let receive_time = std::time::Instant::now();
+        
+        info!("PROPAGATION: Received header from {} for round {} (parents: {}, batches: {})", 
+              header.author, header.round, header.parents.len(), header.payload.len());
+        
+        // Log canonical metadata presence
+        if !header.canonical_metadata.is_empty() {
+            info!("PROPAGATION: Header contains canonical metadata ({} bytes)", 
+                  header.canonical_metadata.len());
+        }
 
         // Record metrics
         if let Some(m) = metrics() {
@@ -77,7 +86,17 @@ impl NarwhalConsensus for NarwhalConsensusService {
         }
 
         // Send event to local consensus
-        let _ = self.event_sender.send(NetworkEvent::HeaderReceived(header));
+        match self.event_sender.send(NetworkEvent::HeaderReceived(header.clone())) {
+            Ok(receivers) => {
+                let latency = receive_time.elapsed();
+                info!("PROPAGATION: Header from {} delivered to {} local receivers (latency: {:?})", 
+                      header.author, receivers, latency);
+            }
+            Err(e) => {
+                warn!("PROPAGATION: Failed to deliver header from {} - no receivers: {}", 
+                      header.author, e);
+            }
+        }
 
         let response = HeaderResponse {
             accepted: true,
@@ -92,7 +111,10 @@ impl NarwhalConsensus for NarwhalConsensusService {
         request: Request<Vote>,
     ) -> Result<Response<VoteResponse>, anemo::rpc::Status> {
         let vote = request.into_inner();
-        debug!("Received vote: {:?}", vote);
+        let receive_time = std::time::Instant::now();
+        
+        info!("PROPAGATION: Received vote from {} for header {} (round {})", 
+              vote.author, vote.id, vote.round);
 
         // Record metrics
         if let Some(m) = metrics() {
@@ -100,7 +122,17 @@ impl NarwhalConsensus for NarwhalConsensusService {
         }
 
         // Send event to local consensus
-        let _ = self.event_sender.send(NetworkEvent::VoteReceived(vote));
+        match self.event_sender.send(NetworkEvent::VoteReceived(vote.clone())) {
+            Ok(receivers) => {
+                let latency = receive_time.elapsed();
+                info!("PROPAGATION: Vote from {} delivered to {} local receivers (latency: {:?})", 
+                      vote.author, receivers, latency);
+            }
+            Err(e) => {
+                warn!("PROPAGATION: Failed to deliver vote from {} - no receivers: {}", 
+                      vote.author, e);
+            }
+        }
 
         let response = VoteResponse {
             accepted: true,
@@ -115,7 +147,16 @@ impl NarwhalConsensus for NarwhalConsensusService {
         request: Request<Certificate>,
     ) -> Result<Response<CertificateResponse>, anemo::rpc::Status> {
         let certificate = request.into_inner();
-        debug!("Received certificate: {:?}", certificate);
+        let receive_time = std::time::Instant::now();
+        
+        info!("PROPAGATION: Received certificate from {} for round {} (digest: {})", 
+              certificate.origin(), certificate.round(), certificate.digest());
+        
+        // Log canonical metadata presence
+        if !certificate.header.canonical_metadata.is_empty() {
+            info!("PROPAGATION: Certificate contains canonical metadata ({} bytes)", 
+                  certificate.header.canonical_metadata.len());
+        }
 
         // Record metrics
         if let Some(m) = metrics() {
@@ -124,15 +165,27 @@ impl NarwhalConsensus for NarwhalConsensusService {
 
         // Store certificate
         let digest = certificate.digest();
+        let store_start = std::time::Instant::now();
         self.certificate_store
             .write()
             .await
             .insert(digest, certificate.clone());
+        let store_latency = store_start.elapsed();
+        
+        info!("PROPAGATION: Certificate {} stored (latency: {:?})", digest, store_latency);
 
         // Send event to local consensus
-        let _ = self
-            .event_sender
-            .send(NetworkEvent::CertificateReceived(certificate));
+        match self.event_sender.send(NetworkEvent::CertificateReceived(certificate.clone())) {
+            Ok(receivers) => {
+                let total_latency = receive_time.elapsed();
+                info!("PROPAGATION: Certificate from {} delivered to {} local receivers (total latency: {:?})", 
+                      certificate.origin(), receivers, total_latency);
+            }
+            Err(e) => {
+                warn!("PROPAGATION: Failed to deliver certificate from {} - no receivers: {}", 
+                      certificate.origin(), e);
+            }
+        }
 
         let response = CertificateResponse {
             accepted: true,
@@ -470,38 +523,101 @@ impl NarwhalNetwork {
 
     /// Broadcast a header to all connected peers
     pub async fn broadcast_header(&self, header: Header) -> DagResult<()> {
-        self.broadcast_with_retry(
+        let start_time = std::time::Instant::now();
+        let round = header.round;
+        let author = header.author.clone();
+        let has_metadata = !header.canonical_metadata.is_empty();
+        
+        info!("PROPAGATION: Broadcasting header from {} for round {} to peers (has_metadata: {})", 
+              author, round, has_metadata);
+        
+        let result = self.broadcast_with_retry(
             header,
             "header",
             |peer, header| async move {
                 let mut client = NarwhalConsensusClient::new(peer);
                 client.submit_header(header).await.map(|_| ())
             }
-        ).await.map(|_| ())
+        ).await;
+        
+        match &result {
+            Ok(sent_count) => {
+                let latency = start_time.elapsed();
+                info!("PROPAGATION: Header broadcast complete - sent to {} peers (latency: {:?})", 
+                      sent_count, latency);
+            }
+            Err(e) => {
+                warn!("PROPAGATION: Header broadcast failed: {}", e);
+            }
+        }
+        
+        result.map(|_| ())
     }
 
     /// Broadcast a vote to all connected peers
     pub async fn broadcast_vote(&self, vote: Vote) -> DagResult<()> {
-        self.broadcast_with_retry(
+        let start_time = std::time::Instant::now();
+        let round = vote.round;
+        let author = vote.author.clone();
+        let header_id = vote.id;
+        
+        info!("PROPAGATION: Broadcasting vote from {} for header {} (round {})", 
+              author, header_id, round);
+        
+        let result = self.broadcast_with_retry(
             vote,
             "vote",
             |peer, vote| async move {
                 let mut client = NarwhalConsensusClient::new(peer);
                 client.submit_vote(vote).await.map(|_| ())
             }
-        ).await.map(|_| ())
+        ).await;
+        
+        match &result {
+            Ok(sent_count) => {
+                let latency = start_time.elapsed();
+                info!("PROPAGATION: Vote broadcast complete - sent to {} peers (latency: {:?})", 
+                      sent_count, latency);
+            }
+            Err(e) => {
+                warn!("PROPAGATION: Vote broadcast failed: {}", e);
+            }
+        }
+        
+        result.map(|_| ())
     }
 
     /// Broadcast a certificate to all connected peers
     pub async fn broadcast_certificate(&self, certificate: Certificate) -> DagResult<()> {
-        self.broadcast_with_retry(
+        let start_time = std::time::Instant::now();
+        let round = certificate.round();
+        let author = certificate.origin();
+        let digest = certificate.digest();
+        let has_metadata = !certificate.header.canonical_metadata.is_empty();
+        info!("PROPAGATION: Broadcasting certificate from {} for round {} (digest: {}, has_metadata: {})", 
+              author, round, digest, has_metadata);
+        
+        let result = self.broadcast_with_retry(
             certificate,
             "certificate",
             |peer, certificate| async move {
                 let mut client = NarwhalConsensusClient::new(peer);
                 client.submit_certificate(certificate).await.map(|_| ())
             }
-        ).await.map(|_| ())
+        ).await;
+        
+        match &result {
+            Ok(sent_count) => {
+                let latency = start_time.elapsed();
+                info!("PROPAGATION: Certificate broadcast complete - sent to {} peers (latency: {:?})", 
+                      sent_count, latency);
+            }
+            Err(e) => {
+                warn!("PROPAGATION: Certificate broadcast failed: {}", e);
+            }
+        }
+        
+        result.map(|_| ())
     }
 
     /// Request certificates from a specific peer

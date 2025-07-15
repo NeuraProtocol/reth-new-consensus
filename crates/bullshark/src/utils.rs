@@ -20,6 +20,11 @@ pub fn order_leaders<F>(
 where
     F: for<'a> Fn(&'a Committee, Round, &'a Dag) -> Option<&'a (CertificateDigest, Certificate)>,
 {
+    use tracing::info;
+    
+    info!("CONSENSUS RULE: Starting leader ordering from {} at round {}", 
+          leader_certificate.origin(), leader_certificate.round());
+    
     let mut sequence = Vec::new();
     let mut current_leader = leader_certificate.clone();
     let mut visited = HashSet::new();
@@ -29,23 +34,25 @@ where
         
         // Avoid infinite loops
         if visited.contains(&leader_digest) {
+            info!("CONSENSUS RULE: Already visited leader {}, stopping to avoid loop", leader_digest);
             break;
         }
         visited.insert(leader_digest);
 
         sequence.push(current_leader.clone());
-        debug!("Added leader {} from round {} to sequence", 
-               current_leader.origin(), current_leader.round());
+        info!("CONSENSUS RULE: Added leader {} from round {} to commit sequence (position {})", 
+               current_leader.origin(), current_leader.round(), sequence.len());
 
         // Find the previous leader this one references
         let current_round = current_leader.round();
         if current_round < 2 {
-            // No more leaders to process
+            info!("CONSENSUS RULE: Round {} is too low for previous leaders, stopping", current_round);
             break;
         }
 
         // Look for the previous leader (two rounds back for Bullshark)
         let prev_leader_round = current_round - 2;
+        info!("CONSENSUS RULE: Looking for previous leader at round {} (current - 2)", prev_leader_round);
         
         // Find if current leader references the previous leader
         let prev_leader = find_referenced_leader(
@@ -58,15 +65,19 @@ where
 
         match prev_leader {
             Some(leader) => {
+                info!("CONSENSUS RULE: Found previous leader {} at round {}, continuing chain", 
+                      leader.origin(), prev_leader_round);
                 current_leader = leader;
             }
             None => {
-                // No valid previous leader found
+                info!("CONSENSUS RULE: No valid previous leader found at round {}, stopping chain", 
+                      prev_leader_round);
                 break;
             }
         }
     }
 
+    info!("CONSENSUS RULE: Leader sequence complete with {} leaders to commit", sequence.len());
     sequence
 }
 
@@ -81,14 +92,28 @@ fn find_referenced_leader<F>(
 where
     F: for<'a> Fn(&'a Committee, Round, &'a Dag) -> Option<&'a (CertificateDigest, Certificate)>,
 {
+    use tracing::{info, warn};
+    
+    info!("CONSENSUS RULE: Searching for leader at round {} referenced by certificate from {}", 
+          target_round, certificate.origin());
+    
     // Get the leader for the target round
     if let Some(leader_cert) = dag.get_leader_certificate(target_round, committee) {
         let leader_digest = leader_cert.digest();
+        info!("CONSENSUS RULE: Found leader {} at round {}, checking if referenced", 
+              leader_cert.origin(), target_round);
         
         // Check if the current certificate (or its ancestors) reference this leader
         if certificate_references_leader(certificate, &leader_digest, dag) {
+            info!("CONSENSUS RULE: Leader {} IS referenced by certificate chain - COMMIT", 
+                  leader_cert.origin());
             return Some(leader_cert.clone());
+        } else {
+            warn!("CONSENSUS RULE: Leader {} is NOT referenced by certificate chain - SKIP", 
+                  leader_cert.origin());
         }
+    } else {
+        warn!("CONSENSUS RULE: No leader certificate found at round {}", target_round);
     }
     
     None
@@ -100,33 +125,44 @@ fn certificate_references_leader(
     leader_digest: &CertificateDigest,
     dag: &BullsharkDag,
 ) -> bool {
+    use tracing::info;
+    
     let mut visited = HashSet::new();
     let mut queue = VecDeque::new();
+    let mut traversal_depth = 0;
+    
+    info!("CONSENSUS RULE: Checking if certificate references leader {} via parent traversal", leader_digest);
     
     // Start with the certificate's parents
     for parent_digest in &certificate.header.parents {
-        queue.push_back(*parent_digest);
+        queue.push_back((*parent_digest, 1));
     }
+    info!("CONSENSUS RULE: Starting with {} parent certificates", certificate.header.parents.len());
 
-    while let Some(current_digest) = queue.pop_front() {
+    while let Some((current_digest, depth)) = queue.pop_front() {
         if visited.contains(&current_digest) {
             continue;
         }
         visited.insert(current_digest);
+        traversal_depth = traversal_depth.max(depth);
 
         // Check if this is the leader we're looking for
         if current_digest == *leader_digest {
+            info!("CONSENSUS RULE: Found leader reference at depth {} after visiting {} certificates", 
+                  depth, visited.len());
             return true;
         }
 
         // Add this certificate's parents to the queue
         if let Some(cert) = dag.get_certificate(&current_digest) {
             for parent_digest in &cert.header.parents {
-                queue.push_back(*parent_digest);
+                queue.push_back((*parent_digest, depth + 1));
             }
         }
     }
 
+    info!("CONSENSUS RULE: Leader NOT found after traversing {} certificates (max depth: {})", 
+          visited.len(), traversal_depth);
     false
 }
 
