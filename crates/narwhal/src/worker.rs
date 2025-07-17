@@ -229,10 +229,8 @@ impl Worker {
             .add_rpc_service(worker_service)
             .add_rpc_service(primary_service);
         
-        // Build service with tracing
-        let service = ServiceBuilder::new()
-            .layer(TraceLayer::new())
-            .service(routes);
+        // Build service (tracing layer removed for now)
+        let service = routes;
         
         // Generate network private key that will produce the correct PeerId
         // This must match the derive_worker_peer_id function

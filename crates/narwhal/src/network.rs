@@ -16,12 +16,13 @@ use anemo::{Network, Request, Response, Router, PeerId};
 use anemo_tower::trace::TraceLayer;
 use anyhow::anyhow;
 use bytes::Bytes;
+use backoff;
 use fastcrypto::{traits::{KeyPair, ToFromBytes}, Hash};
 use std::{
     collections::HashMap,
     net::SocketAddr,
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::sync::{broadcast, RwLock};
 use tower::ServiceBuilder;
@@ -41,6 +42,16 @@ pub enum NetworkEvent {
     PeerConnected(PublicKey),
     /// A peer disconnected
     PeerDisconnected(PublicKey),
+}
+
+/// Connection health tracking for automatic reconnection
+#[derive(Debug, Clone)]
+pub struct ConnectionHealth {
+    pub peer_key: PublicKey,
+    pub address: SocketAddr,
+    pub last_successful: Option<Instant>,
+    pub consecutive_failures: usize,
+    pub last_reconnect_attempt: Option<Instant>,
 }
 
 /// Consensus service implementation for handling incoming RPC requests
@@ -295,6 +306,8 @@ pub struct NarwhalNetwork {
     certificate_store: Arc<RwLock<HashMap<CertificateDigest, Certificate>>>,
     /// Batch storage
     batch_store: Arc<RwLock<HashMap<BatchDigest, Batch>>>,
+    /// Connection health tracking for automatic reconnection
+    connection_health: Arc<RwLock<HashMap<PublicKey, ConnectionHealth>>>,
     /// Retry configuration for network operations
     retry_config: RetryConfig,
     /// Bounded executors for each peer to limit concurrent operations
@@ -326,6 +339,7 @@ impl Clone for NarwhalNetwork {
             event_sender: self.event_sender.clone(),
             certificate_store: self.certificate_store.clone(),
             batch_store: self.batch_store.clone(),
+            connection_health: self.connection_health.clone(),
             retry_config: self.retry_config.clone(),
             peer_executors: self.peer_executors.clone(),
             global_executor: self.global_executor.clone(),
@@ -365,7 +379,6 @@ impl NarwhalNetwork {
             .server_name("narwhal-network")
             .outbound_request_layer(
                 ServiceBuilder::new()
-                    .layer(TraceLayer::new())
                     .into_inner(),
             )
             .start(router)
@@ -402,6 +415,7 @@ impl NarwhalNetwork {
             event_sender,
             certificate_store,
             batch_store,
+            connection_health: Arc::new(RwLock::new(HashMap::new())),
             retry_config,
             peer_executors: Arc::new(RwLock::new(HashMap::new())),
             global_executor,
@@ -445,6 +459,18 @@ impl NarwhalNetwork {
             .write()
             .await
             .insert(consensus_key.clone(), peer_id);
+
+        // Initialize connection health tracking
+        self.connection_health
+            .write()
+            .await
+            .insert(consensus_key.clone(), ConnectionHealth {
+                peer_key: consensus_key.clone(),
+                address: network_address,
+                last_successful: Some(Instant::now()),
+                consecutive_failures: 0,
+                last_reconnect_attempt: None,
+            });
 
         let _ = self
             .event_sender
@@ -850,14 +876,29 @@ impl NarwhalNetwork {
         let successful_sends = results.iter().filter(|r| r.is_ok()).count();
         let total_peers = results.len();
         
-        // Record metrics
+        // Record metrics and connection health
         if let Some(m) = metrics() {
             for (idx, result) in results.iter().enumerate() {
                 if let Some((peer_key, _)) = peer_map.iter().nth(idx) {
                     if result.is_ok() {
                         m.record_message_sent(operation_name, &peer_key.to_string());
+                        // Record successful send for health monitoring
+                        self.record_successful_send(peer_key).await;
                     } else {
                         m.record_connection_error("send_failed", &peer_key.to_string());
+                        // Record failed send for health monitoring
+                        self.record_failed_send(peer_key).await;
+                    }
+                }
+            }
+        } else {
+            // Record health even if metrics are disabled
+            for (idx, result) in results.iter().enumerate() {
+                if let Some((peer_key, _)) = peer_map.iter().nth(idx) {
+                    if result.is_ok() {
+                        self.record_successful_send(peer_key).await;
+                    } else {
+                        self.record_failed_send(peer_key).await;
                     }
                 }
             }
@@ -907,6 +948,108 @@ impl NarwhalNetwork {
             // Fallback to using the derived bytes directly
             debug!("Failed to create Ed25519 key, using raw bytes as PeerId");
             PeerId(network_private_key_bytes)
+        }
+    }
+
+    /// Start connection health monitoring task
+    pub fn start_connection_health_monitoring(&self) {
+        let connection_health = self.connection_health.clone();
+        let network = self.network.clone();
+        let peer_map = self.peer_map.clone();
+        let retry_config = self.retry_config.clone();
+        let global_executor = self.global_executor.clone();
+        
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(30));
+            info!("🔍 Network connection health monitoring started");
+            
+            loop {
+                interval.tick().await;
+                
+                let health_map = connection_health.read().await;
+                let peer_map_read = peer_map.read().await;
+                
+                for (peer_key, health) in health_map.iter() {
+                    // Check if peer is still connected
+                    if let Some(peer_id) = peer_map_read.get(peer_key) {
+                        if !network.peers().contains(peer_id) {
+                            warn!("🔌 Peer {} disconnected, scheduling reconnection", peer_key);
+                            
+                            // Schedule reconnection
+                            let network_clone = network.clone();
+                            let peer_key_clone = peer_key.clone();
+                            let health_clone = health.clone();
+                            let retry_config_clone = retry_config.clone();
+                            let peer_map_clone = peer_map.clone();
+                            let connection_health_clone = connection_health.clone();
+                            
+                            global_executor.spawn_with_retries(
+                                retry_config_clone,
+                                format!("reconnect-{}", peer_key),
+                                move || {
+                                    let network = network_clone.clone();
+                                    let peer_key = peer_key_clone.clone();
+                                    let health = health_clone.clone();
+                                    let peer_map = peer_map_clone.clone();
+                                    let connection_health = connection_health_clone.clone();
+                                    
+                                    async move {
+                                        info!("🔄 Attempting to reconnect to peer {} at {}", peer_key, health.address);
+                                        
+                                        match network.connect(health.address).await {
+                                            Ok(new_peer_id) => {
+                                                info!("✅ Successfully reconnected to peer {}", peer_key);
+                                                
+                                                // Update peer map
+                                                peer_map.write().await.insert(peer_key.clone(), new_peer_id);
+                                                
+                                                // Update connection health
+                                                let mut health_map = connection_health.write().await;
+                                                if let Some(health_entry) = health_map.get_mut(&peer_key) {
+                                                    health_entry.last_successful = Some(Instant::now());
+                                                    health_entry.consecutive_failures = 0;
+                                                    health_entry.last_reconnect_attempt = Some(Instant::now());
+                                                }
+                                                
+                                                Ok(())
+                                            }
+                                            Err(e) => {
+                                                warn!("❌ Failed to reconnect to peer {}: {}", peer_key, e);
+                                                
+                                                // Update failure count
+                                                let mut health_map = connection_health.write().await;
+                                                if let Some(health_entry) = health_map.get_mut(&peer_key) {
+                                                    health_entry.consecutive_failures += 1;
+                                                    health_entry.last_reconnect_attempt = Some(Instant::now());
+                                                }
+                                                
+                                                Err(backoff::Error::permanent(e))
+                                            }
+                                        }
+                                    }
+                                }
+                            );
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    /// Update connection health when a message is successfully sent
+    pub async fn record_successful_send(&self, peer_key: &PublicKey) {
+        let mut health_map = self.connection_health.write().await;
+        if let Some(health) = health_map.get_mut(peer_key) {
+            health.last_successful = Some(Instant::now());
+            health.consecutive_failures = 0;
+        }
+    }
+
+    /// Update connection health when a send fails
+    pub async fn record_failed_send(&self, peer_key: &PublicKey) {
+        let mut health_map = self.connection_health.write().await;
+        if let Some(health) = health_map.get_mut(peer_key) {
+            health.consecutive_failures += 1;
         }
     }
 }

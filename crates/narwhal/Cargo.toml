@@ -17,8 +17,8 @@ alloy-eips.workspace = true
 fastcrypto = "=0.1.2"
 
 # Networking dependencies - using anemo reference
-anemo = { path = "../../anemo-reference/crates/anemo" }
-anemo-tower = { path = "../../anemo-reference/crates/anemo-tower" }
+anemo.workspace = true
+anemo-tower.workspace = true
 tower = { version = "0.4", features = ["full"] }
 anyhow = "1.0.56"
 
