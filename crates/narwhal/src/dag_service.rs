@@ -91,6 +91,8 @@ pub struct DagService {
     failed_attempts_count: u32,
     /// Chain state provider for canonical metadata creation
     chain_state: Option<std::sync::Arc<dyn ChainStateProvider>>,
+    /// Track which rounds we've already voted for to prevent multiple votes per round
+    voted_rounds: HashSet<Round>,
 }
 
 impl std::fmt::Debug for DagService {
@@ -140,6 +142,7 @@ impl DagService {
             gc_round: 0,
             failed_attempts_count: 0,
             chain_state: None,
+            voted_rounds: HashSet::new(),
         }
     }
     
@@ -847,8 +850,16 @@ impl DagService {
              })
              .or_insert_with(|| VotesAggregator::with_header(header.clone()));
 
-         // Create and send vote for this header
-         self.send_vote(header).await
+         // Create and send vote for this header only if we haven't already voted for this round
+         if !self.voted_rounds.contains(&header.round) {
+             self.send_vote(header).await?;
+             self.voted_rounds.insert(header.round);
+             debug!("Voted for header {} (round {}) and marked round as voted", header.id, header.round);
+         } else {
+             debug!("Skipping vote for header {} (round {}) - already voted for this round", header.id, header.round);
+         }
+         
+         Ok(())
      }
 
      /// Send vote for header (from reference implementation)
