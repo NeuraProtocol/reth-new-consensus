@@ -122,6 +122,7 @@ where
         consensus_rpc_port: args.consensus_rpc_port,
         consensus_port: args.network_address.port(),
         enable_admin_api: args.consensus_rpc_enable_admin,
+        gc_depth: args.gc_depth,
     };
 
     // Create the node integration (V2 with Reth payload builder)

@@ -122,6 +122,7 @@ where
         )?;
         
         bridge.set_chain_spec(self.chain_spec.clone());
+        bridge.set_chain_state_provider(self.provider.clone()); // ✅ NEW: Pass provider for actual chain tip initialization
         bridge.start().await?;
         
         // Main loop: get finalized batches and build blocks using Reth

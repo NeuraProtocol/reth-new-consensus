@@ -492,6 +492,15 @@ impl Hash for Vote {
     }
 }
 
+/// Stores the last vote digest for a given authority and round
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct RoundVoteDigestPair {
+    /// The latest round for which a vote was sent to given authority
+    pub round: Round,
+    /// The hash of the vote used to ensure equality
+    pub vote_digest: VoteDigest,
+}
+
 /// A certificate containing a header and votes
 #[serde_as]
 #[derive(Clone, Serialize, Deserialize, Default)]

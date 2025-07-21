@@ -1,9 +1,9 @@
 //! Narwhal DAG service implementation adapted from reference implementation
 
 use crate::{
-    types::{Certificate, Committee, Header, Vote, PublicKey, Signature, HeaderDigest}, 
+    types::{Certificate, Committee, Header, Vote, PublicKey, Signature, HeaderDigest, RoundVoteDigestPair, VoteDigest}, 
     NarwhalConfig, DagError, DagResult, Transaction, Round, Batch, BatchDigest, WorkerId,
-    aggregators::VotesAggregator,
+    aggregators::{VotesAggregator, CertificatesAggregator},
     storage_trait::{DagStorageInterface, DagStorageRef},
     metrics_collector::{metrics, MetricTimer},
 };
@@ -74,6 +74,9 @@ pub struct DagService {
     /// Vote aggregators for ALL headers we've seen (not just our own)
     /// Maps HeaderDigest -> VotesAggregator
     vote_aggregators: HashMap<HeaderDigest, VotesAggregator>,
+    /// Store to persist last voted round per authority to ensure idempotence
+    /// Maps PublicKey (header author) -> RoundVoteDigestPair
+    vote_digest_store: HashMap<PublicKey, RoundVoteDigestPair>,
     /// Certificate storage for parent tracking
     certificates: HashMap<CertificateDigest, Certificate>,
     /// Latest certificates by author for parent tracking (for DAG parents)
@@ -91,8 +94,12 @@ pub struct DagService {
     failed_attempts_count: u32,
     /// Chain state provider for canonical metadata creation
     chain_state: Option<std::sync::Arc<dyn ChainStateProvider>>,
-    /// Track which rounds we've already voted for to prevent multiple votes per round
-    voted_rounds: HashSet<Round>,
+    /// Aggregates certificates to use as parents for new headers (from reference implementation)
+    certificates_aggregators: HashMap<Round, crate::aggregators::CertificatesAggregator>,
+    /// The last parents we have available for proposing new headers (from reference implementation)
+    last_parents: Vec<Certificate>,
+    /// Pending parent updates from Core to Proposer functionality (reference implementation pattern)
+    pending_parent_updates: Vec<(Vec<Certificate>, Round)>,
 }
 
 impl std::fmt::Debug for DagService {
@@ -134,6 +141,7 @@ impl DagService {
             processing: HashMap::new(),
             current_header: None,
             vote_aggregators: HashMap::new(),
+            vote_digest_store: HashMap::new(),
             certificates: HashMap::new(),
             latest_certificates: HashMap::new(),
             certificates_by_round: HashMap::new(),
@@ -142,7 +150,9 @@ impl DagService {
             gc_round: 0,
             failed_attempts_count: 0,
             chain_state: None,
-            voted_rounds: HashSet::new(),
+            certificates_aggregators: HashMap::new(),
+            last_parents: Vec::new(),
+            pending_parent_updates: Vec::new(),
         }
     }
     
@@ -211,6 +221,10 @@ impl DagService {
         info!("DAG service node {} has started successfully.", self.name);
         let mut timer_expired = false;
         loop {
+            // REFERENCE IMPLEMENTATION: Process pending parent updates from Core to Proposer
+            // This must happen at the beginning of each loop iteration
+            self.process_pending_parent_updates();
+            
             // Check if we can propose a new header - following reference implementation pattern
             // We propose when:
             // (i) the timer expired 
@@ -218,47 +232,15 @@ impl DagService {
             let enough_parents = if self.current_round == 1 {
                 true // Genesis case
             } else {
-                let prev_round = self.current_round.saturating_sub(1);
-                let mut total_stake = 0u64;
-                let mut cert_count = 0;
-                let mut authors_with_certs = Vec::new();
-                
-                // Use round-specific certificate tracking instead of latest_certificates
-                if let Some(round_certs) = self.certificates_by_round.get(&prev_round) {
-                    for (author, _cert) in round_certs {
-                        total_stake += self.committee.stake(author);
-                        cert_count += 1;
-                        authors_with_certs.push(author.encode_base64());
-                    }
-                }
-                
-                // BOOTSTRAP: For early rounds OR when stuck, use validity threshold instead of quorum
-                const BOOTSTRAP_ROUNDS: u64 = 10;
-                let is_stuck = self.failed_attempts_count >= 10; // Half the max attempts before extending bootstrap
-                let required_stake = if self.current_round < BOOTSTRAP_ROUNDS || is_stuck {
-                    // During bootstrap or when stuck, only need f+1 validators (validity threshold)
-                    let validity_threshold = self.committee.validity_threshold();
-                    if is_stuck {
-                        debug!("DYNAMIC BOOTSTRAP: Round {} stuck - using validity threshold {} instead of quorum {}", 
-                              self.current_round, validity_threshold, self.committee.quorum_threshold());
-                    } else {
-                        debug!("BOOTSTRAP: Round {} using validity threshold {} instead of quorum {}", 
-                              self.current_round, validity_threshold, self.committee.quorum_threshold());
-                    }
-                    validity_threshold
+                // REFERENCE IMPLEMENTATION: Use last_parents instead of manual parent checking
+                // This ensures proper parent-child relationships in the DAG
+                if !self.last_parents.is_empty() {
+                    info!("PROPER PARENTS: Using {} last_parents for round {}", self.last_parents.len(), self.current_round);
+                    true
                 } else {
-                    self.committee.quorum_threshold()
-                };
-                
-                let has_enough = total_stake >= required_stake;
-                
-                // Log parent certificate status periodically
-                if self.current_round <= 5 || timer_expired || (self.current_round % 10 == 0 && !has_enough) {
-                    info!("Parent check for round {}: {} certs from round {} (authors: {:?}), stake {}/{}, enough={}",
-                          self.current_round, cert_count, prev_round, authors_with_certs, total_stake, required_stake, has_enough);
+                    info!("NO PARENTS: Waiting for parent certificates for round {}", self.current_round);
+                    false
                 }
-                
-                has_enough
             };
             
             let enough_content = !self.current_batch.is_empty() || !self.worker_batches.is_empty();
@@ -304,14 +286,17 @@ impl DagService {
                         debug!("Creating header for round {} due to available content and consensus", self.current_round);
                     }
                     
-                    // Create and propose header
+                    // Create and propose header for current round
                     match self.create_and_propose_header().await {
                         Ok(()) => {
-                            info!("✅ Successfully created header for round {} (now at round {})", self.current_round - 1, self.current_round);
+                            info!("✅ Successfully created header for round {}", self.current_round);
                             self.failed_attempts_count = 0; // Reset failed attempts counter on success
+                            
+                            // DO NOT advance round here - wait for certificate processing to advance the round
+                            // This ensures we don't get ahead of the DAG construction process
                         }
                         Err(e) => {
-                            warn!("Failed to create header: {}", e);
+                            warn!("Failed to create header for round {}: {}", self.current_round, e);
                             // Continue processing to avoid getting stuck
                         }
                     }
@@ -329,22 +314,38 @@ impl DagService {
                         self.failed_attempts_count += 1;
                         warn!("Timer expired but lacking parents for round {} - attempt #{}", self.current_round, self.failed_attempts_count);
                         
-                        // PROPER LIVENESS: Extend bootstrap period dynamically when stuck
-                        const MAX_FAILED_ATTEMPTS: u32 = 20;
+                        // REFERENCE IMPLEMENTATION APPROACH: Timer-based advancement for liveness
+                        // After a reasonable number of attempts, advance anyway (like reference proposer.rs)
+                        const MAX_FAILED_ATTEMPTS: u32 = 5; // Reduced from 20 for faster recovery
                         if self.failed_attempts_count >= MAX_FAILED_ATTEMPTS {
-                            warn!("EXTENDED BOOTSTRAP: {} failed attempts for round {} - temporarily reducing quorum threshold", 
+                            warn!("TIMER-BASED LIVENESS: {} failed attempts for round {} - advancing anyway to prevent deadlock", 
                                   self.failed_attempts_count, self.current_round);
                             
-                            // Instead of forced progression, use bootstrap logic for this round
-                            // This preserves DAG integrity while providing liveness
-                            self.failed_attempts_count = 0; // Reset to prevent infinite extension
+                            // Reference implementation approach: advance on timeout regardless of parents
+                            // This maintains liveness while accepting that some rounds may have fewer parents
+                            info!("Creating header for round {} with available parents to maintain liveness", self.current_round);
+                            
+                            match self.create_and_propose_header().await {
+                                Ok(()) => {
+                                    info!("✅ LIVENESS RECOVERY: Successfully created header for round {}", self.current_round);
+                                    self.failed_attempts_count = 0;
+                                    
+                                    // Advance round after successful header creation
+                                    self.current_round += 1;
+                                    info!("Advanced to round {} after timer-based liveness recovery", self.current_round);
+                                }
+                                Err(e) => {
+                                    warn!("Failed to create liveness recovery header: {}", e);
+                                    self.failed_attempts_count = 0;
+                                }
+                            }
+                        } else {
+                            // Reset timer and try again for early attempts
+                            let deadline = tokio::time::Instant::now() + max_header_delay;
+                            timer.as_mut().reset(deadline);
+                            timer_expired = false;
+                            debug!("Reset timer to prevent tight loop - will check again at {:?}", deadline);
                         }
-                        
-                        // Always reset timer and try again - no forced progression with empty parents
-                        let deadline = tokio::time::Instant::now() + max_header_delay;
-                        timer.as_mut().reset(deadline);
-                        timer_expired = false;
-                        debug!("Reset timer to prevent tight loop - will check again at {:?}", deadline);
                     } else if !enough_content {
                         debug!("Timer expired but no content for round {} - will retry when we have transactions", self.current_round);
                         // Reset timer for content timeout (don't increment failed attempts for this)
@@ -454,10 +455,15 @@ impl DagService {
      
      /// Create canonical metadata if this node is the leader for the current round
      fn create_canonical_metadata_if_leader(&self) -> Vec<u8> {
+         self.create_canonical_metadata_if_leader_for_round(self.current_round)
+     }
+     
+     /// Create canonical metadata if this node is the leader for the specified round
+     fn create_canonical_metadata_if_leader_for_round(&self, round: Round) -> Vec<u8> {
          // CRITICAL: Bullshark only has leaders on EVEN rounds
          // Odd rounds have no leader and should not have canonical metadata
-         if self.current_round % 2 != 0 {
-             debug!("Round {} is odd - no leader in Bullshark", self.current_round);
+         if round % 2 != 0 {
+             debug!("Round {} is odd - no leader in Bullshark", round);
              return Vec::new();
          }
          
@@ -474,7 +480,7 @@ impl DagService {
         // With 4 validators and only even rounds (2,4,6,8,10,12...), 
         // round % 4 only gives us 0 or 2, never 1 or 3
         // Solution: Use (round / 2) % num_validators to cycle through all validators
-        let leader_idx = ((self.current_round / 2) as usize) % num_validators;
+        let leader_idx = ((round / 2) as usize) % num_validators;
          let expected_leader = validators.get(leader_idx);
          let is_leader = expected_leader == Some(&self.name);
          
@@ -494,7 +500,7 @@ impl DagService {
         }
          
          if is_leader {
-             info!("✅ CRITICAL: I am leader for round {} - creating canonical metadata", self.current_round);
+             info!("✅ CRITICAL: I am leader for round {} - creating canonical metadata", round);
              
              // Get chain state if available
              let (block_number, parent_hash, parent_timestamp) = if let Some(ref chain_state) = self.chain_state {
@@ -506,7 +512,7 @@ impl DagService {
              } else {
                  // Fallback for tests or initial setup
                  warn!("LEADER DEBUG: No chain state available for canonical metadata - using defaults");
-                 (self.current_round, B256::ZERO, 1700000000u64)
+                 (round, B256::ZERO, 1700000000u64)
              };
              
              // Ensure monotonic timestamps
@@ -523,7 +529,7 @@ impl DagService {
                  block_number,
                  parent_hash,
                  timestamp,
-                 self.current_round,
+                 round,
                  875_000_000u64, // Default base fee
              );
              
@@ -531,52 +537,52 @@ impl DagService {
              
              metadata_string.into_bytes()
          } else {
-             debug!("Node is not leader for round {} (leader idx: {})", self.current_round, leader_idx);
+             debug!("Node is not leader for round {} (leader idx: {})", round, leader_idx);
              Vec::new()
          }
      }
 
+     /// Create and propose a new header for a specific round (adapted from reference implementation)
+     async fn create_and_propose_header_for_round(&mut self, round: Round) -> DagResult<()> {
+         self.create_and_propose_header_impl(round, false).await
+     }
+     
      /// Create and propose a new header (adapted from reference implementation)
      async fn create_and_propose_header(&mut self) -> DagResult<()> {
-         self.create_and_propose_header_impl(false).await
+         self.create_and_propose_header_impl(self.current_round, false).await
+     }
+     
+     /// Create and propose a new header with empty parents for liveness recovery
+     async fn create_and_propose_header_with_empty_parents(&mut self) -> DagResult<()> {
+         self.create_and_propose_header_impl(self.current_round, true).await
      }
 
      /// Create and propose a new header with optional forced progression
-     async fn create_and_propose_header_impl(&mut self, force_empty_parents: bool) -> DagResult<()> {
-         info!("Creating header for round {}", self.current_round);
+     async fn create_and_propose_header_impl(&mut self, round: Round, force_empty_parents: bool) -> DagResult<()> {
+         info!("Creating header for round {}", round);
          
          info!("Creating header with {} transactions", self.current_batch.len());
          
-         // Get ALL certificates from previous round as parents
-         // This is critical for Bullshark consensus - we need to include ALL certificates
-         // from round r-1, not just the latest per validator
-         let prev_round = self.current_round.saturating_sub(1);
-         let parents: BTreeSet<CertificateDigest> = if prev_round == 0 {
-             // Genesis case - use genesis certificates from committee
-             self.committee.authorities.keys()
-                 .map(|_| CertificateDigest::default()) // Genesis certificates
-                 .collect()
+         // REFERENCE IMPLEMENTATION: Use last_parents instead of manual parent collection
+         // This ensures proper parent selection as per the reference implementation
+         let parents: BTreeSet<CertificateDigest> = if round == 0 {
+             // Genesis case - no parents
+             BTreeSet::new()
          } else if force_empty_parents {
              // FORCED PROGRESSION: Create header with empty parents to break deadlock
              warn!("FORCED PROGRESSION: Creating header with empty parents for liveness");
              BTreeSet::new()
          } else {
-             // Use round-specific tracking for accurate parent collection
-             if let Some(round_certs) = self.certificates_by_round.get(&prev_round) {
-                 round_certs.values()
-                     .map(|cert| cert.digest())
-                     .collect()
-             } else {
-                 // Fallback to scanning all certificates if round tracking is empty
-                 self.certificates
-                     .values()
-                     .filter(|cert| cert.round() == prev_round)
-                     .map(|cert| cert.digest())
-                     .collect()
-             }
+             // Use last_parents from certificates aggregator (reference implementation approach)
+             let collected_parents: BTreeSet<CertificateDigest> = self.last_parents.iter()
+                 .map(|cert| cert.digest())
+                 .collect();
+             info!("DEBUG: last_parents.len()={}, collected_parents.len()={}", 
+                   self.last_parents.len(), collected_parents.len());
+             collected_parents
          };
              
-         info!("Including {} certificates from round {} as parents", parents.len(), prev_round);
+         info!("Including {} certificates from last_parents as parents", parents.len());
 
          // Create payload - include both primary batch and worker batches
          let mut payload = IndexMap::new();
@@ -598,20 +604,20 @@ impl DagService {
                self.worker_batches.len());
 
          // Determine if we are the leader for this round
-         let canonical_metadata = self.create_canonical_metadata_if_leader();
+         let canonical_metadata = self.create_canonical_metadata_if_leader_for_round(round);
          
          if !canonical_metadata.is_empty() {
              info!("Creating header for round {} WITH canonical metadata ({} bytes)", 
-                   self.current_round, canonical_metadata.len());
+                   round, canonical_metadata.len());
          } else {
              debug!("Creating header for round {} without canonical metadata (not leader)", 
-                   self.current_round);
+                   round);
          }
          
          // Create header
          let mut header = Header {
              author: self.name.clone(),
-             round: self.current_round,
+             round: round,
              epoch: self.committee.epoch,
              payload,
              parents,
@@ -684,6 +690,8 @@ impl DagService {
          }
          
          info!("Created header {} for round {}", header.id, header.round);
+
+         // Round completed - header created successfully for this round
 
          // Record metrics
          if let Some(m) = metrics() {
@@ -850,14 +858,31 @@ impl DagService {
              })
              .or_insert_with(|| VotesAggregator::with_header(header.clone()));
 
-         // Create and send vote for this header only if we haven't already voted for this round
-         if !self.voted_rounds.contains(&header.round) {
-             self.send_vote(header).await?;
-             self.voted_rounds.insert(header.round);
-             debug!("Voted for header {} (round {}) and marked round as voted", header.id, header.round);
-         } else {
-             debug!("Skipping vote for header {} (round {}) - already voted for this round", header.id, header.round);
+         // Check for duplicate votes using vote_digest_store (from reference implementation)
+         if let Some(round_digest_pair) = self.vote_digest_store.get(&header.author) {
+             if header.round < round_digest_pair.round {
+                 debug!("Skipping vote for old round {} < {}", header.round, round_digest_pair.round);
+                 return Ok(());
+             }
+             if header.round == round_digest_pair.round {
+                 // Check if this is the same vote we already sent
+                 let temp_vote = {
+                     let mut sig_service = self.signature_service.lock().await;
+                     Vote::new_with_signature_service(header, &self.name, &mut *sig_service).await
+                 };
+                 if temp_vote.digest() == round_digest_pair.vote_digest {
+                     debug!("Skipping duplicate vote for header {} (round {})", header.id, header.round);
+                     return Ok(());
+                 } else {
+                     warn!("Authority {} submitted duplicate header for votes at round {}", header.author, header.round);
+                     return Ok(());
+                 }
+             }
          }
+
+         // Always vote for valid headers from other nodes - this is required for consensus
+         self.send_vote(header).await?;
+         debug!("Voted for header {} (round {})", header.id, header.round);
          
          Ok(())
      }
@@ -889,6 +914,17 @@ impl DagService {
          } else {
              debug!("No network sender configured, skipping vote broadcast");
          }
+
+         // Store the vote digest to prevent duplicate processing (from reference implementation)
+         let vote_digest = vote.digest();
+         self.vote_digest_store.insert(
+             header.author.clone(),
+             RoundVoteDigestPair {
+                 round: header.round,
+                 vote_digest,
+             },
+         );
+         debug!("Stored vote digest for header author {} round {}", header.author, header.round);
 
          // Process our own vote
          self.process_vote(vote).await
@@ -1021,6 +1057,11 @@ impl DagService {
              .entry(cert_round)
              .or_insert_with(HashMap::new)
              .insert(author.clone(), certificate.clone());
+
+         // REFERENCE IMPLEMENTATION: Send early signal to Proposer about minimal round for parents
+         // This allows the proposer to draw early conclusions from a certificate at this round
+         let minimal_round_for_parents = cert_round.saturating_sub(1);
+         self.send_early_signal_to_proposer(minimal_round_for_parents);
          
          // Log certificate tracking
          let certs_in_round = self.certificates.values()
@@ -1028,6 +1069,29 @@ impl DagService {
              .count();
          info!("Now tracking {} certificates for round {} (total: {})", 
                certs_in_round, cert_round, self.certificates.len());
+
+         // REFERENCE IMPLEMENTATION PATTERN: Use CertificatesAggregator for parent selection
+         // This ensures we follow the proven parent selection algorithm from the reference
+         self.certificates_aggregators
+             .entry(cert_round)
+             .or_insert_with(|| CertificatesAggregator::new(cert_round));
+         
+         if let Some(aggregator) = self.certificates_aggregators.get_mut(&cert_round) {
+             match aggregator.add_certificate(certificate.clone(), &self.committee) {
+                 Ok(Some(parent_certificates)) => {
+                     // REFERENCE IMPLEMENTATION: Core sends parents to Proposer when quorum is reached
+                     self.send_parent_update_to_proposer(parent_certificates, cert_round);
+                     info!("✅ QUORUM REACHED: Round {} has quorum, sent parent update to proposer", cert_round);
+                 }
+                 Ok(None) => {
+                     // Not enough certificates yet for quorum
+                     debug!("Round {} waiting for more certificates for quorum", cert_round);
+                 }
+                 Err(e) => {
+                     warn!("Failed to add certificate to aggregator: {}", e);
+                 }
+             }
+         }
 
          // CRITICAL FIX: Advance round when we receive our own certificate
          // BUT also ensure we have sufficient certificates from the previous round
@@ -1159,6 +1223,70 @@ impl DagService {
          }
          
          Ok(())
+     }
+
+     /// CORE FUNCTIONALITY: Send early signal to Proposer about minimal round (reference implementation)
+     /// This follows lines 414-417 in reference Core's process_certificate method
+     fn send_early_signal_to_proposer(&mut self, minimal_round: Round) {
+         // REFERENCE IMPLEMENTATION: Core sends empty parents with minimal round signal
+         // This lets the proposer draw early conclusions about the minimal round for parents
+         if minimal_round > 0 { // Only send if we have a meaningful minimal round
+             self.pending_parent_updates.push((vec![], minimal_round));
+             debug!("CORE → PROPOSER: Sent early signal for minimal parent round {}", minimal_round);
+         }
+     }
+
+     /// CORE FUNCTIONALITY: Send parent update to Proposer (reference implementation pattern)
+     /// This follows the exact pattern from reference Core's process_certificate method
+     fn send_parent_update_to_proposer(&mut self, parent_certificates: Vec<Certificate>, round: Round) {
+         // REFERENCE IMPLEMENTATION: Core sends (parents, round, epoch) to Proposer
+         // In our combined architecture, we queue the update for Proposer processing
+         self.pending_parent_updates.push((parent_certificates, round));
+         info!("CORE → PROPOSER: Queued parent update for round {} with {} parents", 
+               round, self.pending_parent_updates.last().unwrap().0.len());
+     }
+
+     /// PROPOSER FUNCTIONALITY: Process pending parent updates from Core
+     /// This follows the exact pattern from reference Proposer's parent handling
+     fn process_pending_parent_updates(&mut self) {
+         // Extract all pending parent updates to avoid borrowing issues
+         let pending_updates = std::mem::take(&mut self.pending_parent_updates);
+         
+         // Process all pending parent updates from Core
+         for (parent_certificates, round) in pending_updates {
+             info!("CORE → PROPOSER: Processing parent update for round {} with {} parents", 
+                   round, parent_certificates.len());
+             self.update_last_parents(parent_certificates, round);
+         }
+     }
+
+     /// Update last_parents following the reference implementation pattern
+     /// This is the key method that maintains proper parent-child relationships
+     fn update_last_parents(&mut self, parent_certificates: Vec<Certificate>, round: Round) {
+         use std::cmp::Ordering;
+         
+         match round.cmp(&self.current_round) {
+             Ordering::Greater => {
+                 // We accept round bigger than our current round to jump ahead in case we were
+                 // late (or just joined the network) - from reference implementation
+                 info!("PARENT UPDATE: Jumping ahead from round {} to round {}", self.current_round, round);
+                 self.current_round = round;
+                 self.last_parents = parent_certificates;
+             }
+             Ordering::Less => {
+                 // Ignore parents from older rounds - from reference implementation
+                 debug!("PARENT UPDATE: Ignoring parents from older round {}", round);
+             }
+             Ordering::Equal => {
+                 // The core gives us the parents the first time they are enough to form a quorum.
+                 // Then it keeps giving us all the extra parents - from reference implementation
+                 info!("PARENT UPDATE: Extending parents for round {} (had {}, adding {})", 
+                       round, self.last_parents.len(), parent_certificates.len());
+                 self.last_parents.extend(parent_certificates);
+             }
+         }
+         
+         info!("PARENT UPDATE: Now have {} parents for round {}", self.last_parents.len(), self.current_round);
      }
      
      /// Garbage collect old state

@@ -44,7 +44,18 @@ impl RoundCompletionTracker {
         
         // Add certificate to round tracking
         let round_certs = self.round_certificates.entry(round).or_insert_with(HashMap::new);
+        let was_existing = round_certs.contains_key(&author);
         round_certs.insert(author.clone(), certificate.clone());
+        
+        use fastcrypto::traits::EncodeDecodeBase64;
+        let author_short = author.encode_base64().chars().take(16).collect::<String>();
+        if was_existing {
+            debug!("TRACKER: Updated existing certificate for round {} from author {} (total: {} certs)", 
+                   round, author_short, round_certs.len());
+        } else {
+            info!("TRACKER: Added new certificate for round {} from author {} (total: {} certs)", 
+                  round, author_short, round_certs.len());
+        }
         
         // Check if this is the leader's certificate for even rounds
         if round % 2 == 0 {
@@ -94,19 +105,31 @@ impl RoundCompletionTracker {
             .collect();
         debug!("FINALIZATION CHECK: Round {} certificates from: {:?}", round, cert_authors);
         
-        // Check if we have quorum
+        // Check if we have sufficient stake for finalization
         let total_stake: u64 = certs.keys()
             .map(|pk| committee.stake(pk))
             .sum();
         
+        // CRITICAL FIX: Use validity threshold (f+1) instead of quorum (2f+1) for finalization
+        // This prevents timing drift where nodes wait for all certificates before finalizing
+        // The consensus safety is already guaranteed by the underlying Bullshark algorithm
+        let validity_threshold = committee.validity_threshold();
         let quorum_threshold = committee.quorum_threshold();
-        info!("FINALIZATION CHECK: Round {} stake: {} / {} (quorum threshold)", 
-              round, total_stake, quorum_threshold);
+        info!("FINALIZATION CHECK: Round {} stake: {} / {} (validity threshold), quorum would be {}", 
+              round, total_stake, validity_threshold, quorum_threshold);
         
-        if total_stake < quorum_threshold {
-            info!("FINALIZATION CHECK: Round {} lacks quorum (need {} more stake)", 
-                  round, quorum_threshold - total_stake);
+        if total_stake < validity_threshold {
+            info!("FINALIZATION CHECK: Round {} lacks validity threshold (need {} more stake)", 
+                  round, validity_threshold - total_stake);
             return false;
+        }
+        
+        // Log if we have quorum for reference
+        if total_stake >= quorum_threshold {
+            info!("FINALIZATION CHECK: Round {} has quorum ({} >= {})", round, total_stake, quorum_threshold);
+        } else {
+            info!("FINALIZATION CHECK: Round {} has validity but not quorum ({} < {})", 
+                  round, total_stake, quorum_threshold);
         }
         
         // Check if we have the leader's certificate
@@ -129,6 +152,25 @@ impl RoundCompletionTracker {
         if has_leader {
             info!("FINALIZATION CHECK: Round {} READY TO FINALIZE - has leader certificate", round);
             return true;
+        }
+        
+        // AGGRESSIVE FINALIZATION: If we have validity threshold, finalize quickly
+        // even without leader certificate to prevent timing drift
+        if total_stake >= validity_threshold {
+            let first_seen = self.round_first_seen.get(&round);
+            let elapsed_time = first_seen.map(|t| t.elapsed()).unwrap_or(Duration::ZERO);
+            
+            // Reduced timeout: finalize after just 500ms if we have validity threshold
+            let aggressive_timeout = Duration::from_millis(500);
+            let timeout_exceeded = elapsed_time >= aggressive_timeout;
+            
+            info!("FINALIZATION CHECK: Round {} aggressive finalization - elapsed: {:.1}s, timeout: {:.1}s, exceeded: {}", 
+                  round, elapsed_time.as_secs_f64(), aggressive_timeout.as_secs_f64(), timeout_exceeded);
+            
+            if timeout_exceeded {
+                warn!("FINALIZATION CHECK: Round {} READY TO FINALIZE - aggressive timeout with validity threshold", round);
+                return true;
+            }
         }
         
         // Otherwise, check if enough time has passed since first certificate

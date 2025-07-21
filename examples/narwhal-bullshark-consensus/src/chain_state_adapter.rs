@@ -18,6 +18,17 @@ impl ChainStateAdapter {
         }
     }
     
+    /// Create a new adapter with initial block number and hash
+    pub fn with_initial_state(block_number: u64, parent_hash: alloy_primitives::B256) -> Self {
+        let mut initial_state = ChainState::default();
+        initial_state.block_number = block_number;
+        initial_state.parent_hash = parent_hash;
+        
+        Self {
+            state: Arc::new(Mutex::new(initial_state)),
+        }
+    }
+    
     /// Update the chain state
     pub fn update(&self, block_number: u64, parent_hash: alloy_primitives::B256) {
         if let Ok(mut state) = self.state.lock() {

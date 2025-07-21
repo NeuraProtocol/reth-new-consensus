@@ -58,6 +58,8 @@ pub struct ConsensusConfig {
     pub node_public_key: narwhal::types::PublicKey,
     /// Node's private key bytes for consensus (from pre-move version)
     pub consensus_private_key_bytes: Vec<u8>,
+    /// Garbage collection depth (rounds to keep in memory)
+    pub gc_depth: u64,
 }
 
 impl Default for ConsensusConfig {
@@ -85,6 +87,7 @@ impl Default for ConsensusConfig {
             enable_admin_api: false,
             node_public_key: public_key,
             consensus_private_key_bytes: private_key_bytes,
+            gc_depth: 50, // Default value
         }
     }
 }

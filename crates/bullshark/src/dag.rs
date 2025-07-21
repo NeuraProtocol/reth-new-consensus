@@ -119,6 +119,12 @@ impl BullsharkDag {
 
     /// Find the leader certificate for a given round
     pub fn get_leader_certificate(&self, round: Round, committee: &Committee) -> Option<&Certificate> {
+        // Genesis round (0) has no certificates
+        if round == 0 {
+            debug!("Round {} is genesis, no leader certificate", round);
+            return None;
+        }
+        
         // Only even rounds have leaders in Bullshark
         if round % 2 != 0 {
             debug!("Round {} is odd, no leader", round);
@@ -257,6 +263,11 @@ impl BullsharkDag {
             .copied()
             .collect();
 
+        if !old_rounds.is_empty() {
+            info!("GARBAGE COLLECT: Removing {} rounds (cutoff: {}, last_committed: {}, gc_depth: {})", 
+                  old_rounds.len(), cutoff_round, self.last_committed_round, gc_depth);
+        }
+        
         for round in old_rounds {
             self.dag.remove(&round);
             debug!("Garbage collected round {}", round);

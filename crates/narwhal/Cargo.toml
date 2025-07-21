@@ -49,7 +49,7 @@ arc-swap = "1.6"
 backoff = { version = "0.4", features = ["tokio"] }
 
 [build-dependencies]
-anemo-build = { path = "../../anemo-reference/crates/anemo-build" }
+anemo-build = { git = "https://github.com/mystenlabs/anemo.git", rev = "c4e7e4cb4b624d7738c2016d7b7885c6774ff9c2" }
 
 [dev-dependencies]
 tempfile = "3.5"

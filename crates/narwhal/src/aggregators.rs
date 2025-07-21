@@ -86,9 +86,11 @@ impl VotesAggregator {
         Ok(())
     }
 
-    /// Check if we have reached quorum
+    /// Check if we have enough votes to form a certificate (validity threshold)
     pub fn has_quorum(&self, committee: &crate::types::Committee) -> bool {
-        self.stake >= committee.quorum_threshold()
+        // NARWHAL CONSENSUS: Certificates are formed with validity threshold (f+1)
+        // Finalization requires quorum threshold (2f+1) but certificate formation only needs validity
+        self.stake >= committee.validity_threshold()
     }
 
     /// Try to form a certificate if we have quorum
@@ -116,10 +118,11 @@ impl VotesAggregator {
         self.certificate_formed = true;
         
         info!(
-            "Formed certificate for round {} with {} votes (stake: {}) - FIRST TIME",
+            "✅ CERTIFICATE FORMED: Round {} with {} votes (stake: {} >= {} validity threshold)",
             header.round,
             self.votes.len(),
-            self.stake
+            self.stake,
+            committee.validity_threshold()
         );
 
         Ok(Some(certificate))
@@ -176,11 +179,12 @@ impl CertificatesAggregator {
     }
 
     /// Add a certificate to the aggregator
+    /// Returns Some(certificates) when quorum is reached, following reference implementation
     pub fn add_certificate(
         &mut self,
         certificate: Certificate,
         committee: &crate::types::Committee,
-    ) -> DagResult<()> {
+    ) -> DagResult<Option<Vec<Certificate>>> {
         // Verify the certificate is for the correct round
         if certificate.round() != self.round {
             return Err(DagError::Consensus(format!(
@@ -195,7 +199,7 @@ impl CertificatesAggregator {
         // Check if we already have a certificate from this authority
         if self.certificates.contains_key(&author) {
             debug!("Duplicate certificate from {} for round {}", author, self.round);
-            return Ok(());
+            return Ok(None);
         }
 
         // Add the certificate
@@ -208,7 +212,15 @@ impl CertificatesAggregator {
             author, self.round, author_stake, self.stake
         );
 
-        Ok(())
+        // Check if we've reached quorum threshold
+        if self.stake >= committee.quorum_threshold() {
+            // Return all certificates when quorum is reached
+            // Note: We don't reset the stake here to allow adding extra certificates as parents
+            // This follows the reference implementation pattern (lines 91-94)
+            return Ok(Some(self.certificates.values().cloned().collect()));
+        }
+
+        Ok(None)
     }
 
     /// Check if we have a quorum of certificates

@@ -182,6 +182,18 @@ impl NarwhalRethBridge {
         self.chain_spec = Some(chain_spec);
     }
 
+    /// Set the provider for proper chain state initialization 
+    pub fn set_chain_state_provider<Provider>(&mut self, provider: Provider) 
+    where
+        Provider: reth_provider::HeaderProvider<Header = alloy_consensus::Header> + reth_provider::BlockReaderIdExt,
+    {
+        if let Some(ref mut service) = self.service {
+            service.set_chain_state_provider(provider);
+        } else {
+            warn!("Cannot set chain state provider: service not initialized");
+        }
+    }
+
     /// Create a new Narwhal-Reth bridge with custom network configuration
     pub fn new_with_network_config(
         config: ServiceConfig, 
@@ -498,6 +510,12 @@ impl NarwhalRethBridge {
             service.update_chain_state(self.current_block_number, self.current_parent_hash).await;
             info!("Initialized consensus chain state: block {} parent {}", 
                   self.current_block_number, self.current_parent_hash);
+            
+            // Start network health monitoring before consensus service
+            info!("🔍 Starting network connection health monitoring...");
+            if let Some(ref network) = self.network {
+                network.start_connection_health_monitoring();
+            }
             
             // NOW start the consensus service after connections are ready
             info!("🔍 DEBUG: About to spawn consensus service...");

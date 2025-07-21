@@ -82,6 +82,8 @@ pub struct NarwhalBullsharkService {
     chain_state: ChainStateTracker,
     /// Chain state adapter for BFT service
     chain_state_adapter: Option<Arc<crate::chain_state_adapter::ChainStateAdapter>>,
+    /// Stored chain tip from provider (if available)
+    chain_tip: Option<(u64, alloy_primitives::B256)>,
 }
 
 impl std::fmt::Debug for NarwhalBullsharkService {
@@ -136,7 +138,31 @@ impl NarwhalBullsharkService {
             tx_primary: None,
             chain_state: ChainStateTracker::new(),
             chain_state_adapter: None,
+            chain_tip: None,
         })
+    }
+
+    /// Store chain tip from provider for use during spawn to initialize chain state
+    pub fn set_chain_state_provider<Provider>(&mut self, provider: Provider) 
+    where
+        Provider: reth_provider::HeaderProvider<Header = alloy_consensus::Header> + reth_provider::BlockReaderIdExt,
+    {
+        match provider.latest_header() {
+            Ok(Some(header)) => {
+                let block_number = header.number;
+                let block_hash = header.hash();
+                info!("🔄 Storing chain tip from provider: block {} hash {}", block_number, block_hash);
+                self.chain_tip = Some((block_number, block_hash));
+            }
+            Ok(None) => {
+                warn!("Provider returned no latest header, will use genesis");
+                self.chain_tip = None;
+            }
+            Err(e) => {
+                warn!("Failed to get latest header from provider: {}, will use genesis", e);
+                self.chain_tip = None;
+            }
+        }
     }
 
     /// Start the consensus service using REAL implementations
@@ -230,7 +256,8 @@ impl NarwhalBullsharkService {
         self.dag_service = Some(dag_service);
 
         // Create REAL Bullshark BFT service  
-        let bft_config = BftConfig::default();
+        let mut bft_config = BftConfig::default();
+        bft_config.gc_depth = self.node_config.gc_depth;
         let storage = Arc::new(InMemoryConsensusStorage::new());
         let (bft_output_sender, bft_output_receiver) = mpsc::unbounded_channel();
 
@@ -256,18 +283,23 @@ impl NarwhalBullsharkService {
             info!("⚠️ BFT service using dummy transactions (no batch store)");
         }
         
-        // Set chain state provider with proper genesis hash
-        let chain_state_adapter = Arc::new(crate::chain_state_adapter::ChainStateAdapter::new());
-        
-        // Initialize with genesis state (block 0, genesis hash)
-        // This ensures the first block created will be block 1 with correct parent
-        let genesis_hash = "0x514191893c03d851abdf3534c946dd3e8d0f71685629bbf46957f2a0b0067cbd"
-            .parse::<B256>()
-            .unwrap_or(B256::ZERO);
-        chain_state_adapter.update(0, genesis_hash);
+        // Set chain state provider - use stored chain tip if available
+        let chain_state_adapter = if let Some((block_number, block_hash)) = self.chain_tip {
+            info!("🔄 Initializing chain state from stored chain tip: block {} hash {}", block_number, block_hash);
+            Arc::new(crate::chain_state_adapter::ChainStateAdapter::with_initial_state(block_number, block_hash))
+        } else {
+            // No chain tip stored, use genesis state (block 0, genesis hash)
+            info!("No chain tip stored, initializing with genesis state");
+            let genesis_hash = "0x514191893c03d851abdf3534c946dd3e8d0f71685629bbf46957f2a0b0067cbd"
+                .parse::<B256>()
+                .unwrap_or(B256::ZERO);
+            let adapter = Arc::new(crate::chain_state_adapter::ChainStateAdapter::new());
+            adapter.update(0, genesis_hash);
+            adapter
+        };
         
         bft_service.set_chain_state(chain_state_adapter.clone());
-        info!("✅ BFT service configured with chain state provider (genesis: {})", genesis_hash);
+        info!("✅ BFT service configured with chain state provider");
         
         // Store the adapter so we can update it later
         self.chain_state_adapter = Some(chain_state_adapter);
@@ -603,6 +635,7 @@ impl NarwhalBullsharkService {
         let handle = tokio::spawn(async move {
             info!("📡 OUTBOUND network bridge active: broadcasting DAG messages to peers");
             info!("🔍 Network handle available: {}", has_network);
+            info!("🚀 Bridge ready to receive messages from DAG service via channel");
             
             let mut message_count = 0;
             let mut header_count = 0;
@@ -639,6 +672,16 @@ impl NarwhalBullsharkService {
                         last_message_time = std::time::Instant::now();
                         consecutive_timeouts = 0; // Reset timeout counter
                         
+                        // DEBUG: Log first few messages to diagnose channel issues
+                        if message_count <= 10 {
+                            info!("📥 Bridge received message #{}: {:?}", message_count, 
+                                  match &dag_message {
+                                      DagMessage::Header(_) => "Header",
+                                      DagMessage::Vote(_) => "Vote", 
+                                      DagMessage::Certificate(_) => "Certificate",
+                                  });
+                        }
+                        
                         // Log every 100th message and all certificates
                         let should_log = message_count % 100 == 0 || matches!(dag_message, DagMessage::Certificate(_));
                         
@@ -657,44 +700,47 @@ impl NarwhalBullsharkService {
                                     
                                     info!("📤 Broadcasting header {} for round {}", header_id, round);
                                     
-                                    match network.broadcast_header(header).await {
-                                        Ok(()) => {
-                                            let latency = start_time.elapsed();
-                                            info!("✅ Header {} broadcast successful (latency: {:?})", header_id, latency);
-                                        }
-                                        Err(e) => {
-                                            error_count += 1;
-                                            error!("❌ Failed to broadcast header {} for round {}: {:?}", header_id, round, e);
-                                            error!("🔍 Error details: {}", e);
-                                            // Check if this is a network connectivity issue
-                                            if format!("{:?}", e).contains("connection") || format!("{:?}", e).contains("timeout") {
-                                                error!("🌐 Network connectivity issue detected - peers may be unreachable");
+                                    // ✅ FIX: Spawn concurrent task for header broadcasting to prevent bridge blocking
+                                    let network_clone = Arc::clone(network);
+                                    tokio::spawn(async move {
+                                        match network_clone.broadcast_header(header).await {
+                                            Ok(()) => {
+                                                info!("✅ Header {} broadcast successful", header_id);
                                             }
-                                            // Continue processing - don't let one failure stop the bridge
+                                            Err(e) => {
+                                                error!("❌ Failed to broadcast header {} for round {}: {:?}", header_id, round, e);
+                                                if format!("{:?}", e).contains("connection") || format!("{:?}", e).contains("timeout") {
+                                                    error!("🌐 Network connectivity issue detected - peers may be unreachable");
+                                                }
+                                            }
                                         }
-                                    }
+                                    });
                                 }
                                 DagMessage::Vote(vote) => {
                                     vote_count += 1;
                                     let round = vote.round;
                                     let header_id = vote.id;
                                     
-                                    if vote_count % 100 == 0 {
-                                        info!("📤 Broadcasting vote #{} for round {}", vote_count, round);
+                                    // DEBUG: Log every vote to diagnose channel issues
+                                    if vote_count <= 10 || vote_count % 100 == 0 {
+                                        info!("📤 Broadcasting vote #{} for header {} round {}", vote_count, header_id, round);
                                     }
                                     
-                                    match network.broadcast_vote(vote).await {
-                                        Ok(()) => {
-                                            if vote_count % 100 == 0 {
-                                                let latency = start_time.elapsed();
-                                                info!("✅ Vote broadcast successful (latency: {:?})", latency);
+                                    // ✅ FIX: Spawn concurrent task for vote broadcasting to prevent bridge blocking
+                                    let network_clone = Arc::clone(network);
+                                    let vote_num = vote_count;
+                                    tokio::spawn(async move {
+                                        match network_clone.broadcast_vote(vote).await {
+                                            Ok(()) => {
+                                                if vote_num <= 10 || vote_num % 100 == 0 {
+                                                    info!("✅ Vote #{} broadcast successful", vote_num);
+                                                }
+                                            }
+                                            Err(e) => {
+                                                error!("❌ Failed to broadcast vote #{} for header {} round {}: {:?}", vote_num, header_id, round, e);
                                             }
                                         }
-                                        Err(e) => {
-                                            error_count += 1;
-                                            error!("❌ Failed to broadcast vote for header {} round {}: {:?}", header_id, round, e);
-                                        }
-                                    }
+                                    });
                                 }
                                 DagMessage::Certificate(certificate) => {
                                     certificate_count += 1;
@@ -704,16 +750,18 @@ impl NarwhalBullsharkService {
                                     
                                     info!("📤 Broadcasting certificate {} from {} for round {}", digest, origin, round);
                                     
-                                    match network.broadcast_certificate(certificate).await {
-                                        Ok(()) => {
-                                            let latency = start_time.elapsed();
-                                            info!("✅ Certificate {} broadcast successful (latency: {:?})", digest, latency);
+                                    // ✅ FIX: Spawn concurrent task for certificate broadcasting to prevent bridge blocking
+                                    let network_clone = Arc::clone(network);
+                                    tokio::spawn(async move {
+                                        match network_clone.broadcast_certificate(certificate).await {
+                                            Ok(()) => {
+                                                info!("✅ Certificate {} broadcast successful", digest);
+                                            }
+                                            Err(e) => {
+                                                error!("❌ Failed to broadcast certificate {} for round {}: {:?}", digest, round, e);
+                                            }
                                         }
-                                        Err(e) => {
-                                            error_count += 1;
-                                            error!("❌ Failed to broadcast certificate {} for round {}: {:?}", digest, round, e);
-                                        }
-                                    }
+                                    });
                                 }
                             }
                         } else {

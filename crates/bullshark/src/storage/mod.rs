@@ -40,6 +40,10 @@ pub trait ConsensusStorage: Send + Sync {
     
     /// Get the latest finalized certificate ID
     fn get_latest_finalized(&self) -> Result<Option<u64>>;
+    
+    /// Get all certificates for a specific round
+    /// This is used for database fallback when certificates are not in memory
+    fn get_certificates_by_round(&self, round: u64) -> Result<Vec<Certificate>>;
 }
 
 /// In-memory implementation for testing
@@ -112,6 +116,12 @@ impl ConsensusStorage for InMemoryConsensusStorage {
     fn get_latest_finalized(&self) -> Result<Option<u64>> {
         let latest = self.latest_finalized.lock().unwrap();
         Ok(*latest)
+    }
+    
+    fn get_certificates_by_round(&self, round: u64) -> Result<Vec<Certificate>> {
+        // In-memory implementation would need to store certificates by round
+        // For now, return empty vector as this is just a mock implementation
+        Ok(Vec::new())
     }
 }
 

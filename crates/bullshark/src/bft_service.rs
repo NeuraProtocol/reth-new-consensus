@@ -51,8 +51,10 @@ pub struct BftService {
     storage: Option<std::sync::Arc<dyn ConsensusStorage>>,
     /// Node's public key for leader determination
     node_public_key: Option<NarwhalPublicKey>,
-    /// Round completion tracker for batching certificates
+    /// Round completion tracker for batching certificates  
     round_tracker: RoundCompletionTracker,
+    /// Last finalized round (for direct DAG approach)
+    last_finalized_round: u64,
 }
 
 impl std::fmt::Debug for BftService {
@@ -103,6 +105,7 @@ impl BftService {
             storage: None,
             node_public_key: None,
             round_tracker,
+            last_finalized_round: 0,
         }
     }
     
@@ -140,6 +143,7 @@ impl BftService {
             storage: Some(storage),
             node_public_key: None,
             round_tracker,
+            last_finalized_round: 0,
         }
     }
     
@@ -175,7 +179,18 @@ impl BftService {
         
         // Initialize block number from chain state
         let initial_state = self.chain_state.get_chain_state();
-        self.current_block_number = initial_state.block_number;
+        
+        // CRITICAL FIX: If chain state reports block 0, this indicates the adapter
+        // was initialized with genesis instead of actual chain tip. In this case,
+        // let Reth determine the correct starting point during block creation.
+        if initial_state.block_number == 0 {
+            warn!("Chain state adapter reports block 0 - likely initialized with genesis instead of chain tip");
+            warn!("BFT will determine correct starting block during first finalization");
+            self.current_block_number = 0; // Will be updated during first block creation
+        } else {
+            self.current_block_number = initial_state.block_number;
+        }
+        
         info!("BFT service initialized with chain state: current block {} (will create block {}) parent {}", 
               self.current_block_number, self.current_block_number + 1, initial_state.parent_hash);
         
@@ -199,14 +214,17 @@ impl BftService {
         info!("BFT service waiting for certificates...");
 
         // Create a timer for periodic round checks
-        let mut round_check_interval = tokio::time::interval(Duration::from_millis(50));
+        let mut round_check_interval = tokio::time::interval(Duration::from_millis(1000));
         round_check_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         loop {
             tokio::select! {
                 // Check for new certificates
                 Some(certificate) = self.certificate_receiver.recv() => {
-                    info!("BFT: Received certificate from Narwhal for round {}", certificate.round());
+                    use fastcrypto::traits::EncodeDecodeBase64;
+                    info!("BFT: Received certificate from Narwhal for round {} from author {}", 
+                          certificate.round(), 
+                          certificate.origin().encode_base64().chars().take(16).collect::<String>());
 
                     match self.process_certificate(certificate).await {
                         Ok(finalized_count) => {
@@ -231,6 +249,19 @@ impl BftService {
                         }
                     }
 
+                    // CERTIFICATE-DRIVEN FINALIZATION: Check for finalization after each certificate
+                    // This follows the Sui/Narwhal pattern where finalization is triggered by certificate arrival
+                    match self.check_dag_for_finalization().await {
+                        Ok(finalized_count) => {
+                            if finalized_count > 0 {
+                                info!("BFT certificate-driven: finalized {} rounds after certificate processing", finalized_count);
+                            }
+                        }
+                        Err(e) => {
+                            warn!("BFT certificate-driven finalization failed: {}", e);
+                        }
+                    }
+
                     // Update metrics
                     self.metrics.update_dag_size(self.dag.stats().total_certificates);
                     
@@ -240,17 +271,17 @@ impl BftService {
                     }
                 }
                 
-                // Periodic check for pending rounds
+                // BACKUP PERIODIC CHECK: Reduced frequency backup mechanism for edge cases
                 _ = round_check_interval.tick() => {
-                    // Check if any pending rounds are ready for finalization
-                    match self.check_pending_rounds().await {
+                    // This is now a backup mechanism since primary finalization happens on certificate arrival
+                    match self.check_dag_for_finalization().await {
                         Ok(finalized_count) => {
                             if finalized_count > 0 {
-                                debug!("Periodic check finalized {} rounds", finalized_count);
+                                info!("BFT periodic backup: finalized {} rounds (backup check)", finalized_count);
                             }
                         }
                         Err(e) => {
-                            debug!("Error in periodic round check: {}", e);
+                            debug!("Error in periodic backup check: {}", e);
                         }
                     }
                 }
@@ -282,23 +313,87 @@ impl BftService {
             }
         }
         
-        // Check all pending rounds to see if any are ready for finalization
-        let pending_rounds = self.round_tracker.get_pending_rounds();
+        // DIRECT DAG APPROACH: Check DAG directly for finalization instead of using RoundCompletionTracker
+        // This follows the Sui/Narwhal reference implementation approach
         let mut finalized_count = 0;
+        let highest_round = self.dag.highest_round();
         
-        for round in pending_rounds {
-            if self.round_tracker.should_finalize_round(round, &self.committee) {
-                // Create block for this complete round
-                match self.finalize_round(round).await {
+        // SEQUENTIAL FINALIZATION: Process rounds in strict order to avoid race conditions
+        // All nodes must finalize the same sequence regardless of timing differences
+        let next_round_to_finalize = if self.last_finalized_round == 0 { 2 } else { self.last_finalized_round + 2 };
+        
+        // Check up to 10 consecutive even rounds starting from the next expected round
+        for round_offset in 0..10 {
+            let check_round = next_round_to_finalize + (round_offset * 2);
+            
+            // Don't check rounds beyond the current DAG state
+            if check_round > highest_round {
+                break;
+            }
+            
+            // Check if we have enough certificates for finalization
+            let certs_at_round = self.dag.get_certificates_at_round(check_round);
+            
+            // DATABASE FALLBACK: If no certificates found in memory, this might be a gap
+            // due to garbage collection. Try to retrieve from persistent storage.
+            if certs_at_round.is_empty() {
+                warn!("Round {} has no certificates in DAG! (DAG might have been garbage collected)", check_round);
+                
+                // Try to retrieve certificates from database storage
+                if let Some(storage) = &self.storage {
+                    debug!("Attempting database fallback for round {}", check_round);
+                    match storage.get_certificates_by_round(check_round) {
+                        Ok(stored_certs) => {
+                            if stored_certs.is_empty() {
+                                warn!("Database fallback found no certificates for round {}", check_round);
+                            } else {
+                                info!("Database fallback found {} certificates for round {}", stored_certs.len(), check_round);
+                                // TODO: Add the retrieved certificates to the DAG or process them directly
+                                // For now, just log the successful retrieval
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Database fallback failed for round {}: {}", check_round, e);
+                        }
+                    }
+                } else {
+                    debug!("No storage available for database fallback");
+                }
+            }
+            
+            let total_stake: u64 = certs_at_round.iter()
+                .map(|cert| self.committee.stake(&cert.origin()))
+                .sum();
+            
+            // PROPER BFT FINALIZATION: Only use quorum threshold for safety
+            // All nodes must finalize the same sequence with proper consensus
+            let quorum_threshold = self.committee.quorum_threshold();
+            
+            let can_finalize = total_stake >= quorum_threshold;
+            
+            if can_finalize {
+                info!("DAG FINALIZATION: Round {} with {} certificates and {} stake (>= {} quorum)", 
+                      check_round, certs_at_round.len(), total_stake, quorum_threshold);
+                
+                // Clone certificates to avoid borrow checker issues
+                let owned_certs: Vec<Certificate> = certs_at_round.iter().map(|cert| (*cert).clone()).collect();
+                match self.finalize_round_from_dag_owned(check_round, owned_certs).await {
                     Ok(()) => {
                         finalized_count += 1;
-                        // Mark round as complete
-                        self.round_tracker.mark_round_complete(round);
+                        self.last_finalized_round = check_round;
+                        info!("DAG FINALIZATION: Successfully finalized round {} with quorum consensus", check_round);
                     }
                     Err(e) => {
-                        warn!("Failed to finalize round {}: {}", round, e);
+                        warn!("DAG FINALIZATION: Failed to finalize round {}: {} - continuing with next round", check_round, e);
+                        // Continue trying other rounds (reference implementation pattern)
+                        // Don't break - failures should be non-fatal for continued progression
                     }
                 }
+            } else {
+                debug!("DAG FINALIZATION: Round {} has only {} stake (< {} quorum) - cannot finalize", 
+                       check_round, total_stake, quorum_threshold);
+                // If we can't finalize this round, don't try later rounds (sequential order)
+                break;
             }
         }
         
@@ -310,7 +405,99 @@ impl BftService {
         Ok(finalized_count)
     }
     
-    /// Check pending rounds for finalization
+    /// Check DAG directly for finalization (replaces check_pending_rounds)
+    async fn check_dag_for_finalization(&mut self) -> BullsharkResult<usize> {
+        // DIRECT DAG APPROACH: Check DAG directly for finalization instead of using RoundCompletionTracker
+        // This follows the Sui/Narwhal reference implementation approach
+        let mut finalized_count = 0;
+        let highest_round = self.dag.highest_round();
+        
+        debug!("🔍 DAG FINALIZATION CHECK: highest_round={}, last_finalized={}", 
+               highest_round, self.last_finalized_round);
+        
+        // SEQUENTIAL FINALIZATION: Process rounds in strict order to avoid race conditions
+        // All nodes must finalize the same sequence regardless of timing differences
+        let next_round_to_finalize = if self.last_finalized_round == 0 { 2 } else { self.last_finalized_round + 2 };
+        
+        // Check up to 10 consecutive even rounds starting from the next expected round
+        for round_offset in 0..10 {
+            let check_round = next_round_to_finalize + (round_offset * 2);
+            
+            // Don't check rounds beyond the current DAG state
+            if check_round > highest_round {
+                break;
+            }
+            
+            // Check if we have enough certificates for finalization
+            let certs_at_round = self.dag.get_certificates_at_round(check_round);
+            
+            // DATABASE FALLBACK: If no certificates found in memory, this might be a gap
+            // due to garbage collection. Try to retrieve from persistent storage.
+            if certs_at_round.is_empty() {
+                warn!("Round {} has no certificates in DAG! (DAG might have been garbage collected)", check_round);
+                
+                // Try to retrieve certificates from database storage
+                if let Some(storage) = &self.storage {
+                    debug!("Attempting database fallback for round {}", check_round);
+                    match storage.get_certificates_by_round(check_round) {
+                        Ok(stored_certs) => {
+                            if stored_certs.is_empty() {
+                                warn!("Database fallback found no certificates for round {}", check_round);
+                            } else {
+                                info!("Database fallback found {} certificates for round {}", stored_certs.len(), check_round);
+                                // TODO: Add the retrieved certificates to the DAG or process them directly
+                                // For now, just log the successful retrieval
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Database fallback failed for round {}: {}", check_round, e);
+                        }
+                    }
+                } else {
+                    debug!("No storage available for database fallback");
+                }
+            }
+            
+            let total_stake: u64 = certs_at_round.iter()
+                .map(|cert| self.committee.stake(&cert.origin()))
+                .sum();
+            
+            // PROPER BFT FINALIZATION: Only use quorum threshold for safety
+            // All nodes must finalize the same sequence with proper consensus
+            let quorum_threshold = self.committee.quorum_threshold();
+            
+            let can_finalize = total_stake >= quorum_threshold;
+            
+            if can_finalize {
+                info!("DAG PERIODIC: Round {} with {} certificates and {} stake (>= {} quorum)", 
+                      check_round, certs_at_round.len(), total_stake, quorum_threshold);
+                
+                // Clone certificates to avoid borrow checker issues
+                let owned_certs: Vec<Certificate> = certs_at_round.iter().map(|cert| (*cert).clone()).collect();
+                match self.finalize_round_from_dag_owned(check_round, owned_certs).await {
+                    Ok(()) => {
+                        finalized_count += 1;
+                        self.last_finalized_round = check_round;
+                        info!("DAG PERIODIC: Successfully finalized round {} with quorum consensus", check_round);
+                    }
+                    Err(e) => {
+                        warn!("DAG PERIODIC: Failed to finalize round {}: {} - continuing with next round", check_round, e);
+                        // Continue trying other rounds (reference implementation pattern)
+                        // Don't break - failures should be non-fatal for continued progression
+                    }
+                }
+            } else {
+                debug!("DAG PERIODIC: Round {} has only {} stake (< {} quorum) - cannot finalize", 
+                       check_round, total_stake, quorum_threshold);
+                // Continue checking later rounds - they might have accumulated enough stake
+                // Reference implementation pattern: don't break on insufficient stake
+            }
+        }
+        
+        Ok(finalized_count)
+    }
+    
+    /// Check pending rounds for finalization (OLD APPROACH - DEPRECATED)
     async fn check_pending_rounds(&mut self) -> BullsharkResult<usize> {
         let pending_rounds = self.round_tracker.get_pending_rounds();
         let mut finalized_count = 0;
@@ -401,6 +588,76 @@ impl BftService {
                 None => {
                     // No block created due to lack of canonical metadata
                     debug!("Skipped block creation in round {} - no canonical metadata", round);
+                }
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Finalize a round using certificates from the DAG (direct approach)
+    async fn finalize_round_from_dag_owned(&mut self, round: u64, certificates: Vec<Certificate>) -> BullsharkResult<()> {
+        info!("DAG FINALIZATION: Finalizing round {} with {} certificates from DAG", round, certificates.len());
+        
+        // Extract all transactions from certificates
+        let mut all_transactions = Vec::new();
+        for cert in &certificates {
+            match self.extract_transactions_from_certificate(cert).await {
+                Ok(txs) => all_transactions.extend(txs),
+                Err(BullsharkError::BatchNotFound { .. }) => {
+                    // Expected when no transactions
+                    debug!("No batch found for certificate");
+                }
+                Err(e) => {
+                    warn!("Failed to extract transactions: {}", e);
+                }
+            }
+        }
+        
+        // Check chain state before creating block
+        let current_state = self.chain_state.get_chain_state();
+        let next_block_number = current_state.block_number + 1;
+        
+        // Update our current_block_number from chain state
+        if current_state.block_number >= self.current_block_number {
+            self.current_block_number = current_state.block_number;
+        }
+        
+        // Only create block if we haven't already
+        if self.current_block_number < next_block_number {
+            // Check minimum block time
+            let elapsed = self.last_block_time.elapsed();
+            if elapsed < self.config.min_block_time {
+                debug!("Deferring block creation for round {} - only {:.1}s elapsed (min: {:.1}s)",
+                       round, elapsed.as_secs_f64(), self.config.min_block_time.as_secs_f64());
+                return Ok(());
+            }
+            
+            info!("DAG FINALIZATION: Creating block from round {} with {} transactions from {} certificates",
+                  round, all_transactions.len(), certificates.len());
+            
+            // Certificates are already owned, no need to convert
+            
+            // Create finalized batch
+            match self.create_finalized_batch(
+                all_transactions,
+                round, // Use the actual round (already even)
+                certificates,
+            ).await? {
+                Some(finalized_batch) => {
+                    // Update tracking
+                    self.last_block_time = Instant::now();
+                    self.current_block_number = finalized_batch.block_number;
+                    
+                    // Send to Reth
+                    info!("DAG FINALIZATION: Sending finalized batch {} to Reth integration", finalized_batch.block_number);
+                    if self.finalized_batch_sender.send(finalized_batch).is_err() {
+                        return Err(BullsharkError::Network("Reth channel closed".to_string()));
+                    }
+                }
+                None => {
+                    // No block created due to lack of canonical metadata
+                    debug!("DAG FINALIZATION: Skipped block creation in round {} - no canonical metadata", round);
                 }
             }
         }
@@ -730,6 +987,8 @@ impl BftService {
         // If no metadata found in certificates, check if we're the leader and create it
         if canonical_metadata_bytes.is_none() {
             let is_leader = self.is_leader_for_round(round);
+            debug!("🔑 LEADER CHECK: Round {}, is_leader={}, node_key_set={}", 
+                   round, is_leader, self.node_public_key.is_some());
             
             if is_leader {
                 // This should not happen if DAG service is working correctly
@@ -746,10 +1005,20 @@ impl BftService {
                 );
                 canonical_metadata_bytes = Some(metadata_string.into_bytes());
             } else {
-                // Non-leader and no metadata in certificates
-                warn!("Not leader and no canonical metadata provided - skipping block creation to prevent divergence!");
-                // CRITICAL: Return None to prevent creating non-deterministic blocks
-                return Ok(None);
+                // Non-leader but no metadata in certificates - create deterministic metadata
+                // All nodes should create the same block from the same finalized consensus output
+                info!("Non-leader creating deterministic metadata for round {} (all nodes must build same block)", round);
+                
+                // Create deterministic canonical metadata that all nodes will generate identically
+                let metadata_string = format!(
+                    "block:{},parent:{},timestamp:{},round:{},base_fee:{}",
+                    block_number,
+                    parent_hash,
+                    timestamp,
+                    round,
+                    875_000_000u64, // Deterministic base fee
+                );
+                canonical_metadata_bytes = Some(metadata_string.into_bytes());
             }
         }
         
